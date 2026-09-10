@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import NeedForm from '../components/NeedForm';
 import NeedItem from '../components/NeedItem';
 import { colors } from '../theme/colors';
@@ -12,6 +13,15 @@ export default function DonationsScreen() {
 
   function addNeed(title) {
     const cleanTitle = title.trim();
+
+    if (!cleanTitle) {
+      Alert.alert(
+        'Atenção',
+        'Digite o nome da necessidade.'
+      );
+
+      return;
+    }
 
     const newNeed = {
       id: Date.now().toString(),
@@ -37,6 +47,24 @@ export default function DonationsScreen() {
     setNeeds(newList);
   }
 
+  function confirmDelete(id) {
+    Alert.alert(
+      'Excluir necessidade',
+      'Deseja realmente excluir esta necessidade da lista?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => deleteNeed(id),
+        },
+      ]
+    );
+  }
+
   function deleteNeed(id) {
     const newList = needs.filter((need) => need.id !== id);
 
@@ -48,7 +76,7 @@ export default function DonationsScreen() {
       <NeedItem
         need={item}
         onToggle={toggleNeed}
-        onDelete={deleteNeed}
+        onDelete={confirmDelete}
       />
     );
   }
@@ -72,7 +100,27 @@ export default function DonationsScreen() {
           renderItem={renderNeed}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            needs.length === 0 && styles.emptyList,
+          ]}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons
+                name="gift-outline"
+                size={48}
+                color={colors.primary}
+              />
+
+              <Text style={styles.emptyTitle}>
+                Nenhuma necessidade
+              </Text>
+
+              <Text style={styles.emptyText}>
+                Cadastre acima o que o abrigo está precisando.
+              </Text>
+            </View>
+          }
         />
 
       </View>
@@ -102,5 +150,28 @@ const styles = StyleSheet.create({
 
   list: {
     paddingBottom: 12,
+  },
+
+  emptyList: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+
+  empty: {
+    alignItems: 'center',
+    paddingBottom: 60,
+  },
+
+  emptyTitle: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginTop: 10,
+  },
+
+  emptyText: {
+    fontSize: 14,
+    color: '#9A8F7E',
+    marginTop: 5,
   },
 });
