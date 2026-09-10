@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# documentacao do trabalho: fica so na maquina de cada um por enquanto.
+# o repositorio guarda apenas o codigo do aplicativo.
+*.docx
+scripts/
+docs/
