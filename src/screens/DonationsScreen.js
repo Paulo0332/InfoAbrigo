@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,10 +6,25 @@ import NeedForm from '../components/NeedForm';
 import NeedItem from '../components/NeedItem';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
+import { loadNeeds } from '../services/storage';
 
 export default function DonationsScreen() {
 
   const [needs, setNeeds] = useState([]);
+
+  useEffect(() => {
+    async function fetchNeeds() {
+      try {
+        const storedNeeds = await loadNeeds();
+        if (storedNeeds) {
+          setNeeds(storedNeeds);
+        }
+      } catch (error) {
+        Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
+      }
+    }
+    fetchNeeds();
+  }, []);
 
   function addNeed(title) {
     const cleanTitle = title.trim();
