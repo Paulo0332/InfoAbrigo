@@ -6,7 +6,7 @@ import NeedForm from '../components/NeedForm';
 import NeedItem from '../components/NeedItem';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
-import { loadNeeds } from '../services/storage';
+import { loadNeeds, saveNeeds } from '../services/storage';
 
 export default function DonationsScreen() {
 
@@ -26,7 +26,7 @@ export default function DonationsScreen() {
     fetchNeeds();
   }, []);
 
-  function addNeed(title) {
+  async function addNeed(title) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle) {
@@ -44,10 +44,17 @@ export default function DonationsScreen() {
       done: false,
     };
 
-    setNeeds([newNeed, ...needs]);
+    const newList = [newNeed, ...needs];
+    setNeeds(newList);
+
+    try {
+      await saveNeeds(newList);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao salvar a necessidade.');
+    }
   }
 
-  function toggleNeed(id) {
+  async function toggleNeed(id) {
     const newList = needs.map((need) => {
       if (need.id === id) {
         return {
@@ -60,6 +67,12 @@ export default function DonationsScreen() {
     });
 
     setNeeds(newList);
+
+    try {
+      await saveNeeds(newList);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao atualizar a necessidade.');
+    }
   }
 
   function confirmDelete(id) {
@@ -80,10 +93,16 @@ export default function DonationsScreen() {
     );
   }
 
-  function deleteNeed(id) {
+  async function deleteNeed(id) {
     const newList = needs.filter((need) => need.id !== id);
 
     setNeeds(newList);
+
+    try {
+      await saveNeeds(newList);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao excluir a necessidade.');
+    }
   }
 
   function renderNeed({ item }) {
