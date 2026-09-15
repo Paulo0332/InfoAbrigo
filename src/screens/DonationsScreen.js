@@ -11,6 +11,7 @@ import { loadNeeds, saveNeeds } from '../services/storage';
 export default function DonationsScreen() {
 
   const [needs, setNeeds] = useState([]);
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
     async function fetchNeeds() {
@@ -21,6 +22,8 @@ export default function DonationsScreen() {
         }
       } catch (error) {
         Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
+      } finally {
+        setCarregando(false);
       }
     }
     fetchNeeds();
@@ -117,6 +120,14 @@ export default function DonationsScreen() {
 
   const doneCount = needs.filter((need) => need.done).length;
 
+  if (carregando) {
+    return (
+      <SafeAreaView style={[globalStyles.container, styles.loadingContainer]} edges={['top']}>
+        <Text style={styles.loadingText}>Carregando necessidades...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={globalStyles.container} edges={['top']}>
       <View style={styles.content}>
@@ -167,6 +178,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  loadingText: {
+    fontSize: 16,
+    color: colors.textMain,
   },
 
   title: {
