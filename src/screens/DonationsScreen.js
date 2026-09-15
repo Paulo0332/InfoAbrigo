@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,12 +6,30 @@ import NeedForm from '../components/NeedForm';
 import NeedItem from '../components/NeedItem';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
+import { loadNeeds, saveNeeds } from '../services/storage';
 
 export default function DonationsScreen() {
 
   const [needs, setNeeds] = useState([]);
+  const [carregando, setCarregando] = useState(true);
 
-  function addNeed(title) {
+  useEffect(() => {
+    async function fetchNeeds() {
+      try {
+        const storedNeeds = await loadNeeds();
+        if (storedNeeds) {
+          setNeeds(storedNeeds);
+        }
+      } catch (error) {
+        Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
+      } finally {
+        setCarregando(false);
+      }
+    }
+    fetchNeeds();
+  }, []);
+
+  async function addNeed(title) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle) {
@@ -29,10 +47,17 @@ export default function DonationsScreen() {
       done: false,
     };
 
-    setNeeds([newNeed, ...needs]);
+    const newList = [newNeed, ...needs];
+    setNeeds(newList);
+
+    try {
+      await saveNeeds(newList);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao salvar a necessidade.');
+    }
   }
 
-  function toggleNeed(id) {
+  async function toggleNeed(id) {
     const newList = needs.map((need) => {
       if (need.id === id) {
         return {
@@ -45,6 +70,12 @@ export default function DonationsScreen() {
     });
 
     setNeeds(newList);
+
+    try {
+      await saveNeeds(newList);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao atualizar a necessidade.');
+    }
   }
 
   function confirmDelete(id) {
@@ -65,10 +96,16 @@ export default function DonationsScreen() {
     );
   }
 
-  function deleteNeed(id) {
+  async function deleteNeed(id) {
     const newList = needs.filter((need) => need.id !== id);
 
     setNeeds(newList);
+
+    try {
+      await saveNeeds(newList);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao excluir a necessidade.');
+    }
   }
 
   function renderNeed({ item }) {
@@ -82,6 +119,14 @@ export default function DonationsScreen() {
   }
 
   const doneCount = needs.filter((need) => need.done).length;
+
+  if (carregando) {
+    return (
+      <SafeAreaView style={[globalStyles.container, styles.loadingContainer]} edges={['top']}>
+        <Text style={styles.loadingText}>Carregando necessidades...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={globalStyles.container} edges={['top']}>
@@ -133,6 +178,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  loadingText: {
+    fontSize: 16,
+    color: colors.textMain,
   },
 
   title: {
