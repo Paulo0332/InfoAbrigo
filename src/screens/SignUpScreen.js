@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { salvarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
@@ -58,6 +59,8 @@ export default function SignUpScreen(props) {
       nome: nomeLimpo,
       email: emailLimpo,
       senha: senha,
+      // Começa desligada: quem decide é a pessoa, no aviso logo abaixo.
+      biometriaAtiva: false,
     };
 
     try {
@@ -65,13 +68,74 @@ export default function SignUpScreen(props) {
 
       Keyboard.dismiss();
 
-      props.navigation.replace('Tabs');
+      pedirBiometria(conta);
     } catch (error) {
       Alert.alert(
         'Erro',
         'Não foi possível criar a conta.'
       );
     }
+  }
+
+  // As mesmas duas perguntas do BiometricButton: o aparelho tem sensor e
+  // tem digital cadastrada? Sem isso não faz sentido nem oferecer.
+  async function pedirBiometria(conta) {
+    try {
+      const temSensor = await LocalAuthentication.hasHardwareAsync();
+      const temCadastro = await LocalAuthentication.isEnrolledAsync();
+
+      if (!temSensor || !temCadastro) {
+        abrirApp();
+
+        return;
+      }
+    } catch (error) {
+      console.log('Erro ao verificar a biometria:', error);
+
+      abrirApp();
+
+      return;
+    }
+
+    Alert.alert(
+      'Usar a sua biometria?',
+      'Nas próximas vezes você entra com a digital, sem digitar a senha.',
+      [
+        {
+          text: 'Agora não',
+          style: 'cancel',
+          onPress: abrirApp,
+        },
+        {
+          text: 'Ativar',
+          onPress: () => ativarBiometria(conta),
+        },
+      ]
+    );
+  }
+
+  // A ativação só vale se a pessoa confirmar a digital na hora: é assim
+  // que sabemos que ela consegue mesmo entrar por ali depois.
+  async function ativarBiometria(conta) {
+    try {
+      const resultado = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Confirme a sua biometria para ativar',
+        cancelLabel: 'Cancelar',
+        disableDeviceFallback: false,
+      });
+
+      if (resultado.success) {
+        await salvarConta({ ...conta, biometriaAtiva: true });
+      }
+    } catch (error) {
+      console.log('Erro ao ativar a biometria:', error);
+    } finally {
+      abrirApp();
+    }
+  }
+
+  function abrirApp() {
+    props.navigation.replace('Tabs');
   }
 
   return (
