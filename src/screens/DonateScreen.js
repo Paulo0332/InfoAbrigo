@@ -1,9 +1,19 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
+import { carregarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
 const ABRIGO = 'Lar Esperança';
@@ -15,11 +25,65 @@ export default function DonateScreen(props) {
   const [valor, setValor] = useState(50);
   const [confirmada, setConfirmada] = useState(false);
   const [temBiometria, setTemBiometria] = useState(true);
+  const [conta, setConta] = useState(null);
+  const [senha, setSenha] = useState('');
+
+  useEffect(() => {
+    buscarConta();
+  }, []);
+
+  // A conta é lida aqui porque, em aparelho sem biometria, a confirmação
+  // é feita com a mesma senha que a pessoa cadastrou.
+  async function buscarConta() {
+    try {
+      const contaSalva = await carregarConta();
+
+      setConta(contaSalva);
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível ler a conta salva neste aparelho.'
+      );
+    }
+  }
 
   // O BiometricButton avisa por aqui que a identidade foi confirmada.
   // Só depois disso a doação é dada como registrada.
   function registrarDoacao() {
     setConfirmada(true);
+  }
+
+  function confirmarComSenha() {
+    if (!conta) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível ler a sua conta.'
+      );
+
+      return;
+    }
+
+    if (!senha) {
+      Alert.alert(
+        'Atenção',
+        'Digite a sua senha para confirmar.'
+      );
+
+      return;
+    }
+
+    if (senha !== conta.senha) {
+      Alert.alert(
+        'Não confirmado',
+        'Senha incorreta.'
+      );
+
+      return;
+    }
+
+    Keyboard.dismiss();
+
+    registrarDoacao();
   }
 
   function voltar() {
@@ -117,16 +181,34 @@ export default function DonateScreen(props) {
             onVerificado={setTemBiometria}
           />
 
-          {/* Este botão só aparece quando o aparelho não tem biometria.
-              Quem tem sensor confirma com o dedo; quem não tem, confirma
-              aqui. O abrigo não perde a doação por causa do celular. */}
+          {/* Só aparece em aparelho sem biometria. A confirmação continua
+              existindo, feita com a senha da conta: quem não tem sensor
+              não fica sem doar, e a doação não é confirmada sozinha. */}
           {!temBiometria && (
-            <Pressable
-              style={({ pressed }) => [styles.botaoSimples, pressed && styles.pressionado]}
-              onPress={registrarDoacao}
-            >
-              <Text style={styles.textoBotaoSimples}>Confirmar doação</Text>
-            </Pressable>
+            <View>
+              <Text style={styles.rotuloSenha}>
+                Confirme com a senha da sua conta
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Sua senha"
+                placeholderTextColor="#9A8F7E"
+                value={senha}
+                onChangeText={setSenha}
+                onSubmitEditing={confirmarComSenha}
+                returnKeyType="done"
+                secureTextEntry
+                maxLength={40}
+              />
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoSimples, pressed && styles.pressionado]}
+                onPress={confirmarComSenha}
+              >
+                <Text style={styles.textoBotaoSimples}>Confirmar com a senha</Text>
+              </Pressable>
+            </View>
           )}
 
           <Text style={styles.aviso}>
@@ -254,6 +336,25 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.textMain,
     marginTop: 4,
+  },
+
+  rotuloSenha: {
+    fontSize: 13,
+    color: colors.textMain,
+    fontWeight: 'bold',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+
+  input: {
+    height: 52,
+    color: colors.textMain,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 16,
+    fontSize: 16,
   },
 
   botaoSimples: {
