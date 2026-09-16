@@ -21,13 +21,23 @@ export default function BiometricButton(props) {
       const temSensor = await LocalAuthentication.hasHardwareAsync();
       const temCadastro = await LocalAuthentication.isEnrolledAsync();
 
-      setTemBiometria(temSensor && temCadastro);
+      avisarResultado(temSensor && temCadastro);
     } catch (error) {
       console.log('Erro ao verificar a biometria:', error);
 
-      setTemBiometria(false);
+      avisarResultado(false);
     } finally {
       setVerificando(false);
+    }
+  }
+
+  // Guarda a resposta e, se a tela quiser saber, avisa ela também. É
+  // assim que a doação descobre que precisa oferecer outro caminho.
+  function avisarResultado(disponivel) {
+    setTemBiometria(disponivel);
+
+    if (props.onVerificado) {
+      props.onVerificado(disponivel);
     }
   }
 
