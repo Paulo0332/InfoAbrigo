@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import NeedForm from '../components/NeedForm';
@@ -8,7 +8,7 @@ import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
-export default function DonationsScreen() {
+export default function DonationsScreen(props) {
 
   const [needs, setNeeds] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -139,6 +139,24 @@ export default function DonationsScreen() {
 
         <NeedForm onAdd={addNeed} />
 
+        {/* Porta de entrada da doação em dinheiro (Módulo 3). A lista
+            acima é o que o abrigo precisa; aqui a pessoa contribui. */}
+        <Pressable
+          style={({ pressed }) => [styles.doar, pressed && styles.doarPressionado]}
+          onPress={() => props.navigation.navigate('Donate')}
+        >
+          <View style={styles.doarIcone}>
+            <Ionicons name="heart" size={20} color={colors.primary} />
+          </View>
+
+          <View style={styles.doarConteudo}>
+            <Text style={styles.doarTitulo}>Fazer uma doação em dinheiro</Text>
+            <Text style={styles.doarTexto}>Confirmação por biometria</Text>
+          </View>
+
+          <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+        </Pressable>
+
         <FlatList
           data={needs}
           keyExtractor={(item) => item.id}
@@ -201,6 +219,50 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     marginTop: 4,
     marginBottom: 16,
+  },
+
+  doar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  doarIcone: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.backgroundLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  doarConteudo: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  doarTitulo: {
+    fontSize: 15,
+    color: colors.textMain,
+  },
+
+  doarTexto: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 2,
+  },
+
+  doarPressionado: {
+    opacity: 0.6,
   },
 
   list: {
