@@ -27,7 +27,13 @@
     },
     "plugins": [
       "expo-status-bar",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Permitir que o $(PRODUCT_NAME) use o Face ID para liberar a ficha da criança."
+        }
+      ]
     ]
   }
 }
