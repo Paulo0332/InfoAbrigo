@@ -31,7 +31,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Permitir que o $(PRODUCT_NAME) use o Face ID para liberar a ficha da criança."
+          "faceIDPermission": "Permitir que o $(PRODUCT_NAME) use o Face ID para entrar no aplicativo."
         }
       ]
     ]

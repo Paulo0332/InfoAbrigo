@@ -104,7 +104,7 @@ export default function BiometricButton(props) {
     >
       <Ionicons name="finger-print" size={22} color="#FFFFFF" />
 
-      <Text style={styles.textoBotao}>Entrar com biometria</Text>
+      <Text style={styles.textoBotao}>{props.rotulo}</Text>
     </Pressable>
   );
 }
