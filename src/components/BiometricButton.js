@@ -17,17 +17,24 @@ export default function BiometricButton(props) {
   // E existe digital ou rosto JÁ CADASTRADO nele? Só com as duas
   // respostas positivas adianta oferecer a entrada pela digital.
   async function verificarHardware() {
+    let disponivel = false;
+
     try {
       const temSensor = await LocalAuthentication.hasHardwareAsync();
       const temCadastro = await LocalAuthentication.isEnrolledAsync();
 
-      avisarResultado(temSensor && temCadastro);
+      disponivel = temSensor && temCadastro;
     } catch (error) {
       console.log('Erro ao verificar a biometria:', error);
-
-      avisarResultado(false);
     } finally {
+      avisarResultado(disponivel);
       setVerificando(false);
+    }
+
+    // Quando a tela pede, já abre a janela da digital sem esperar o toque.
+    // É o que a tela de login faz para quem ativou a biometria.
+    if (disponivel && props.automatico) {
+      autenticar();
     }
   }
 

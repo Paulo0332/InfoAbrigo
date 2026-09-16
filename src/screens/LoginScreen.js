@@ -150,16 +150,22 @@ export default function LoginScreen(props) {
               <Text style={styles.textoBotao}>Entrar</Text>
             </Pressable>
 
-            <Text style={styles.ou}>ou</Text>
+            {/* O botão só aparece para quem ativou a biometria no
+                cadastro. A prop automatico faz a janela da digital abrir
+                sozinha ao chegar na tela; quem cancelar continua com os
+                campos acima para digitar. */}
+            {conta.biometriaAtiva && (
+              <View>
+                <Text style={styles.ou}>ou</Text>
 
-            {/* A biometria aqui substitui a senha que a pessoa cadastrou:
-                quem tem sensor não precisa digitar; quem não tem, digita
-                nos campos acima. Ninguém fica sem caminho. */}
-            <BiometricButton
-              rotulo="Entrar com biometria"
-              mensagem="Entre no InfoAbrigo com a sua biometria"
-              onSuccess={abrirApp}
-            />
+                <BiometricButton
+                  rotulo="Entrar com biometria"
+                  mensagem="Entre no InfoAbrigo com a sua biometria"
+                  onSuccess={abrirApp}
+                  automatico
+                />
+              </View>
+            )}
           </View>
         ) : (
           <View>
