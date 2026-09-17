@@ -29,6 +29,12 @@
       "expo-status-bar",
       "expo-font",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Permitir que o $(PRODUCT_NAME) use a sua localização para mostrar os abrigos mais próximos."
+        }
+      ],
+      [
         "expo-local-authentication",
         {
           "faceIDPermission": "Permitir que o $(PRODUCT_NAME) use o Face ID para entrar no aplicativo."
