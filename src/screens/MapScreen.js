@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { colors } from '../theme/colors';
+
+// Quanto do mapa cabe na tela. 0.03 grau é pouco mais de 3 km, o
+// suficiente para ver a vizinhança de quem abriu o aplicativo.
+const ZOOM = 0.03;
 
 export default function MapScreen() {
 
@@ -35,23 +40,47 @@ export default function MapScreen() {
     }
   }
 
+  if (erro) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.centralizado}>
+          <Text style={styles.erro}>{erro}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!localizacao) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.centralizado}>
+          <Text style={styles.texto}>Aguarde...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.centralizado}>
-
-        {erro && <Text style={styles.erro}>{erro}</Text>}
-
-        {!erro && !localizacao && (
-          <Text style={styles.texto}>Aguarde...</Text>
-        )}
-
-        {localizacao && (
-          <Text style={styles.texto}>
-            {localizacao.latitude.toFixed(5)}, {localizacao.longitude.toFixed(5)}
-          </Text>
-        )}
-
-      </View>
+      <MapView
+        style={styles.mapa}
+        loadingEnabled
+        region={{
+          latitude: localizacao.latitude,
+          longitude: localizacao.longitude,
+          latitudeDelta: ZOOM,
+          longitudeDelta: ZOOM,
+        }}
+      >
+        <Marker
+          coordinate={{
+            latitude: localizacao.latitude,
+            longitude: localizacao.longitude,
+          }}
+          title="Você está aqui"
+          pinColor={colors.supportPink}
+        />
+      </MapView>
     </SafeAreaView>
   );
 }
@@ -60,6 +89,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.backgroundLight,
+  },
+
+  mapa: {
+    flex: 1,
   },
 
   centralizado: {
