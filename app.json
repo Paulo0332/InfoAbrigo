@@ -39,6 +39,20 @@
         {
           "faceIDPermission": "Permitir que o $(PRODUCT_NAME) use o Face ID para entrar no aplicativo."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir que o $(PRODUCT_NAME) acesse sua câmera para registrar fotos das atividades."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Permitir que o $(PRODUCT_NAME) acesse e salve fotos das atividades na sua galeria.",
+          "savePhotosPermission": "Permitir que o $(PRODUCT_NAME) salve fotos das atividades na sua galeria.",
+          "isAccessMediaLocationEnabled": true
+        }
       ]
     ]
   }
