@@ -2,13 +2,17 @@ import { useState, useRef } from 'react';
 import { StyleSheet, Text, View, Pressable, Modal, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as Sharing from 'expo-sharing';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 
 export default function ScheduleScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({
+    writeOnly: true,
+    granularPermissions: ['photo']
+  });
   
   const [modalVisible, setModalVisible] = useState(false);
   const [photo, setPhoto] = useState(null);
@@ -38,22 +42,21 @@ export default function ScheduleScreen() {
   }
 
   async function savePhoto() {
-    // Usando expo-sharing pois o expo-media-library requer development build
-    // devido às restrições do Expo Go no Android 13+.
-    try {
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(photo, {
-          dialogTitle: 'Salvar foto da atividade',
-          mimeType: 'image/jpeg'
-        });
-        closeModal();
-      } else {
-        Alert.alert('Erro', 'O compartilhamento não está disponível no seu dispositivo.');
+    if (!mediaPermission?.granted) {
+      const { granted } = await requestMediaPermission();
+      if (!granted) {
+        Alert.alert('Aviso', 'Você precisa permitir o acesso à galeria para salvar a foto.');
+        return;
       }
+    }
+
+    try {
+      await MediaLibrary.saveToLibraryAsync(photo);
+      Alert.alert('Sucesso!', 'Atividade registrada e foto salva na galeria!');
+      closeModal();
     } catch (error) {
       console.log(error);
-      Alert.alert('Erro', 'Não foi possível compartilhar a foto.');
+      Alert.alert('Erro', 'Não foi possível salvar a foto na galeria.');
     }
   }
 
@@ -85,7 +88,6 @@ export default function ScheduleScreen() {
                 facing="back" 
                 ref={cameraRef}
               />
-              {/* Controles da câmera sobrepostos com position: 'absolute' */}
               <View style={styles.cameraOverlay}>
                 <View style={styles.cameraHeader}>
                   <Pressable onPress={closeModal} style={styles.iconButton}>
@@ -107,7 +109,7 @@ export default function ScheduleScreen() {
                   <Text style={styles.previewButtonText}>Descartar</Text>
                 </Pressable>
                 <Pressable onPress={savePhoto} style={styles.previewButtonSave}>
-                  <Text style={styles.previewButtonText}>Compartilhar/Salvar</Text>
+                  <Text style={styles.previewButtonText}>Salvar na Galeria</Text>
                 </Pressable>
               </View>
             </View>
