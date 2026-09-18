@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { StyleSheet, Text, View, Pressable, Modal, Image, Alert } from 'react-native';
+import { StyleSheet, Text, View, Pressable, Modal, Image, Alert, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library/legacy';
@@ -9,13 +9,14 @@ import { globalStyles } from '../theme/styles';
 
 export default function ScheduleScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({
-    writeOnly: true,
-    granularPermissions: ['photo']
-  });
   
   const [modalVisible, setModalVisible] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  
+  // Lista de atividades registradas
+  const [activities, setActivities] = useState([]);
+  
   const cameraRef = useRef(null);
 
   async function openCamera() {
@@ -27,56 +28,103 @@ export default function ScheduleScreen() {
       }
     }
     setModalVisible(true);
+    setIsCameraReady(false); // Reseta o estado ao abrir
   }
 
   async function takePicture() {
-    if (cameraRef.current) {
+    if (cameraRef.current && isCameraReady) {
       try {
         const data = await cameraRef.current.takePictureAsync();
         setPhoto(data.uri);
       } catch (error) {
-        console.log(error);
+        console.log('Error capturing photo:', error);
         Alert.alert('Erro', 'Não foi possível capturar a foto.');
       }
     }
   }
 
   async function savePhoto() {
-    if (!mediaPermission?.granted) {
-      const { granted } = await requestMediaPermission();
-      if (!granted) {
-        Alert.alert('Aviso', 'Você precisa permitir o acesso à galeria para salvar a foto.');
-        return;
+    let savedToGallery = false;
+
+    // Tenta salvar nativamente na galeria exigida pelo módulo
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync({ writeOnly: true, granularPermissions: ['photo'] });
+      if (status === 'granted') {
+        await MediaLibrary.saveToLibraryAsync(photo);
+        savedToGallery = true;
       }
+    } catch (error) {
+      // Falha capturada silenciosamente para contornar o bloqueio restrito do Expo Go (Android 13+)
+      console.log('Galeria nativa bloqueada ou inacessível no Expo Go:', error);
     }
 
-    try {
-      await MediaLibrary.saveToLibraryAsync(photo);
-      Alert.alert('Sucesso!', 'Atividade registrada e foto salva na galeria!');
-      closeModal();
-    } catch (error) {
-      console.log(error);
-      Alert.alert('Erro', 'Não foi possível salvar a foto na galeria.');
+    // Registra na lista de atividades do aplicativo (funcionalidade principal da tela)
+    const newActivity = {
+      id: Date.now().toString(),
+      uri: photo,
+      date: new Date().toLocaleString(),
+      saved: savedToGallery
+    };
+
+    setActivities([newActivity, ...activities]);
+
+    if (savedToGallery) {
+      Alert.alert('Sucesso!', 'Atividade registrada e foto salva na galeria do celular!');
+    } else {
+      Alert.alert('Atividade Registrada!', 'A foto foi registrada na lista abaixo. (Nota: O salvamento na galeria nativa foi bloqueado pelas permissões do seu dispositivo/Expo Go).');
     }
+
+    closeModal();
   }
 
   function closeModal() {
     setModalVisible(false);
     setPhoto(null);
+    setIsCameraReady(false);
+  }
+
+  function renderActivityItem({ item }) {
+    return (
+      <View style={styles.activityCard}>
+        <Image source={{ uri: item.uri }} style={styles.activityImage} />
+        <View style={styles.activityInfo}>
+          <Text style={styles.activityTitle}>Registro de Atividade</Text>
+          <Text style={styles.activityDate}>{item.date}</Text>
+          <View style={[styles.badge, item.saved ? styles.badgeSuccess : styles.badgeWarning]}>
+            <Text style={styles.badgeText}>
+              {item.saved ? 'Salva na Galeria' : 'Apenas no App'}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
   }
 
   return (
     <SafeAreaView style={[globalStyles.container, styles.container]} edges={['top']}>
       <View style={{ padding: 16, flex: 1 }}>
-        <Text style={globalStyles.title}>Agenda</Text>
-        <Text style={globalStyles.text}>Próximos eventos e atividades nos abrigos.</Text>
+        <Text style={globalStyles.title}>Agenda & Atividades</Text>
+        <Text style={globalStyles.text}>Registre eventos, visitas e ações no abrigo.</Text>
         
-        <View style={styles.content}>
+        <View style={styles.buttonContainer}>
           <Pressable style={styles.cameraButton} onPress={openCamera}>
-            <Ionicons name="camera" size={32} color={colors.white} />
-            <Text style={styles.cameraButtonText}>Registrar Atividade</Text>
+            <Ionicons name="camera" size={24} color={colors.white} />
+            <Text style={styles.cameraButtonText}>Registrar Nova Atividade</Text>
           </Pressable>
         </View>
+
+        <FlatList 
+          data={activities}
+          keyExtractor={(item) => item.id}
+          renderItem={renderActivityItem}
+          contentContainerStyle={styles.listContainer}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="images-outline" size={48} color={colors.textSecondary} />
+              <Text style={styles.emptyText}>Nenhuma atividade registrada ainda.</Text>
+            </View>
+          }
+        />
       </View>
 
       <Modal visible={modalVisible} animationType="slide" onRequestClose={closeModal}>
@@ -87,6 +135,7 @@ export default function ScheduleScreen() {
                 style={styles.camera} 
                 facing="back" 
                 ref={cameraRef}
+                onCameraReady={() => setIsCameraReady(true)}
               />
               <View style={styles.cameraOverlay}>
                 <View style={styles.cameraHeader}>
@@ -95,7 +144,11 @@ export default function ScheduleScreen() {
                   </Pressable>
                 </View>
                 <View style={styles.cameraFooter}>
-                  <Pressable onPress={takePicture} style={styles.captureButton}>
+                  <Pressable 
+                    onPress={takePicture} 
+                    style={[styles.captureButton, !isCameraReady && styles.captureButtonDisabled]}
+                    disabled={!isCameraReady}
+                  >
                     <View style={styles.captureButtonInner} />
                   </Pressable>
                 </View>
@@ -109,7 +162,7 @@ export default function ScheduleScreen() {
                   <Text style={styles.previewButtonText}>Descartar</Text>
                 </Pressable>
                 <Pressable onPress={savePhoto} style={styles.previewButtonSave}>
-                  <Text style={styles.previewButtonText}>Salvar na Galeria</Text>
+                  <Text style={styles.previewButtonText}>Registrar Atividade</Text>
                 </Pressable>
               </View>
             </View>
@@ -124,29 +177,96 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
+  buttonContainer: {
+    marginVertical: 20,
     alignItems: 'center',
   },
   cameraButton: {
     backgroundColor: colors.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
-    elevation: 4,
+    gap: 8,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
   },
   cameraButtonText: {
     color: colors.white,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
+  },
+  listContainer: {
+    paddingBottom: 20,
+    flexGrow: 1,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+    marginTop: 40,
+  },
+  emptyText: {
+    marginTop: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  activityCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    gap: 16,
+  },
+  activityImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: '#eee',
+  },
+  activityInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  activityTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text,
+  },
+  activityDate: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginVertical: 4,
+  },
+  badge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  badgeSuccess: {
+    backgroundColor: '#e6f4ea',
+  },
+  badgeWarning: {
+    backgroundColor: '#fef7e0',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.text,
   },
   modalContainer: {
     flex: 1,
@@ -184,6 +304,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  captureButtonDisabled: {
+    opacity: 0.5,
   },
   captureButtonInner: {
     width: 60,
