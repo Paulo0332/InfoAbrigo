@@ -2,14 +2,13 @@ import { useState, useRef } from 'react';
 import { StyleSheet, Text, View, Pressable, Modal, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 
 export default function ScheduleScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   
   const [modalVisible, setModalVisible] = useState(false);
   const [photo, setPhoto] = useState(null);
@@ -39,21 +38,22 @@ export default function ScheduleScreen() {
   }
 
   async function savePhoto() {
-    if (!mediaPermission?.granted) {
-      const { granted } = await requestMediaPermission();
-      if (!granted) {
-        Alert.alert('Aviso', 'Você precisa permitir o acesso à galeria para salvar a foto.');
-        return;
-      }
-    }
-
+    // Usando expo-sharing pois o expo-media-library requer development build
+    // devido às restrições do Expo Go no Android 13+.
     try {
-      await MediaLibrary.saveToLibraryAsync(photo);
-      Alert.alert('Sucesso!', 'Atividade registrada e foto salva na galeria!');
-      closeModal();
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(photo, {
+          dialogTitle: 'Salvar foto da atividade',
+          mimeType: 'image/jpeg'
+        });
+        closeModal();
+      } else {
+        Alert.alert('Erro', 'O compartilhamento não está disponível no seu dispositivo.');
+      }
     } catch (error) {
       console.log(error);
-      Alert.alert('Erro', 'Não foi possível salvar a foto.');
+      Alert.alert('Erro', 'Não foi possível compartilhar a foto.');
     }
   }
 
@@ -79,22 +79,26 @@ export default function ScheduleScreen() {
       <Modal visible={modalVisible} animationType="slide" onRequestClose={closeModal}>
         <View style={styles.modalContainer}>
           {!photo ? (
-            <CameraView 
-              style={styles.camera} 
-              facing="back" 
-              ref={cameraRef}
-            >
-              <View style={styles.cameraHeader}>
-                <Pressable onPress={closeModal} style={styles.iconButton}>
-                  <Ionicons name="close" size={32} color={colors.white} />
-                </Pressable>
+            <View style={styles.cameraContainer}>
+              <CameraView 
+                style={styles.camera} 
+                facing="back" 
+                ref={cameraRef}
+              />
+              {/* Controles da câmera sobrepostos com position: 'absolute' */}
+              <View style={styles.cameraOverlay}>
+                <View style={styles.cameraHeader}>
+                  <Pressable onPress={closeModal} style={styles.iconButton}>
+                    <Ionicons name="close" size={32} color={colors.white} />
+                  </Pressable>
+                </View>
+                <View style={styles.cameraFooter}>
+                  <Pressable onPress={takePicture} style={styles.captureButton}>
+                    <View style={styles.captureButtonInner} />
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.cameraFooter}>
-                <Pressable onPress={takePicture} style={styles.captureButton}>
-                  <View style={styles.captureButtonInner} />
-                </Pressable>
-              </View>
-            </CameraView>
+            </View>
           ) : (
             <View style={styles.previewContainer}>
               <Image source={{ uri: photo }} style={styles.previewImage} />
@@ -103,7 +107,7 @@ export default function ScheduleScreen() {
                   <Text style={styles.previewButtonText}>Descartar</Text>
                 </Pressable>
                 <Pressable onPress={savePhoto} style={styles.previewButtonSave}>
-                  <Text style={styles.previewButtonText}>Salvar na Galeria</Text>
+                  <Text style={styles.previewButtonText}>Compartilhar/Salvar</Text>
                 </Pressable>
               </View>
             </View>
@@ -146,8 +150,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  cameraContainer: {
+    flex: 1,
+  },
   camera: {
     flex: 1,
+  },
+  cameraOverlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
   },
   cameraHeader: {

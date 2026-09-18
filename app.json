@@ -53,7 +53,8 @@
           "savePhotosPermission": "Permitir que o $(PRODUCT_NAME) salve fotos das atividades na sua galeria.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }
