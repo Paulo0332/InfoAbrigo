@@ -61,7 +61,7 @@ export default function ScheduleScreen() {
 
     // Tenta salvar nativamente na galeria exigida pelo módulo
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync({ writeOnly: true, granularPermissions: ['photo'] });
+      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
       if (status === 'granted') {
         await MediaLibrary.saveToLibraryAsync(photo);
         savedToGallery = true;
