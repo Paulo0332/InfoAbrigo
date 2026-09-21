@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  Linking,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -22,10 +25,13 @@ const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
 
 // Monta a página do mapa que roda dentro do WebView.
 //
-// Os blocos vêm do CARTO Positron em vez do OpenStreetMap padrão: é um
-// mapa cinza-claro e minimalista, que não briga com a paleta do app. Os
-// pinos são HTML desenhado por nós (divIcon), e não os círculos padrão
-// do Leaflet, que pareciam tela de depuração.
+// Os blocos vêm do servidor do OpenStreetMap, que funciona sem chave e
+// sem checar domínio — o CARTO recusa requisição de HTML embutido, que
+// não tem origem válida, e devolve um bloco escrito "API KEY REQUIRED".
+//
+// O estilo padrão do OSM é pesado demais, então um filtro CSS dessatura
+// e clareia os blocos. O mapa fica discreto e a paleta do app volta a
+// ser a cor que chama atenção na tela.
 function montarHtml(localizacao, abrigos) {
   const marcadores = abrigos
     .map(
@@ -63,6 +69,12 @@ function montarHtml(localizacao, abrigos) {
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
       body { background: ${colors.backgroundLight}; }
+
+      /* Suaviza os blocos do OSM: menos cor, mais claro, menos contraste.
+         Os pinos ficam fora deste painel, então não são afetados. */
+      .leaflet-tile-pane {
+        filter: saturate(0.5) brightness(1.08) contrast(0.92);
+      }
 
       /* Pino em gota, na cor da paleta, com furo branco no meio. */
       .pino {
@@ -119,14 +131,10 @@ function montarHtml(localizacao, abrigos) {
       var mapa = L.map('mapa', { zoomControl: true, attributionControl: true })
         .setView([${localizacao.latitude}, ${localizacao.longitude}], ${ZOOM});
 
-      L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        {
-          maxZoom: 19,
-          subdomains: 'abcd',
-          attribution: '&copy; OpenStreetMap, &copy; CARTO'
-        }
-      ).addTo(mapa);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(mapa);
 
       L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
         icon: L.divIcon({
@@ -150,6 +158,10 @@ export default function MapScreen(props) {
   const [abrigos, setAbrigos] = useState([]);
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
   const [busca, setBusca] = useState('');
+
+  // A referência serve para mandar comandos para dentro da página, como
+  // recentralizar o mapa num abrigo.
+  const mapaRef = useRef(null);
 
   useEffect(() => {
     buscarLocalizacao();
@@ -211,8 +223,75 @@ export default function MapScreen(props) {
     const abrigo = filtrados().find((item) => item.id === id);
 
     if (abrigo) {
-      setAbrigoSelecionado(abrigo);
+      selecionar(abrigo);
     }
+  }
+
+  // Manda a página recentralizar e aproximar no abrigo escolhido. É o que
+  // qualquer app de mapa faz ao selecionar um ponto.
+  function centralizarEm(abrigo) {
+    const comando =
+      'mapa.setView([' + abrigo.latitude + ',' + abrigo.longitude + '], 17); true;';
+
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(comando);
+    }
+  }
+
+  // Abre o aplicativo de mapas do celular com a rota até o abrigo. Não
+  // precisa de chave: é um link que o sistema entrega a quem souber abrir.
+  async function tracarRota(abrigo) {
+    const url =
+      'https://www.google.com/maps/dir/?api=1&destination=' +
+      abrigo.latitude + ',' + abrigo.longitude;
+
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.log('Erro ao abrir a rota:', error);
+
+      Alert.alert('Erro', 'Não foi possível abrir o aplicativo de mapas.');
+    }
+  }
+
+  // Só oferecemos ligar quando o contato tem cara de telefone.
+  function telefoneDoContato(contato) {
+    const digitos = (contato || '').replace(/[^0-9]/g, '');
+
+    return digitos.length >= 8 ? digitos : null;
+  }
+
+  async function ligar(abrigo) {
+    const telefone = telefoneDoContato(abrigo.contato);
+
+    try {
+      await Linking.openURL('tel:' + telefone);
+    } catch (error) {
+      console.log('Erro ao ligar:', error);
+
+      Alert.alert('Erro', 'Não foi possível iniciar a chamada.');
+    }
+  }
+
+  async function compartilhar(abrigo) {
+    const link =
+      'https://www.google.com/maps/search/?api=1&query=' +
+      abrigo.latitude + ',' + abrigo.longitude;
+
+    try {
+      await Share.share({
+        message:
+          abrigo.nome + ' acolhe ' + abrigo.criancas +
+          ' crianças e está aceitando doações.\n' + link,
+      });
+    } catch (error) {
+      console.log('Erro ao compartilhar:', error);
+    }
+  }
+
+  function selecionar(abrigo) {
+    setAbrigoSelecionado(abrigo);
+    centralizarEm(abrigo);
   }
 
   function distanciaAte(abrigo) {
@@ -300,6 +379,7 @@ export default function MapScreen(props) {
 
         {!erro && localizacao && (
           <WebView
+            ref={mapaRef}
             style={styles.mapa}
             originWhitelist={['*']}
             source={{ html: montarHtml(localizacao, lista) }}
@@ -359,6 +439,42 @@ export default function MapScreen(props) {
                   <Text style={styles.textoDado}>{abrigoSelecionado.contato}</Text>
                 </View>
               ) : null}
+            </View>
+
+            <View style={styles.acoes}>
+              <Pressable
+                style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                onPress={() => tracarRota(abrigoSelecionado)}
+              >
+                <Ionicons name="navigate" size={20} color={colors.primary} />
+                <Text style={styles.textoAcao}>Rota</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                onPress={() => centralizarEm(abrigoSelecionado)}
+              >
+                <Ionicons name="locate" size={20} color={colors.primary} />
+                <Text style={styles.textoAcao}>Centralizar</Text>
+              </Pressable>
+
+              {telefoneDoContato(abrigoSelecionado.contato) ? (
+                <Pressable
+                  style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                  onPress={() => ligar(abrigoSelecionado)}
+                >
+                  <Ionicons name="call" size={20} color={colors.primary} />
+                  <Text style={styles.textoAcao}>Ligar</Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                onPress={() => compartilhar(abrigoSelecionado)}
+              >
+                <Ionicons name="share-social" size={20} color={colors.primary} />
+                <Text style={styles.textoAcao}>Enviar</Text>
+              </Pressable>
             </View>
 
             <Pressable
@@ -564,6 +680,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9A8F7E',
     marginLeft: 5,
+  },
+
+  acoes: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    borderTopWidth: 1,
+    borderTopColor: '#F0E9DC',
+    marginTop: 12,
+    paddingTop: 10,
+  },
+
+  acao: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
+  textoAcao: {
+    fontSize: 11,
+    color: colors.textMain,
+    marginTop: 3,
   },
 
   botaoDoar: {
