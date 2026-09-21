@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  FlatList,
   Linking,
   Pressable,
   Share,
@@ -197,6 +199,8 @@ export default function MapScreen(props) {
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
   const [busca, setBusca] = useState('');
   const [conta, setConta] = useState(null);
+  const [modoLista, setModoLista] = useState(false);
+  const [carregandoMapa, setCarregandoMapa] = useState(true);
 
   // A referência serve para mandar comandos para dentro da página, como
   // recentralizar o mapa num abrigo.
@@ -354,6 +358,77 @@ export default function MapScreen(props) {
     }
   }
 
+  // A lista mostra do mais perto para o mais longe, que é a ordem útil
+  // para quem quer doar: o abrigo do lado vem primeiro.
+  function ordenadosPorDistancia() {
+    const lista = filtrados().slice();
+
+    if (!localizacao) {
+      return lista;
+    }
+
+    return lista.sort((a, b) => distanciaEmKm(a) - distanciaEmKm(b));
+  }
+
+  function distanciaEmKm(abrigo) {
+    return calcularDistancia(
+      localizacao.latitude,
+      localizacao.longitude,
+      abrigo.latitude,
+      abrigo.longitude
+    );
+  }
+
+  // Quem negou a permissão sem querer ficava sem a aba para sempre. Estas
+  // duas saídas resolvem: tentar de novo, ou abrir as configurações do
+  // aparelho, onde a decisão pode ser mudada.
+  function tentarNovamente() {
+    setErro(null);
+    buscarLocalizacao();
+  }
+
+  async function abrirConfiguracoes() {
+    try {
+      await Linking.openSettings();
+    } catch (error) {
+      console.log('Erro ao abrir as configurações:', error);
+    }
+  }
+
+  function escolherDaLista(abrigo) {
+    setModoLista(false);
+    selecionar(abrigo);
+  }
+
+  function renderizarDaLista({ item }) {
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.itemLista, pressed && styles.pressionado]}
+        onPress={() => escolherDaLista(item)}
+      >
+        <View style={styles.itemIcone}>
+          <Ionicons name="business" size={18} color={colors.primary} />
+        </View>
+
+        <View style={styles.itemTexto}>
+          <Text style={styles.itemNome}>{item.nome}</Text>
+
+          {item.endereco ? (
+            <Text style={styles.itemEndereco} numberOfLines={1}>
+              {item.endereco}
+            </Text>
+          ) : null}
+
+          <Text style={styles.itemDados}>
+            {distanciaAte(item)} • {item.criancas} crianças
+          </Text>
+        </View>
+
+        <Ionicons name="chevron-forward" size={18} color="#9A8F7E" />
+      </Pressable>
+    );
+  }
+
   function distanciaAte(abrigo) {
     const km = calcularDistancia(
       localizacao.latitude,
@@ -393,14 +468,33 @@ export default function MapScreen(props) {
             </Text>
           </View>
 
-          {ehGestor(conta) && (
-            <Pressable
-              style={({ pressed }) => [styles.botaoMais, pressed && styles.pressionado]}
-              onPress={() => props.navigation.navigate('RegisterShelter')}
-            >
-              <Ionicons name="add" size={26} color={colors.primary} />
-            </Pressable>
-          )}
+          <View style={styles.acoesTopo}>
+            {abrigos.length > 0 && (
+              <Pressable
+                style={({ pressed }) => [styles.botaoTopo, pressed && styles.pressionado]}
+                onPress={() => setModoLista(!modoLista)}
+              >
+                <Ionicons
+                  name={modoLista ? 'map' : 'list'}
+                  size={22}
+                  color={colors.primary}
+                />
+              </Pressable>
+            )}
+
+            {ehGestor(conta) && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.botaoTopo,
+                  styles.botaoTopoEspaco,
+                  pressed && styles.pressionado,
+                ]}
+                onPress={() => props.navigation.navigate('RegisterShelter')}
+              >
+                <Ionicons name="add" size={26} color={colors.primary} />
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {abrigos.length > 0 && (
@@ -429,7 +523,30 @@ export default function MapScreen(props) {
         {erro && (
           <View style={styles.centralizado}>
             <Ionicons name="location-outline" size={44} color={colors.supportPink} />
+
             <Text style={styles.erro}>{erro}</Text>
+
+            <Text style={styles.erroAjuda}>
+              O mapa precisa saber onde você está para mostrar os abrigos por
+              perto e calcular a distância.
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.botaoErro, pressed && styles.pressionado]}
+              onPress={tentarNovamente}
+            >
+              <Ionicons name="refresh" size={18} color="#FFFFFF" />
+              <Text style={styles.textoBotaoErro}>Tentar de novo</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.linkErro, pressed && styles.pressionado]}
+              onPress={abrirConfiguracoes}
+            >
+              <Text style={styles.textoLinkErro}>
+                Abrir as configurações do aparelho
+              </Text>
+            </Pressable>
           </View>
         )}
 
@@ -439,13 +556,43 @@ export default function MapScreen(props) {
           </View>
         )}
 
-        {!erro && localizacao && (
-          <WebView
-            ref={mapaRef}
+        {!erro && localizacao && !modoLista && (
+          <View style={styles.mapa}>
+            <WebView
+              ref={mapaRef}
+              style={styles.mapa}
+              originWhitelist={['*']}
+              source={{ html: montarHtml(localizacao, lista) }}
+              onMessage={aoTocarNoMapa}
+              onLoadEnd={() => setCarregandoMapa(false)}
+            />
+
+            {carregandoMapa && (
+              <View style={styles.carregandoMapa}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.textoCarregando}>Desenhando o mapa...</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {!erro && localizacao && modoLista && (
+          <FlatList
             style={styles.mapa}
-            originWhitelist={['*']}
-            source={{ html: montarHtml(localizacao, lista) }}
-            onMessage={aoTocarNoMapa}
+            data={ordenadosPorDistancia()}
+            keyExtractor={(item) => item.id}
+            renderItem={renderizarDaLista}
+            contentContainerStyle={styles.lista}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.centralizado}>
+                <Text style={styles.texto}>
+                  {busca
+                    ? 'Nenhum abrigo com esse nome.'
+                    : 'Nenhum abrigo cadastrado ainda.'}
+                </Text>
+              </View>
+            }
           />
         )}
 
@@ -470,7 +617,7 @@ export default function MapScreen(props) {
           </View>
         )}
 
-        {!erro && localizacao && (
+        {!erro && localizacao && !modoLista && (
           <Pressable
             style={({ pressed }) => [
               styles.botaoMim,
@@ -630,13 +777,126 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  botaoMais: {
+  acoesTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  botaoTopo: {
     width: 44,
     height: 44,
     borderRadius: 22,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  botaoTopoEspaco: {
+    marginLeft: 8,
+  },
+
+  carregandoMapa: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.backgroundLight,
+  },
+
+  textoCarregando: {
+    fontSize: 14,
+    color: '#9A8F7E',
+    marginTop: 10,
+  },
+
+  lista: {
+    padding: 16,
+  },
+
+  itemLista: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  itemIcone: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.backgroundLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  itemTexto: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  itemNome: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  itemEndereco: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 2,
+  },
+
+  itemDados: {
+    fontSize: 12,
+    color: colors.primary,
+    marginTop: 3,
+  },
+
+  erroAjuda: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 8,
+  },
+
+  botaoErro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    paddingHorizontal: 22,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 20,
+  },
+
+  textoBotaoErro: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  linkErro: {
+    paddingVertical: 14,
+  },
+
+  textoLinkErro: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary,
   },
 
   busca: {
