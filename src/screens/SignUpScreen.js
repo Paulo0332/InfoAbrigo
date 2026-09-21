@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { PERFIS } from '../data/perfis';
 import { salvarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
@@ -21,6 +22,7 @@ export default function SignUpScreen(props) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [perfil, setPerfil] = useState(PERFIS[2].id);
 
   // Mesma validação do adicionarTarefa() do exemplo do professor: limpa
   // os espaços das pontas e, se sobrar vazio, avisa e interrompe.
@@ -59,6 +61,7 @@ export default function SignUpScreen(props) {
       nome: nomeLimpo,
       email: emailLimpo,
       senha: senha,
+      perfil: perfil,
       // Começa desligada: quem decide é a pessoa, no aviso logo abaixo.
       biometriaAtiva: false,
     };
@@ -201,6 +204,35 @@ export default function SignUpScreen(props) {
           maxLength={40}
         />
 
+        <Text style={styles.rotulo}>Como você vai usar o aplicativo</Text>
+
+        {PERFIS.map((opcao) => (
+          <Pressable
+            key={opcao.id}
+            style={({ pressed }) => [
+              styles.perfil,
+              perfil === opcao.id && styles.perfilEscolhido,
+              pressed && styles.pressionado,
+            ]}
+            onPress={() => setPerfil(opcao.id)}
+          >
+            <View style={[styles.perfilIcone, { backgroundColor: opcao.cor }]}>
+              <Ionicons name={opcao.icone} size={18} color="#FFFFFF" />
+            </View>
+
+            <View style={styles.perfilTexto}>
+              <Text style={styles.perfilNome}>{opcao.nome}</Text>
+              <Text style={styles.perfilDescricao}>{opcao.descricao}</Text>
+            </View>
+
+            <Ionicons
+              name={perfil === opcao.id ? 'radio-button-on' : 'radio-button-off'}
+              size={20}
+              color={perfil === opcao.id ? colors.primary : '#C9BFB1'}
+            />
+          </Pressable>
+        ))}
+
         <Pressable
           style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
           onPress={criarConta}
@@ -278,6 +310,47 @@ const styles = StyleSheet.create({
     borderColor: '#F0E9DC',
     paddingHorizontal: 16,
     fontSize: 16,
+  },
+
+  perfil: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 12,
+    marginBottom: 8,
+  },
+
+  perfilEscolhido: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF3E6',
+  },
+
+  perfilIcone: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  perfilTexto: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  perfilNome: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  perfilDescricao: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
   },
 
   botao: {

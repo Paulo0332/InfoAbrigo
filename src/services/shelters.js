@@ -33,6 +33,30 @@ export async function cadastrarAbrigo(abrigo) {
   }
 }
 
+// Troca o abrigo de mesmo id pela versão nova. O map percorre a lista
+// inteira e devolve outra do mesmo tamanho, como o toggleNeed do Módulo 1.
+export async function atualizarAbrigo(abrigo) {
+  try {
+    const atuais = await carregarAbrigos();
+
+    const nova = atuais.map((item) => {
+      if (item.id === abrigo.id) {
+        return abrigo;
+      }
+
+      return item;
+    });
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+
+    return nova;
+  } catch (error) {
+    console.log('Erro ao atualizar o abrigo:', error);
+
+    throw error;
+  }
+}
+
 export async function apagarAbrigo(id) {
   try {
     const atuais = await carregarAbrigos();
