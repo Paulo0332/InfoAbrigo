@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,6 +25,7 @@ export default function HomeScreen(props) {
   const [atividades, setAtividades] = useState([]);
   const [doacoes, setDoacoes] = useState([]);
   const [avisosVisiveis, setAvisosVisiveis] = useState(false);
+  const [atualizando, setAtualizando] = useState(false);
 
   // Além de buscar quando a tela monta, buscamos de novo a cada vez que a
   // aba volta a ficar em foco. Sem isso, cadastrar uma necessidade na aba
@@ -50,6 +52,30 @@ export default function HomeScreen(props) {
     } catch (error) {
       console.log('Erro ao carregar os dados da home:', error);
     }
+  }
+
+  // Puxar a lista para baixo relê tudo. É o reflexo de qualquer pessoa
+  // numa tela de resumo, e a seção 4.3 lista isso como diretriz.
+  async function atualizar() {
+    setAtualizando(true);
+
+    await buscarDados();
+
+    setAtualizando(false);
+  }
+
+  function saudacao() {
+    const hora = new Date().getHours();
+
+    if (hora < 12) {
+      return 'Bom dia,';
+    }
+
+    if (hora < 18) {
+      return 'Boa tarde,';
+    }
+
+    return 'Boa noite,';
   }
 
   function primeiroNome(nome) {
@@ -116,7 +142,18 @@ export default function HomeScreen(props) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={atualizando}
+            onRefresh={atualizar}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
 
         <LinearGradient
           colors={[colors.primary, colors.primaryGradient]}
@@ -126,7 +163,7 @@ export default function HomeScreen(props) {
         >
           <View style={styles.headerTop}>
             <View>
-              <Text style={styles.greeting}>Olá,</Text>
+              <Text style={styles.greeting}>{saudacao()}</Text>
 
               <Text style={styles.userName}>
                 {conta ? primeiroNome(conta.nome) + '!' : 'bem-vindo(a)!'}
@@ -139,29 +176,42 @@ export default function HomeScreen(props) {
             >
               <Ionicons name="notifications-outline" size={24} color="#FFF" />
 
-              {avisos.length > 0 && <View style={styles.badge} />}
+              {avisos.length > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.textoBadge}>{avisos.length}</Text>
+                </View>
+              )}
             </Pressable>
           </View>
 
           <View style={styles.statsContainer}>
-            <View style={styles.statBox}>
+            <Pressable
+              style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
+              onPress={() => irPara('Doações')}
+            >
               <Text style={styles.statValue}>{necessidadesAbertas.length}</Text>
               <Text style={styles.statLabel}>necessidades</Text>
-            </View>
+            </Pressable>
 
             <View style={styles.statDivider} />
 
-            <View style={styles.statBox}>
+            <Pressable
+              style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
+              onPress={() => irPara('Agenda')}
+            >
               <Text style={styles.statValue}>{atividades.length}</Text>
               <Text style={styles.statLabel}>atividades</Text>
-            </View>
+            </Pressable>
 
             <View style={styles.statDivider} />
 
-            <View style={styles.statBox}>
+            <Pressable
+              style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('History')}
+            >
               <Text style={styles.statValue}>R$ {totalDoado()}</Text>
               <Text style={styles.statLabel}>doado</Text>
-            </View>
+            </Pressable>
           </View>
         </LinearGradient>
 
@@ -406,12 +456,21 @@ const styles = StyleSheet.create({
 
   badge: {
     position: 'absolute',
-    top: 10,
-    right: 12,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 6,
+    right: 6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
     backgroundColor: colors.supportPink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  textoBadge: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
 
   statsContainer: {
