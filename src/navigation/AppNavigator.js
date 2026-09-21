@@ -1,4 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 
@@ -10,7 +11,16 @@ import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
+// Altura da barra sem contar a área reservada do sistema.
+const ALTURA_BARRA = 60;
+
 export default function AppNavigator() {
+
+  // Quanto o sistema reserva na base da tela: a barra de gestos do Android
+  // moderno e do iPhone sem botão. Sem somar isso, a altura fixa de 60
+  // esmaga os ícones em alguns aparelhos e não em outros.
+  const areaSegura = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -25,8 +35,8 @@ export default function AppNavigator() {
           shadowOffset: { width: 0, height: -2 },
           shadowOpacity: 0.1,
           shadowRadius: 4,
-          height: 60,
-          paddingBottom: 8,
+          height: ALTURA_BARRA + areaSegura.bottom,
+          paddingBottom: 8 + areaSegura.bottom,
           paddingTop: 8,
         },
         tabBarIcon: ({ focused, color, size }) => {
