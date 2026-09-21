@@ -496,6 +496,10 @@ export default function MapScreen(props) {
               </Pressable>
             </View>
 
+            {abrigoSelecionado.endereco ? (
+              <Text style={styles.endereco}>{abrigoSelecionado.endereco}</Text>
+            ) : null}
+
             <View style={styles.dados}>
               <View style={styles.dado}>
                 <Ionicons name="navigate-outline" size={15} color={colors.primary} />
@@ -782,6 +786,12 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  endereco: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    marginTop: 4,
   },
 
   dados: {

@@ -17,6 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { carregarConta } from '../services/auth';
 import {
+  buscarCep,
+  cepValido,
+  formatarCep,
+  montarEndereco,
+} from '../services/endereco';
+import {
   apagarAbrigo,
   atualizarAbrigo,
   cadastrarAbrigo,
@@ -44,6 +50,12 @@ export default function RegisterShelterScreen(props) {
   );
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [cep, setCep] = useState('');
+  const [numero, setNumero] = useState('');
+  const [endereco, setEndereco] = useState(
+    abrigoEditado ? abrigoEditado.endereco || '' : ''
+  );
+  const [buscandoCep, setBuscandoCep] = useState(false);
 
   // A localização do abrigo é a do aparelho no momento do cadastro. É o
   // mesmo par de chamadas do mapa: pede a permissão, depois a posição.
@@ -74,6 +86,59 @@ export default function RegisterShelterScreen(props) {
       );
     } finally {
       setBuscando(false);
+    }
+  }
+
+  function digitarCep(texto) {
+    setCep(formatarCep(texto));
+  }
+
+  // Alternativa ao GPS: quem cadastra de casa ou do escritório informa o
+  // CEP, e a consulta devolve o endereço junto com a coordenada.
+  async function procurarPeloCep() {
+    if (!cepValido(cep)) {
+      Alert.alert('CEP inválido', 'O CEP precisa ter oito dígitos.');
+
+      return;
+    }
+
+    setBuscandoCep(true);
+
+    try {
+      const dados = await buscarCep(cep);
+
+      if (dados.situacao === 'inexistente') {
+        Alert.alert('CEP não encontrado', 'Confira o número digitado.');
+
+        return;
+      }
+
+      if (dados.situacao === 'indisponivel') {
+        Alert.alert(
+          'Sem conexão',
+          'Não foi possível consultar o CEP agora. Você ainda pode usar a localização atual.'
+        );
+
+        return;
+      }
+
+      setEndereco(montarEndereco(dados, numero.trim()));
+
+      if (dados.situacao === 'sem-coordenada') {
+        Alert.alert(
+          'Endereço encontrado, sem ponto no mapa',
+          'Este CEP não tem coordenada cadastrada. Use a localização atual para marcar o abrigo no mapa.'
+        );
+
+        return;
+      }
+
+      setLocalizacao({
+        latitude: dados.latitude,
+        longitude: dados.longitude,
+      });
+    } finally {
+      setBuscandoCep(false);
     }
   }
 
@@ -113,6 +178,7 @@ export default function RegisterShelterScreen(props) {
           nome: nomeLimpo,
           criancas: quantidade,
           contato: contato.trim(),
+          endereco: endereco,
           latitude: localizacao.latitude,
           longitude: localizacao.longitude,
         });
@@ -126,6 +192,7 @@ export default function RegisterShelterScreen(props) {
           nome: nomeLimpo,
           criancas: quantidade,
           contato: contato.trim(),
+          endereco: endereco,
           latitude: localizacao.latitude,
           longitude: localizacao.longitude,
           dono: conta ? conta.email : '',
@@ -250,6 +317,54 @@ export default function RegisterShelterScreen(props) {
         />
 
         <Text style={styles.rotulo}>Localização</Text>
+
+        <Text style={styles.ajuda}>
+          Informe o CEP do abrigo, ou use a localização do aparelho se você
+          estiver nele agora.
+        </Text>
+
+        <View style={styles.linhaCep}>
+          <TextInput
+            style={[styles.input, styles.inputCep]}
+            placeholder="00000-000"
+            placeholderTextColor="#9A8F7E"
+            value={cep}
+            onChangeText={digitarCep}
+            keyboardType="number-pad"
+            maxLength={9}
+          />
+
+          <TextInput
+            style={[styles.input, styles.inputNumero]}
+            placeholder="Nº"
+            placeholderTextColor="#9A8F7E"
+            value={numero}
+            onChangeText={setNumero}
+            keyboardType="number-pad"
+            maxLength={6}
+          />
+
+          <Pressable
+            style={({ pressed }) => [styles.botaoBuscar, pressed && styles.pressionado]}
+            onPress={procurarPeloCep}
+            disabled={buscandoCep}
+          >
+            <Ionicons
+              name={buscandoCep ? 'ellipsis-horizontal' : 'search'}
+              size={20}
+              color="#FFFFFF"
+            />
+          </Pressable>
+        </View>
+
+        {endereco ? (
+          <View style={styles.cartaoLocal}>
+            <Ionicons name="location" size={18} color={colors.primary} />
+            <Text style={styles.textoLocal}>{endereco}</Text>
+          </View>
+        ) : null}
+
+        <Text style={styles.ou}>ou</Text>
 
         <Pressable
           style={({ pressed }) => [styles.botaoLocal, pressed && styles.pressionado]}
@@ -398,6 +513,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.primary,
     marginLeft: 8,
+  },
+
+  ajuda: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+
+  linhaCep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  inputCep: {
+    flex: 2,
+  },
+
+  inputNumero: {
+    flex: 1,
+    marginLeft: 8,
+  },
+
+  botaoBuscar: {
+    width: 52,
+    height: 52,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  ou: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    marginVertical: 10,
   },
 
   cartaoLocal: {
