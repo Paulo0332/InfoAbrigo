@@ -27,13 +27,16 @@ const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
 
 // Monta a página do mapa que roda dentro do WebView.
 //
-// Os blocos vêm do servidor do OpenStreetMap, que funciona sem chave e
-// sem checar domínio — o CARTO recusa requisição de HTML embutido, que
-// não tem origem válida, e devolve um bloco escrito "API KEY REQUIRED".
+// Os blocos preferidos são o Light Gray Canvas da Esri: um mapa cinza
+// quase monocromático, que deixa os pinos coloridos serem a única coisa
+// que chama atenção. Não pede chave.
 //
-// O estilo padrão do OSM é pesado demais, então um filtro CSS dessatura
-// e clareia os blocos. O mapa fica discreto e a paleta do app volta a
-// ser a cor que chama atenção na tela.
+// Mas provedor de bloco é traiçoeiro: o CARTO respondia HTTP 200 com uma
+// imagem escrita "API KEY REQUIRED", porque recusa requisição de HTML
+// embutido, que não tem domínio de origem. Por isso existe uma troca
+// automática: se os blocos da Esri falharem, a página cai para o
+// OpenStreetMap, que sempre funciona, com filtro preto e branco para
+// manter o visual minimalista.
 function montarHtml(localizacao, abrigos) {
   const marcadores = abrigos
     .map(
@@ -72,10 +75,17 @@ function montarHtml(localizacao, abrigos) {
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
       body { background: ${colors.backgroundLight}; }
 
-      /* Suaviza os blocos do OSM: menos cor, mais claro, menos contraste.
-         Os pinos ficam fora deste painel, então não são afetados. */
+      /* A Esri já vem cinza; só um toque de calor para conversar com o
+         creme do aplicativo. Os pinos ficam fora deste painel, então a
+         cor deles não é afetada. */
       .leaflet-tile-pane {
-        filter: saturate(0.5) brightness(1.08) contrast(0.92);
+        filter: sepia(0.12) brightness(1.02);
+      }
+
+      /* Aplicado quando a página cai para o OpenStreetMap: aí o filtro
+         precisa ser forte, porque o estilo original é carregado. */
+      body.reserva .leaflet-tile-pane {
+        filter: grayscale(1) sepia(0.18) brightness(1.12) contrast(0.85);
       }
 
       /* Pino em gota, na cor da paleta, com furo branco no meio. */
@@ -133,10 +143,35 @@ function montarHtml(localizacao, abrigos) {
       var mapa = L.map('mapa', { zoomControl: true, attributionControl: true })
         .setView([${localizacao.latitude}, ${localizacao.longitude}], ${ZOOM});
 
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      // Atenção à ordem: a Esri usa {z}/{y}/{x}, e não {z}/{x}/{y}.
+      var blocosEsri = L.tileLayer(
+        'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 16, attribution: 'Esri, HERE, Garmin, &copy; OpenStreetMap' }
+      );
+
+      var blocosOsm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap'
-      }).addTo(mapa);
+      });
+
+      var falhas = 0;
+      var trocou = false;
+
+      // Bloco perdido acontece em qualquer mapa; a troca só vale a pena
+      // quando o provedor está realmente recusando.
+      blocosEsri.on('tileerror', function () {
+        falhas = falhas + 1;
+
+        if (falhas >= 4 && !trocou) {
+          trocou = true;
+
+          mapa.removeLayer(blocosEsri);
+          blocosOsm.addTo(mapa);
+          document.body.className = 'reserva';
+        }
+      });
+
+      blocosEsri.addTo(mapa);
 
       L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
         icon: L.divIcon({
