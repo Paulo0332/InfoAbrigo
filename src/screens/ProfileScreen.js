@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { carregarConta } from '../services/auth';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { carregarConta, salvarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
 export default function ProfileScreen() {
 
   const [conta, setConta] = useState(null);
   const [carregando, setCarregando] = useState(true);
+  const [temBiometria, setTemBiometria] = useState(false);
 
   useEffect(() => {
     buscarConta();
+    verificarBiometria();
   }, []);
 
   async function buscarConta() {
@@ -30,8 +33,65 @@ export default function ProfileScreen() {
     }
   }
 
-  // A primeira letra do nome serve de avatar: é o que temos sem foto de
-  // perfil, e evita inventar uma imagem que não existe.
+  // As mesmas duas perguntas do BiometricButton: sem sensor ou sem digital
+  // cadastrada, o switch aparece desligado e não deixa ligar.
+  async function verificarBiometria() {
+    try {
+      const temSensor = await LocalAuthentication.hasHardwareAsync();
+      const temCadastro = await LocalAuthentication.isEnrolledAsync();
+
+      setTemBiometria(temSensor && temCadastro);
+    } catch (error) {
+      console.log('Erro ao verificar a biometria:', error);
+
+      setTemBiometria(false);
+    }
+  }
+
+  // Ligar exige confirmar a digital na hora, igual ao cadastro: é assim que
+  // sabemos que a pessoa consegue mesmo entrar por ali depois.
+  async function alternarBiometria(ligar) {
+    if (!ligar) {
+      gravarPreferencia(false);
+
+      return;
+    }
+
+    try {
+      const resultado = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Confirme a sua biometria para ativar',
+        cancelLabel: 'Cancelar',
+        disableDeviceFallback: false,
+      });
+
+      if (resultado.success) {
+        gravarPreferencia(true);
+      }
+    } catch (error) {
+      console.log('Erro ao ativar a biometria:', error);
+
+      Alert.alert(
+        'Erro',
+        'Não foi possível ativar a biometria.'
+      );
+    }
+  }
+
+  async function gravarPreferencia(ativa) {
+    const atualizada = { ...conta, biometriaAtiva: ativa };
+
+    try {
+      await salvarConta(atualizada);
+
+      setConta(atualizada);
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível salvar a preferência.'
+      );
+    }
+  }
+
   function primeiraLetra(nome) {
     return nome.trim().charAt(0).toUpperCase();
   }
@@ -79,7 +139,41 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
 
-        {!conta && (
+        {conta ? (
+          <View>
+            <Text style={styles.grupo}>Acesso</Text>
+
+            <View style={styles.cartao}>
+              <View style={styles.linha}>
+                <View style={styles.icone}>
+                  <Ionicons
+                    name="finger-print"
+                    size={20}
+                    color={colors.primary}
+                  />
+                </View>
+
+                <View style={styles.linhaTexto}>
+                  <Text style={styles.linhaTitulo}>Entrar com biometria</Text>
+
+                  <Text style={styles.linhaDescricao}>
+                    {temBiometria
+                      ? 'Entre com a digital em vez de digitar a senha'
+                      : 'Este aparelho não tem biometria cadastrada'}
+                  </Text>
+                </View>
+
+                <Switch
+                  value={conta.biometriaAtiva === true}
+                  onValueChange={alternarBiometria}
+                  disabled={!temBiometria}
+                  trackColor={{ true: colors.primaryGradient, false: '#E6DED2' }}
+                  thumbColor={conta.biometriaAtiva ? colors.primary : '#FFFFFF'}
+                />
+              </View>
+            </View>
+          </View>
+        ) : (
           <View style={styles.cartao}>
             <Text style={styles.textoSemConta}>
               Nenhuma conta gravada neste aparelho.
@@ -172,10 +266,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundLight,
   },
 
+  grupo: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#9A8F7E',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+
   cartao: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 14,
+    paddingHorizontal: 14,
 
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
@@ -184,9 +287,41 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  linha: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+
+  icone: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.backgroundLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  linhaTexto: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  linhaTitulo: {
+    fontSize: 15,
+    color: colors.textMain,
+  },
+
+  linhaDescricao: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 2,
+  },
+
   textoSemConta: {
     fontSize: 15,
     color: '#9A8F7E',
+    paddingVertical: 14,
   },
 
   nota: {
