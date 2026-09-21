@@ -126,8 +126,11 @@ export default function ProfileScreen(props) {
   // a pessoa volta a entrar com a senha ou com a digital. O Perfil é uma
   // aba, e o login mora no Stack que envolve as abas — por isso pedimos ao
   // navegador pai para trocar de tela.
+  //
+  // O semBiometria avisa o login para não abrir a digital sozinha: quem
+  // acabou de sair seria jogado de volta para dentro do app.
   function sair() {
-    props.navigation.getParent().replace('Login');
+    props.navigation.getParent().replace('Login', { semBiometria: true });
   }
 
   function confirmarExclusao() {
