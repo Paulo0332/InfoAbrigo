@@ -4,6 +4,7 @@ import LoginScreen from '../screens/LoginScreen';
 import SignUpScreen from '../screens/SignUpScreen';
 import DonateScreen from '../screens/DonateScreen';
 import HistoryScreen from '../screens/HistoryScreen';
+import RegisterShelterScreen from '../screens/RegisterShelterScreen';
 import AppNavigator from './AppNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -19,6 +20,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Tabs" component={AppNavigator} />
       <Stack.Screen name="Donate" component={DonateScreen} />
       <Stack.Screen name="History" component={HistoryScreen} />
+      <Stack.Screen name="RegisterShelter" component={RegisterShelterScreen} />
     </Stack.Navigator>
   );
 }
