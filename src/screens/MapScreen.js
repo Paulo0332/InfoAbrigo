@@ -27,9 +27,14 @@ const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
 
 // Monta a página do mapa que roda dentro do WebView.
 //
-// Os blocos preferidos são o Light Gray Canvas da Esri: um mapa cinza
-// quase monocromático, que deixa os pinos coloridos serem a única coisa
-// que chama atenção. Não pede chave.
+// Os blocos preferidos são o World Street Map da Esri: colorido, com
+// ruas claras, parques verdes e água azul, no espírito do Google Maps, e
+// com os rótulos de bairro e rua já embutidos. Não pede chave e vai até
+// o zoom 19.
+//
+// O Light Gray Canvas, tentado antes, era bonito mas vinha sem nomes: na
+// Esri os rótulos moram num serviço separado, e um mapa sem bairro nem
+// rua não serve para encontrar abrigo.
 //
 // Mas provedor de bloco é traiçoeiro: o CARTO respondia HTTP 200 com uma
 // imagem escrita "API KEY REQUIRED", porque recusa requisição de HTML
@@ -75,12 +80,8 @@ function montarHtml(localizacao, abrigos) {
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
       body { background: ${colors.backgroundLight}; }
 
-      /* A Esri já vem cinza; só um toque de calor para conversar com o
-         creme do aplicativo. Os pinos ficam fora deste painel, então a
-         cor deles não é afetada. */
-      .leaflet-tile-pane {
-        filter: sepia(0.12) brightness(1.02);
-      }
+      /* O mapa colorido não leva filtro: mexer na cor faria ele parecer
+         defeituoso em vez de intencional. */
 
       /* Aplicado quando a página cai para o OpenStreetMap: aí o filtro
          precisa ser forte, porque o estilo original é carregado. */
@@ -145,8 +146,8 @@ function montarHtml(localizacao, abrigos) {
 
       // Atenção à ordem: a Esri usa {z}/{y}/{x}, e não {z}/{x}/{y}.
       var blocosEsri = L.tileLayer(
-        'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-        { maxZoom: 16, attribution: 'Esri, HERE, Garmin, &copy; OpenStreetMap' }
+        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 19, attribution: 'Esri, HERE, Garmin, &copy; OpenStreetMap' }
       );
 
       var blocosOsm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
