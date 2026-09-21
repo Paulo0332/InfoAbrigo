@@ -17,6 +17,16 @@
 
 const URL_CONSULTA = 'https://brasilapi.com.br/api/cnpj/v1/';
 
+// CNPJ de demonstração, no mesmo espírito dos cartões de teste que as
+// empresas de pagamento publicam. Ele passa na conta dos dígitos e
+// devolve 404 na Receita, ou seja, não pertence a instituição nenhuma.
+//
+// Serve para apresentar o aplicativo sem usar o CNPJ real de um orfanato
+// que não autorizou aparecer. Tudo que for cadastrado com ele fica
+// marcado como demonstração na tela, para ninguém confundir com cadastro
+// de verdade.
+export const CNPJ_DEMONSTRACAO = '99999999000191';
+
 // Famílias de CNAE ligadas a acolhimento e assistência social:
 // 873 = assistência social em residências coletivas, inclui orfanatos
 // 88  = serviços de assistência social sem alojamento
@@ -93,6 +103,18 @@ export function ehAssistenciaSocial(cnae) {
 // situacao, para a tela poder decidir o que dizer sem tratar exceção.
 export async function consultarCnpj(texto) {
   const d = apenasDigitos(texto);
+
+  if (d === CNPJ_DEMONSTRACAO) {
+    return {
+      situacao: 'demonstracao',
+      razaoSocial: 'Abrigo Modelo — instituição de demonstração',
+      municipio: 'Cidade Exemplo',
+      uf: 'SP',
+      cnae: '8730101',
+      cnaeDescricao: 'Orfanatos',
+      assistenciaSocial: true,
+    };
+  }
 
   try {
     const resposta = await fetch(URL_CONSULTA + d);

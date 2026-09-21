@@ -14,7 +14,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { PERFIS } from '../data/perfis';
-import { cnpjValido, consultarCnpj, formatarCnpj } from '../services/cnpj';
+import {
+  CNPJ_DEMONSTRACAO,
+  cnpjValido,
+  consultarCnpj,
+  formatarCnpj,
+} from '../services/cnpj';
 import { salvarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
@@ -149,6 +154,7 @@ export default function SignUpScreen(props) {
               uf: instituicao.uf || '',
               cnae: instituicao.cnae || '',
               verificado: instituicao.situacao === 'ativa',
+              demonstracao: instituicao.situacao === 'demonstracao',
               assistenciaSocial: instituicao.assistenciaSocial === true,
             }
           : null,
@@ -349,6 +355,23 @@ export default function SignUpScreen(props) {
               </Pressable>
             </View>
 
+            {instituicao && instituicao.situacao === 'demonstracao' && (
+              <View style={styles.resultado}>
+                <View style={styles.resultadoTopo}>
+                  <Ionicons name="flask" size={18} color={colors.supportBlue} />
+
+                  <Text style={styles.resultadoNome}>
+                    {instituicao.razaoSocial}
+                  </Text>
+                </View>
+
+                <Text style={styles.resultadoDetalhe}>
+                  CNPJ de demonstração. Tudo que for cadastrado com ele aparece
+                  marcado como exemplo.
+                </Text>
+              </View>
+            )}
+
             {instituicao && instituicao.situacao === 'ativa' && (
               <View style={styles.resultado}>
                 <View style={styles.resultadoTopo}>
@@ -382,6 +405,17 @@ export default function SignUpScreen(props) {
               não comprova que você trabalha na instituição — essa checagem
               depende de análise de documentos, que ainda não temos.
             </Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.demo, pressed && styles.pressionado]}
+              onPress={() => digitarCnpj(CNPJ_DEMONSTRACAO)}
+            >
+              <Ionicons name="flask-outline" size={14} color={colors.supportBlue} />
+
+              <Text style={styles.demoTexto}>
+                Usar o CNPJ de demonstração
+              </Text>
+            </Pressable>
           </View>
         )}
 
@@ -561,6 +595,21 @@ const styles = StyleSheet.create({
     color: colors.supportPink,
     lineHeight: 17,
     marginTop: 8,
+  },
+
+  demo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+
+  demoTexto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.supportBlue,
+    marginLeft: 6,
   },
 
   explicacaoCnpj: {
