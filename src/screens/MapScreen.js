@@ -647,6 +647,13 @@ export default function MapScreen(props) {
               <Text style={styles.endereco}>{abrigoSelecionado.endereco}</Text>
             ) : null}
 
+            {abrigoSelecionado.enderecoDados &&
+            abrigoSelecionado.enderecoDados.referencia ? (
+              <Text style={styles.referencia}>
+                Referência: {abrigoSelecionado.enderecoDados.referencia}
+              </Text>
+            ) : null}
+
             <View style={styles.dados}>
               <View style={styles.dado}>
                 <Ionicons name="navigate-outline" size={15} color={colors.primary} />
@@ -1052,6 +1059,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9A8F7E',
     marginTop: 4,
+  },
+
+  referencia: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    fontStyle: 'italic',
+    marginTop: 2,
   },
 
   dados: {

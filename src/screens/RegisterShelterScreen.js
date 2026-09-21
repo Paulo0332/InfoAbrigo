@@ -18,6 +18,7 @@ import * as Location from 'expo-location';
 import { carregarConta } from '../services/auth';
 import {
   buscarCep,
+  buscarCoordenadas,
   cepValido,
   formatarCep,
   montarEndereco,
@@ -50,12 +51,21 @@ export default function RegisterShelterScreen(props) {
   );
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  const [cep, setCep] = useState('');
-  const [numero, setNumero] = useState('');
-  const [endereco, setEndereco] = useState(
-    abrigoEditado ? abrigoEditado.endereco || '' : ''
-  );
+  // O endereço é guardado campo a campo, e não como um texto só: assim dá
+  // para corrigir o que o CEP trouxe errado, preencher à mão quando o CEP
+  // é genérico e não devolve rua, e ainda montar a busca da coordenada.
+  const detalhes = (abrigoEditado && abrigoEditado.enderecoDados) || {};
+
+  const [cep, setCep] = useState(detalhes.cep || '');
+  const [logradouro, setLogradouro] = useState(detalhes.logradouro || '');
+  const [numero, setNumero] = useState(detalhes.numero || '');
+  const [complemento, setComplemento] = useState(detalhes.complemento || '');
+  const [bairro, setBairro] = useState(detalhes.bairro || '');
+  const [cidade, setCidade] = useState(detalhes.cidade || '');
+  const [uf, setUf] = useState(detalhes.uf || '');
+  const [referencia, setReferencia] = useState(detalhes.referencia || '');
   const [buscandoCep, setBuscandoCep] = useState(false);
+  const [localizando, setLocalizando] = useState(false);
 
   // A localização do abrigo é a do aparelho no momento do cadastro. É o
   // mesmo par de chamadas do mapa: pede a permissão, depois a posição.
@@ -93,6 +103,19 @@ export default function RegisterShelterScreen(props) {
     setCep(formatarCep(texto));
   }
 
+  function enderecoAtual() {
+    return {
+      cep: cep,
+      logradouro: logradouro.trim(),
+      numero: numero.trim(),
+      complemento: complemento.trim(),
+      bairro: bairro.trim(),
+      cidade: cidade.trim(),
+      uf: uf.trim().toUpperCase(),
+      referencia: referencia.trim(),
+    };
+  }
+
   // Alternativa ao GPS: quem cadastra de casa ou do escritório informa o
   // CEP, e a consulta devolve o endereço junto com a coordenada.
   async function procurarPeloCep() {
@@ -122,12 +145,16 @@ export default function RegisterShelterScreen(props) {
         return;
       }
 
-      setEndereco(montarEndereco(dados, numero.trim()));
+      // O CEP preenche os campos; daqui em diante eles são editáveis.
+      setLogradouro(dados.logradouro);
+      setBairro(dados.bairro);
+      setCidade(dados.cidade);
+      setUf(dados.uf);
 
       if (dados.situacao === 'sem-coordenada') {
         Alert.alert(
-          'Endereço encontrado, sem ponto no mapa',
-          'Este CEP não tem coordenada cadastrada. Use a localização atual para marcar o abrigo no mapa.'
+          'Endereço preenchido',
+          'Este CEP não tem coordenada cadastrada. Complete o endereço e toque em "Localizar no mapa".'
         );
 
         return;
@@ -139,6 +166,54 @@ export default function RegisterShelterScreen(props) {
       });
     } finally {
       setBuscandoCep(false);
+    }
+  }
+
+  // Procura a coordenada do endereço completo, com número. É mais preciso
+  // que a do CEP, que aponta para o meio da via.
+  async function localizarNoMapa() {
+    const dados = enderecoAtual();
+
+    if (!dados.logradouro || !dados.cidade) {
+      Alert.alert(
+        'Atenção',
+        'Preencha ao menos a rua e a cidade para localizar no mapa.'
+      );
+
+      return;
+    }
+
+    setLocalizando(true);
+
+    try {
+      const ponto = await buscarCoordenadas(dados);
+
+      if (ponto.situacao === 'encontrado') {
+        setLocalizacao({
+          latitude: ponto.latitude,
+          longitude: ponto.longitude,
+        });
+
+        Alert.alert('Pronto', 'Endereço localizado no mapa.');
+
+        return;
+      }
+
+      if (ponto.situacao === 'nao-encontrado') {
+        Alert.alert(
+          'Endereço não encontrado',
+          'Confira a rua e a cidade. Se o endereço for novo, use a localização atual estando no abrigo.'
+        );
+
+        return;
+      }
+
+      Alert.alert(
+        'Sem conexão',
+        'Não foi possível localizar agora. Tente de novo ou use a localização atual.'
+      );
+    } finally {
+      setLocalizando(false);
     }
   }
 
@@ -178,7 +253,8 @@ export default function RegisterShelterScreen(props) {
           nome: nomeLimpo,
           criancas: quantidade,
           contato: contato.trim(),
-          endereco: endereco,
+          endereco: montarEndereco(enderecoAtual()),
+          enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
           longitude: localizacao.longitude,
         });
@@ -192,7 +268,8 @@ export default function RegisterShelterScreen(props) {
           nome: nomeLimpo,
           criancas: quantidade,
           contato: contato.trim(),
-          endereco: endereco,
+          endereco: montarEndereco(enderecoAtual()),
+          enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
           longitude: localizacao.longitude,
           dono: conta ? conta.email : '',
@@ -316,11 +393,11 @@ export default function RegisterShelterScreen(props) {
           maxLength={60}
         />
 
-        <Text style={styles.rotulo}>Localização</Text>
+        <Text style={styles.rotulo}>Endereço</Text>
 
         <Text style={styles.ajuda}>
-          Informe o CEP do abrigo, ou use a localização do aparelho se você
-          estiver nele agora.
+          Digite o CEP para preencher automaticamente. Todos os campos podem
+          ser corrigidos depois.
         </Text>
 
         <View style={styles.linhaCep}>
@@ -332,16 +409,6 @@ export default function RegisterShelterScreen(props) {
             onChangeText={digitarCep}
             keyboardType="number-pad"
             maxLength={9}
-          />
-
-          <TextInput
-            style={[styles.input, styles.inputNumero]}
-            placeholder="Nº"
-            placeholderTextColor="#9A8F7E"
-            value={numero}
-            onChangeText={setNumero}
-            keyboardType="number-pad"
-            maxLength={6}
           />
 
           <Pressable
@@ -357,12 +424,103 @@ export default function RegisterShelterScreen(props) {
           </Pressable>
         </View>
 
-        {endereco ? (
-          <View style={styles.cartaoLocal}>
-            <Ionicons name="location" size={18} color={colors.primary} />
-            <Text style={styles.textoLocal}>{endereco}</Text>
+        <Text style={styles.rotulo}>Rua</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Nome da rua ou avenida"
+          placeholderTextColor="#9A8F7E"
+          value={logradouro}
+          onChangeText={setLogradouro}
+          maxLength={80}
+        />
+
+        <View style={styles.linha}>
+          <View style={styles.colunaMenor}>
+            <Text style={styles.rotulo}>Número</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="123"
+              placeholderTextColor="#9A8F7E"
+              value={numero}
+              onChangeText={setNumero}
+              keyboardType="number-pad"
+              maxLength={8}
+            />
           </View>
-        ) : null}
+
+          <View style={styles.colunaMaior}>
+            <Text style={styles.rotulo}>Complemento</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Bloco, casa, fundos"
+              placeholderTextColor="#9A8F7E"
+              value={complemento}
+              onChangeText={setComplemento}
+              maxLength={40}
+            />
+          </View>
+        </View>
+
+        <Text style={styles.rotulo}>Bairro</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Bairro"
+          placeholderTextColor="#9A8F7E"
+          value={bairro}
+          onChangeText={setBairro}
+          maxLength={60}
+        />
+
+        <View style={styles.linha}>
+          <View style={styles.colunaMaior}>
+            <Text style={styles.rotulo}>Cidade</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Cidade"
+              placeholderTextColor="#9A8F7E"
+              value={cidade}
+              onChangeText={setCidade}
+              maxLength={60}
+            />
+          </View>
+
+          <View style={styles.colunaMenor}>
+            <Text style={styles.rotulo}>UF</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="SP"
+              placeholderTextColor="#9A8F7E"
+              value={uf}
+              onChangeText={setUf}
+              autoCapitalize="characters"
+              maxLength={2}
+            />
+          </View>
+        </View>
+
+        <Text style={styles.rotulo}>Ponto de referência (opcional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Perto do quê? Ajuda quem vai levar a doação"
+          placeholderTextColor="#9A8F7E"
+          value={referencia}
+          onChangeText={setReferencia}
+          maxLength={80}
+        />
+
+        <Text style={styles.rotulo}>Ponto no mapa</Text>
+
+        <Pressable
+          style={({ pressed }) => [styles.botaoLocal, pressed && styles.pressionado]}
+          onPress={localizarNoMapa}
+          disabled={localizando}
+        >
+          <Ionicons name="navigate" size={20} color={colors.primary} />
+
+          <Text style={styles.textoBotaoLocal}>
+            {localizando ? 'Localizando...' : 'Localizar pelo endereço'}
+          </Text>
+        </Pressable>
 
         <Text style={styles.ou}>ou</Text>
 
@@ -374,11 +532,7 @@ export default function RegisterShelterScreen(props) {
           <Ionicons name="location" size={20} color={colors.primary} />
 
           <Text style={styles.textoBotaoLocal}>
-            {buscando
-              ? 'Buscando...'
-              : abrigoEditado
-              ? 'Atualizar para a localização atual'
-              : 'Usar a localização atual'}
+            {buscando ? 'Buscando...' : 'Usar a localização atual'}
           </Text>
         </Pressable>
 
@@ -387,7 +541,7 @@ export default function RegisterShelterScreen(props) {
             <Ionicons name="checkmark-circle" size={20} color={colors.supportGreen} />
 
             <Text style={styles.textoLocal}>
-              {localizacao.latitude.toFixed(5)}, {localizacao.longitude.toFixed(5)}
+              Marcado em {localizacao.latitude.toFixed(5)}, {localizacao.longitude.toFixed(5)}
             </Text>
           </View>
         )}
@@ -528,12 +682,20 @@ const styles = StyleSheet.create({
   },
 
   inputCep: {
-    flex: 2,
+    flex: 1,
   },
 
-  inputNumero: {
+  linha: {
+    flexDirection: 'row',
+  },
+
+  colunaMenor: {
     flex: 1,
-    marginLeft: 8,
+  },
+
+  colunaMaior: {
+    flex: 2,
+    marginLeft: 10,
   },
 
   botaoBuscar: {
