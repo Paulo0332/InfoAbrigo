@@ -1,31 +1,45 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { montarAbrigos } from '../data/shelters';
+import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
-// Nível de aproximação do mapa. 14 mostra pouco mais de 3 km, o suficiente
-// para ver a vizinhança de quem abriu o aplicativo.
+// Nível de aproximação inicial. 14 mostra pouco mais de 3 km.
 const ZOOM = 14;
 
-// Monta a página do mapa que roda dentro do WebView. O Leaflet desenha e os
-// blocos vêm do OpenStreetMap, sem precisar de chave de API.
+// Cores dos pinos, aplicadas em ordem para os abrigos se distinguirem.
+const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
+
+// Monta a página do mapa que roda dentro do WebView.
+//
+// Os blocos vêm do CARTO Positron em vez do OpenStreetMap padrão: é um
+// mapa cinza-claro e minimalista, que não briga com a paleta do app. Os
+// pinos são HTML desenhado por nós (divIcon), e não os círculos padrão
+// do Leaflet, que pareciam tela de depuração.
 function montarHtml(localizacao, abrigos) {
   const marcadores = abrigos
     .map(
-      (abrigo) => `
-        L.circleMarker([${abrigo.latitude}, ${abrigo.longitude}], {
-          radius: 11,
-          color: '#FFFFFF',
-          weight: 3,
-          fillColor: '${abrigo.cor}',
-          fillOpacity: 1
+      (abrigo, indice) => `
+        L.marker([${abrigo.latitude}, ${abrigo.longitude}], {
+          icon: L.divIcon({
+            className: 'vazio',
+            html: '<div class="pino" style="background:${CORES[indice % CORES.length]}">'
+              + '<div class="pinoDentro"></div></div>',
+            iconSize: [30, 42],
+            iconAnchor: [15, 42]
+          })
         })
           .addTo(mapa)
-          .bindTooltip('${abrigo.nome}')
           .on('click', function () {
             window.ReactNativeWebView.postMessage('${abrigo.id}');
           });
@@ -48,6 +62,53 @@ function montarHtml(localizacao, abrigos) {
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
+      body { background: ${colors.backgroundLight}; }
+
+      /* Pino em gota, na cor da paleta, com furo branco no meio. */
+      .pino {
+        width: 30px;
+        height: 30px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        border: 2px solid #FFFFFF;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .pinoDentro {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #FFFFFF;
+      }
+
+      /* Ponto de "você está aqui", com halo suave. */
+      .eu {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: ${colors.supportBlue};
+        border: 3px solid #FFFFFF;
+        box-shadow: 0 0 0 6px rgba(79,143,209,0.25);
+      }
+
+      /* A atribuição é obrigatória pela licença, mas pode ser discreta. */
+      .leaflet-control-attribution {
+        font-size: 9px;
+        background: rgba(255,255,255,0.7);
+      }
+
+      .leaflet-control-zoom {
+        border: none !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      }
+
+      .leaflet-control-zoom a {
+        color: ${colors.textMain};
+        border-radius: 10px !important;
+      }
     </style>
   </head>
 
@@ -55,25 +116,26 @@ function montarHtml(localizacao, abrigos) {
     <div id="mapa"></div>
 
     <script>
-      var mapa = L.map('mapa').setView(
-        [${localizacao.latitude}, ${localizacao.longitude}],
-        ${ZOOM}
-      );
+      var mapa = L.map('mapa', { zoomControl: true, attributionControl: true })
+        .setView([${localizacao.latitude}, ${localizacao.longitude}], ${ZOOM});
 
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap'
+      L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+        {
+          maxZoom: 19,
+          subdomains: 'abcd',
+          attribution: '&copy; OpenStreetMap, &copy; CARTO'
+        }
+      ).addTo(mapa);
+
+      L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
+        icon: L.divIcon({
+          className: 'vazio',
+          html: '<div class="eu"></div>',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8]
+        })
       }).addTo(mapa);
-
-      L.circleMarker([${localizacao.latitude}, ${localizacao.longitude}], {
-        radius: 9,
-        color: '#FFFFFF',
-        weight: 3,
-        fillColor: '${colors.supportPink}',
-        fillOpacity: 1
-      })
-        .addTo(mapa)
-        .bindTooltip('Você está aqui');
 
       ${marcadores}
     </script>
@@ -81,18 +143,22 @@ function montarHtml(localizacao, abrigos) {
 </html>`;
 }
 
-export default function MapScreen() {
+export default function MapScreen(props) {
 
   const [localizacao, setLocalizacao] = useState(null);
   const [erro, setErro] = useState(null);
+  const [abrigos, setAbrigos] = useState([]);
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
-
-  // Os abrigos só existem depois da coordenada, porque é a partir dela que
-  // cada um recebe a sua posição e a distância até o usuário.
-  const abrigos = localizacao ? montarAbrigos(localizacao) : [];
+  const [busca, setBusca] = useState('');
 
   useEffect(() => {
     buscarLocalizacao();
+    buscarAbrigos();
+
+    // Ao voltar do cadastro, a lista precisa ser lida de novo.
+    const inscricao = props.navigation.addListener('focus', buscarAbrigos);
+
+    return inscricao;
   }, []);
 
   // Primeiro pede a permissão, depois pergunta a posição. A ordem importa:
@@ -117,88 +183,197 @@ export default function MapScreen() {
     }
   }
 
-  // A página avisa qual abrigo foi tocado mandando o id por postMessage.
-  // Quem decide mostrar o cartão é a tela, do mesmo jeito que o NeedItem
-  // avisa a lista no Módulo 1.
+  async function buscarAbrigos() {
+    try {
+      const lista = await carregarAbrigos();
+
+      setAbrigos(lista);
+      setAbrigoSelecionado(null);
+    } catch (error) {
+      console.log('Erro ao carregar os abrigos:', error);
+    }
+  }
+
+  // A busca filtra por nome, sem diferenciar maiúscula de minúscula. O
+  // mapa recebe apenas os que passaram pelo filtro.
+  function filtrados() {
+    const termo = busca.trim().toLowerCase();
+
+    if (!termo) {
+      return abrigos;
+    }
+
+    return abrigos.filter((abrigo) => abrigo.nome.toLowerCase().includes(termo));
+  }
+
   function aoTocarNoMapa(evento) {
     const id = evento.nativeEvent.data;
-    const abrigo = abrigos.find((item) => item.id === id);
+    const abrigo = filtrados().find((item) => item.id === id);
 
     if (abrigo) {
       setAbrigoSelecionado(abrigo);
     }
   }
 
-  function fecharCartao() {
-    setAbrigoSelecionado(null);
-  }
-
-  function formatarDistancia(distancia) {
-    return distancia.toFixed(1).replace('.', ',');
-  }
-
-  if (erro) {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.centralizado}>
-          <Text style={styles.erro}>{erro}</Text>
-        </View>
-      </SafeAreaView>
+  function distanciaAte(abrigo) {
+    const km = calcularDistancia(
+      localizacao.latitude,
+      localizacao.longitude,
+      abrigo.latitude,
+      abrigo.longitude
     );
+
+    if (km < 1) {
+      return Math.round(km * 1000) + ' m';
+    }
+
+    return km.toFixed(1).replace('.', ',') + ' km';
   }
 
-  if (!localizacao) {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.centralizado}>
-          <Text style={styles.texto}>Aguarde...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const lista = localizacao ? filtrados() : [];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
 
-      <WebView
-        style={styles.mapa}
-        originWhitelist={['*']}
-        source={{ html: montarHtml(localizacao, abrigos) }}
-        onMessage={aoTocarNoMapa}
-      />
+      <LinearGradient
+        colors={[colors.primary, colors.primaryGradient]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
+        <View style={styles.headerTopo}>
+          <View>
+            <Text style={styles.headerTitulo}>Abrigos</Text>
 
-      {abrigoSelecionado && (
-        <View style={styles.cartao}>
-          <View style={styles.cartaoTopo}>
-            <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
+            <Text style={styles.headerSubtitulo}>
+              {abrigos.length === 0
+                ? 'Nenhum abrigo cadastrado ainda'
+                : abrigos.length === 1
+                ? '1 abrigo cadastrado'
+                : abrigos.length + ' abrigos cadastrados'}
+            </Text>
+          </View>
+
+          <Pressable
+            style={({ pressed }) => [styles.botaoMais, pressed && styles.pressionado]}
+            onPress={() => props.navigation.navigate('RegisterShelter')}
+          >
+            <Ionicons name="add" size={26} color={colors.primary} />
+          </Pressable>
+        </View>
+
+        {abrigos.length > 0 && (
+          <View style={styles.busca}>
+            <Ionicons name="search" size={18} color="#9A8F7E" />
+
+            <TextInput
+              style={styles.buscaInput}
+              placeholder="Buscar abrigo pelo nome"
+              placeholderTextColor="#9A8F7E"
+              value={busca}
+              onChangeText={setBusca}
+            />
+
+            {busca.length > 0 && (
+              <Pressable onPress={() => setBusca('')}>
+                <Ionicons name="close-circle" size={18} color="#9A8F7E" />
+              </Pressable>
+            )}
+          </View>
+        )}
+      </LinearGradient>
+
+      <View style={styles.corpo}>
+
+        {erro && (
+          <View style={styles.centralizado}>
+            <Ionicons name="location-outline" size={44} color={colors.supportPink} />
+            <Text style={styles.erro}>{erro}</Text>
+          </View>
+        )}
+
+        {!erro && !localizacao && (
+          <View style={styles.centralizado}>
+            <Text style={styles.texto}>Aguarde...</Text>
+          </View>
+        )}
+
+        {!erro && localizacao && (
+          <WebView
+            style={styles.mapa}
+            originWhitelist={['*']}
+            source={{ html: montarHtml(localizacao, lista) }}
+            onMessage={aoTocarNoMapa}
+          />
+        )}
+
+        {!erro && localizacao && abrigos.length === 0 && (
+          <View style={styles.convite}>
+            <Text style={styles.conviteTitulo}>Nenhum abrigo por aqui</Text>
+
+            <Text style={styles.conviteTexto}>
+              Os abrigos aparecem no mapa depois de serem cadastrados no
+              aplicativo, pela própria instituição.
+            </Text>
 
             <Pressable
-              style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
-              onPress={fecharCartao}
+              style={({ pressed }) => [styles.conviteBotao, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('RegisterShelter')}
             >
-              <Ionicons name="close" size={20} color="#9A8F7E" />
+              <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.conviteBotaoTexto}>Cadastrar um abrigo</Text>
             </Pressable>
           </View>
+        )}
 
-          <View style={styles.dados}>
-            <View style={styles.dado}>
-              <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+        {abrigoSelecionado && (
+          <View style={styles.cartao}>
+            <View style={styles.cartaoTopo}>
+              <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
 
-              <Text style={styles.textoDado}>
-                a {formatarDistancia(abrigoSelecionado.distancia)} km
-              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
+                onPress={() => setAbrigoSelecionado(null)}
+              >
+                <Ionicons name="close" size={20} color="#9A8F7E" />
+              </Pressable>
             </View>
 
-            <View style={styles.dado}>
-              <Ionicons name="people-outline" size={16} color={colors.primary} />
+            <View style={styles.dados}>
+              <View style={styles.dado}>
+                <Ionicons name="navigate-outline" size={15} color={colors.primary} />
+                <Text style={styles.textoDado}>{distanciaAte(abrigoSelecionado)}</Text>
+              </View>
 
-              <Text style={styles.textoDado}>
-                {abrigoSelecionado.criancas} crianças acolhidas
-              </Text>
+              <View style={styles.dado}>
+                <Ionicons name="people-outline" size={15} color={colors.primary} />
+
+                <Text style={styles.textoDado}>
+                  {abrigoSelecionado.criancas} crianças
+                </Text>
+              </View>
+
+              {abrigoSelecionado.contato ? (
+                <View style={styles.dado}>
+                  <Ionicons name="call-outline" size={15} color={colors.primary} />
+                  <Text style={styles.textoDado}>{abrigoSelecionado.contato}</Text>
+                </View>
+              ) : null}
             </View>
+
+            <Pressable
+              style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
+              onPress={() =>
+                props.navigation.navigate('Donate', { abrigo: abrigoSelecionado.nome })
+              }
+            >
+              <Ionicons name="heart" size={18} color="#FFFFFF" />
+              <Text style={styles.textoDoar}>Doar para este abrigo</Text>
+            </Pressable>
           </View>
-        </View>
-      )}
+        )}
+
+      </View>
 
     </SafeAreaView>
   );
@@ -206,6 +381,63 @@ export default function MapScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
+    flex: 1,
+    backgroundColor: colors.primary,
+  },
+
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+
+  headerTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  headerTitulo: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+
+  headerSubtitulo: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+
+  botaoMais: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  busca: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginTop: 14,
+  },
+
+  buscaInput: {
+    flex: 1,
+    height: 44,
+    fontSize: 15,
+    color: colors.textMain,
+    marginLeft: 8,
+  },
+
+  corpo: {
     flex: 1,
     backgroundColor: colors.backgroundLight,
   },
@@ -224,13 +456,59 @@ const styles = StyleSheet.create({
   texto: {
     fontSize: 15,
     color: colors.textMain,
-    textAlign: 'center',
   },
 
   erro: {
     fontSize: 15,
     color: colors.supportPink,
     textAlign: 'center',
+    marginTop: 10,
+  },
+
+  convite: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    left: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+
+  conviteTitulo: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  conviteTexto: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    lineHeight: 19,
+    marginTop: 6,
+  },
+
+  conviteBotao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 14,
+  },
+
+  conviteBotaoTexto: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 
   cartao: {
@@ -272,23 +550,40 @@ const styles = StyleSheet.create({
   dados: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 8,
+    marginTop: 6,
   },
 
   dado: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 14,
     marginTop: 4,
   },
 
   textoDado: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#9A8F7E',
     marginLeft: 5,
   },
 
+  botaoDoar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 14,
+  },
+
+  textoDoar: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
   pressionado: {
-    opacity: 0.5,
+    opacity: 0.6,
   },
 });

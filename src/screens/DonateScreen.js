@@ -17,11 +17,15 @@ import { carregarConta } from '../services/auth';
 import { registrarDoacao } from '../services/donations';
 import { colors } from '../theme/colors';
 
-const ABRIGO = 'Lar Esperança';
-
 const VALORES = [20, 50, 100];
 
 export default function DonateScreen(props) {
+
+  // O abrigo vem por parâmetro quando a doação começa pelo mapa. Chegando
+  // pela ação rápida da Home não há abrigo escolhido, e a tela diz isso em
+  // vez de inventar um nome.
+  const parametros = props.route.params || {};
+  const abrigo = parametros.abrigo || null;
 
   const [valor, setValor] = useState(50);
   const [confirmada, setConfirmada] = useState(false);
@@ -52,10 +56,21 @@ export default function DonateScreen(props) {
   // Só depois disso a doação é gravada no histórico e a tela troca para
   // o selo de confirmada.
   async function confirmarDoacao() {
+    // Sem abrigo escolhido não há para quem doar, e gravar abrigo null
+    // faria a tela de sucesso dizer "para o null".
+    if (!abrigo) {
+      Alert.alert(
+        'Atenção',
+        'Escolha um abrigo no mapa antes de confirmar a doação.'
+      );
+
+      return;
+    }
+
     const doacao = {
       id: Date.now().toString(),
       valor: valor,
-      abrigo: ABRIGO,
+      abrigo: abrigo,
       data: new Date().toISOString(),
     };
 
@@ -142,7 +157,7 @@ export default function DonateScreen(props) {
           <Text style={styles.tituloSucesso}>Doação confirmada</Text>
 
           <Text style={styles.textoSucesso}>
-            R$ {valor},00 para o {ABRIGO}.{'\n'}
+            R$ {valor},00 para o {abrigo}.{'\n'}
             Obrigado por ajudar!
           </Text>
 
@@ -160,10 +175,23 @@ export default function DonateScreen(props) {
           showsVerticalScrollIndicator={false}
         >
 
-          <View style={styles.cartao}>
-            <Text style={styles.rotulo}>Abrigo</Text>
-            <Text style={styles.valorRotulo}>{ABRIGO}</Text>
-          </View>
+          {abrigo ? (
+            <View style={styles.cartao}>
+              <Text style={styles.rotulo}>Abrigo</Text>
+              <Text style={styles.valorRotulo}>{abrigo}</Text>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.cartao, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('Tabs', { screen: 'Mapa' })}
+            >
+              <Text style={styles.rotulo}>Abrigo</Text>
+
+              <Text style={styles.valorRotulo}>
+                Escolha um abrigo no mapa
+              </Text>
+            </Pressable>
+          )}
 
           <Text style={styles.secao}>Escolha o valor</Text>
 
