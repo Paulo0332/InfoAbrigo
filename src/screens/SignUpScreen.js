@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { PERFIS } from '../data/perfis';
+import { cnpjValido, consultarCnpj, formatarCnpj } from '../services/cnpj';
 import { salvarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
@@ -23,6 +24,61 @@ export default function SignUpScreen(props) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [perfil, setPerfil] = useState(PERFIS[2].id);
+  const [cnpj, setCnpj] = useState('');
+  const [instituicao, setInstituicao] = useState(null);
+  const [verificando, setVerificando] = useState(false);
+
+  function digitarCnpj(texto) {
+    setCnpj(formatarCnpj(texto));
+
+    // Mexeu no número, a verificação anterior não vale mais.
+    setInstituicao(null);
+  }
+
+  // Duas etapas: a conta dos dígitos, que roda sem internet e derruba
+  // erro de digitação, e a consulta pública, que diz se existe e se está
+  // ativa na Receita.
+  async function verificarInstituicao() {
+    if (!cnpjValido(cnpj)) {
+      Alert.alert(
+        'CNPJ inválido',
+        'Confira os números. Os dois dígitos do fim não batem com o resto.'
+      );
+
+      return;
+    }
+
+    setVerificando(true);
+
+    try {
+      const resultado = await consultarCnpj(cnpj);
+
+      setInstituicao(resultado);
+
+      if (resultado.situacao === 'inexistente') {
+        Alert.alert(
+          'CNPJ não encontrado',
+          'Este número não consta na Receita Federal.'
+        );
+      }
+
+      if (resultado.situacao === 'inativa') {
+        Alert.alert(
+          'Instituição não está ativa',
+          'O cadastro deste CNPJ na Receita não está ativo.'
+        );
+      }
+
+      if (resultado.situacao === 'indisponivel') {
+        Alert.alert(
+          'Sem conexão',
+          'Não foi possível consultar a Receita agora. O número passou na validação local, mas o cadastro fica marcado como não verificado.'
+        );
+      }
+    } finally {
+      setVerificando(false);
+    }
+  }
 
   // Mesma validação do adicionarTarefa() do exemplo do professor: limpa
   // os espaços das pontas e, se sobrar vazio, avisa e interrompe.
@@ -57,11 +113,45 @@ export default function SignUpScreen(props) {
       return;
     }
 
+    // Gestor administra abrigo e publica necessidades em nome de uma
+    // instituição. Por isso ele precisa informar o CNPJ dela.
+    if (perfil === 'gestor') {
+      if (!instituicao) {
+        Alert.alert(
+          'Atenção',
+          'Toque em "Verificar" para confirmar o CNPJ da instituição.'
+        );
+
+        return;
+      }
+
+      if (instituicao.situacao === 'inexistente' || instituicao.situacao === 'inativa') {
+        Alert.alert(
+          'Não é possível continuar',
+          'O CNPJ precisa existir e estar ativo na Receita Federal.'
+        );
+
+        return;
+      }
+    }
+
     const conta = {
       nome: nomeLimpo,
       email: emailLimpo,
       senha: senha,
       perfil: perfil,
+      instituicao:
+        perfil === 'gestor'
+          ? {
+              cnpj: cnpj,
+              razaoSocial: instituicao.razaoSocial || '',
+              municipio: instituicao.municipio || '',
+              uf: instituicao.uf || '',
+              cnae: instituicao.cnae || '',
+              verificado: instituicao.situacao === 'ativa',
+              assistenciaSocial: instituicao.assistenciaSocial === true,
+            }
+          : null,
       // Começa desligada: quem decide é a pessoa, no aviso logo abaixo.
       biometriaAtiva: false,
     };
@@ -233,6 +323,68 @@ export default function SignUpScreen(props) {
           </Pressable>
         ))}
 
+        {perfil === 'gestor' && (
+          <View>
+            <Text style={styles.rotulo}>CNPJ da instituição</Text>
+
+            <View style={styles.linhaCnpj}>
+              <TextInput
+                style={[styles.input, styles.inputCnpj]}
+                placeholder="00.000.000/0001-00"
+                placeholderTextColor="#9A8F7E"
+                value={cnpj}
+                onChangeText={digitarCnpj}
+                keyboardType="number-pad"
+                maxLength={18}
+              />
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoVerificar, pressed && styles.pressionado]}
+                onPress={verificarInstituicao}
+                disabled={verificando}
+              >
+                <Text style={styles.textoVerificar}>
+                  {verificando ? '...' : 'Verificar'}
+                </Text>
+              </Pressable>
+            </View>
+
+            {instituicao && instituicao.situacao === 'ativa' && (
+              <View style={styles.resultado}>
+                <View style={styles.resultadoTopo}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={18}
+                    color={colors.supportGreen}
+                  />
+
+                  <Text style={styles.resultadoNome}>
+                    {instituicao.razaoSocial}
+                  </Text>
+                </View>
+
+                <Text style={styles.resultadoDetalhe}>
+                  {instituicao.municipio}/{instituicao.uf} • ativa na Receita
+                </Text>
+
+                {!instituicao.assistenciaSocial && (
+                  <Text style={styles.resultadoAviso}>
+                    A atividade registrada é "{instituicao.cnaeDescricao}", que
+                    não é de assistência social. Isso acontece com instituições
+                    legítimas, mas fica anotado no cadastro.
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <Text style={styles.explicacaoCnpj}>
+              Conferimos se o CNPJ existe e está ativo na Receita Federal. Isso
+              não comprova que você trabalha na instituição — essa checagem
+              depende de análise de documentos, que ainda não temos.
+            </Text>
+          </View>
+        )}
+
         <Pressable
           style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
           onPress={criarConta}
@@ -351,6 +503,71 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9A8F7E',
     marginTop: 1,
+  },
+
+  linhaCnpj: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  inputCnpj: {
+    flex: 1,
+  },
+
+  botaoVerificar: {
+    height: 52,
+    paddingHorizontal: 16,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  textoVerificar: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+
+  resultado: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+
+  resultadoTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  resultadoNome: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginLeft: 8,
+  },
+
+  resultadoDetalhe: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 4,
+  },
+
+  resultadoAviso: {
+    fontSize: 12,
+    color: colors.supportPink,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+
+  explicacaoCnpj: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    lineHeight: 16,
+    marginTop: 10,
   },
 
   botao: {
