@@ -1,21 +1,37 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { carregarConta, salvarConta } from '../services/auth';
+import * as Location from 'expo-location';
+import { useCameraPermissions } from 'expo-camera';
+import { apagarConta, carregarConta, salvarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
-export default function ProfileScreen() {
+const VERSAO = '1.0.0';
+
+export default function ProfileScreen(props) {
 
   const [conta, setConta] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [temBiometria, setTemBiometria] = useState(false);
+  const [permissaoLocalizacao, setPermissaoLocalizacao] = useState(false);
+
+  const [permissaoCamera] = useCameraPermissions();
 
   useEffect(() => {
     buscarConta();
     verificarBiometria();
+    verificarLocalizacao();
   }, []);
 
   async function buscarConta() {
@@ -45,6 +61,20 @@ export default function ProfileScreen() {
       console.log('Erro ao verificar a biometria:', error);
 
       setTemBiometria(false);
+    }
+  }
+
+  // getForegroundPermissions só consulta o que já foi decidido; quem pede
+  // de verdade é a tela do mapa, no momento em que precisa.
+  async function verificarLocalizacao() {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+
+      setPermissaoLocalizacao(status === 'granted');
+    } catch (error) {
+      console.log('Erro ao verificar a localização:', error);
+
+      setPermissaoLocalizacao(false);
     }
   }
 
@@ -92,8 +122,67 @@ export default function ProfileScreen() {
     }
   }
 
+  function confirmarSaida() {
+    Alert.alert(
+      'Sair da conta',
+      'Sem servidor, sair apaga a conta deste aparelho. Você precisará criar outra para entrar de novo.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Sair',
+          style: 'destructive',
+          onPress: sair,
+        },
+      ]
+    );
+  }
+
+  async function sair() {
+    try {
+      await apagarConta();
+
+      // O Perfil é uma aba, e o login mora no Stack que envolve as abas.
+      // Por isso pedimos ao navegador pai para trocar de tela.
+      props.navigation.getParent().replace('Login');
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível sair da conta.'
+      );
+    }
+  }
+
   function primeiraLetra(nome) {
     return nome.trim().charAt(0).toUpperCase();
+  }
+
+  function renderizarPermissao(icone, titulo, concedida) {
+    return (
+      <View style={styles.linha}>
+        <View style={styles.icone}>
+          <Ionicons name={icone} size={20} color={colors.primary} />
+        </View>
+
+        <View style={styles.linhaTexto}>
+          <Text style={styles.linhaTitulo}>{titulo}</Text>
+
+          <Text style={styles.linhaDescricao}>
+            {concedida
+              ? 'Permissão concedida'
+              : 'Não concedida — o app pede quando precisar'}
+          </Text>
+        </View>
+
+        <Ionicons
+          name={concedida ? 'checkmark-circle' : 'ellipse-outline'}
+          size={22}
+          color={concedida ? colors.supportGreen : '#C9BFB1'}
+        />
+      </View>
+    );
   }
 
   if (carregando) {
@@ -172,6 +261,72 @@ export default function ProfileScreen() {
                 />
               </View>
             </View>
+
+            <Text style={styles.grupo}>Permissões</Text>
+
+            <View style={styles.cartao}>
+              {renderizarPermissao(
+                'camera-outline',
+                'Câmera',
+                permissaoCamera ? permissaoCamera.granted : false
+              )}
+
+              <View style={styles.divisoria} />
+
+              {renderizarPermissao(
+                'location-outline',
+                'Localização',
+                permissaoLocalizacao
+              )}
+            </View>
+
+            <Text style={styles.grupo}>Privacidade e conta</Text>
+
+            <View style={styles.cartao}>
+              <View style={styles.linha}>
+                <View style={styles.icone}>
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={20}
+                    color={colors.primary}
+                  />
+                </View>
+
+                <View style={styles.linhaTexto}>
+                  <Text style={styles.linhaTitulo}>Seus dados</Text>
+
+                  <Text style={styles.linhaDescricao}>
+                    Nome, e-mail e senha ficam só neste aparelho. A digital
+                    nunca chega ao aplicativo.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.divisoria} />
+
+              <Pressable
+                style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
+                onPress={confirmarSaida}
+              >
+                <View style={styles.icone}>
+                  <Ionicons
+                    name="log-out-outline"
+                    size={20}
+                    color={colors.supportPink}
+                  />
+                </View>
+
+                <View style={styles.linhaTexto}>
+                  <Text style={styles.linhaTituloSair}>Sair da conta</Text>
+
+                  <Text style={styles.linhaDescricao}>
+                    Apaga a conta gravada neste aparelho
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+              </Pressable>
+            </View>
           </View>
         ) : (
           <View style={styles.cartao}>
@@ -182,8 +337,7 @@ export default function ProfileScreen() {
         )}
 
         <Text style={styles.aviso}>
-          Os dados da sua conta ficam apenas neste aparelho. O InfoAbrigo
-          ainda não tem servidor.
+          InfoAbrigo {VERSAO}
         </Text>
 
       </ScrollView>
@@ -271,6 +425,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#9A8F7E',
     textTransform: 'uppercase',
+    marginTop: 20,
     marginBottom: 8,
     marginLeft: 4,
   },
@@ -293,6 +448,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
 
+  divisoria: {
+    height: 1,
+    backgroundColor: '#F0E9DC',
+  },
+
   icone: {
     width: 40,
     height: 40,
@@ -312,9 +472,16 @@ const styles = StyleSheet.create({
     color: colors.textMain,
   },
 
+  linhaTituloSair: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: colors.supportPink,
+  },
+
   linhaDescricao: {
     fontSize: 12,
     color: '#9A8F7E',
+    lineHeight: 16,
     marginTop: 2,
   },
 
@@ -333,7 +500,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9A8F7E',
     textAlign: 'center',
-    lineHeight: 15,
-    marginTop: 20,
+    marginTop: 24,
+  },
+
+  pressionado: {
+    opacity: 0.5,
   },
 });
