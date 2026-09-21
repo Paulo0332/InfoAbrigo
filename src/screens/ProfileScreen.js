@@ -122,35 +122,41 @@ export default function ProfileScreen(props) {
     }
   }
 
-  function confirmarSaida() {
+  // Sair apenas tranca o aplicativo de novo: a conta continua gravada, e
+  // a pessoa volta a entrar com a senha ou com a digital. O Perfil é uma
+  // aba, e o login mora no Stack que envolve as abas — por isso pedimos ao
+  // navegador pai para trocar de tela.
+  function sair() {
+    props.navigation.getParent().replace('Login');
+  }
+
+  function confirmarExclusao() {
     Alert.alert(
-      'Sair da conta',
-      'Sem servidor, sair apaga a conta deste aparelho. Você precisará criar outra para entrar de novo.',
+      'Apagar a conta deste aparelho',
+      'Isto remove o seu nome, e-mail e senha daqui. Não existe servidor guardando nada, então não há como recuperar: você teria de criar outra conta.',
       [
         {
           text: 'Cancelar',
           style: 'cancel',
         },
         {
-          text: 'Sair',
+          text: 'Apagar',
           style: 'destructive',
-          onPress: sair,
+          onPress: apagar,
         },
       ]
     );
   }
 
-  async function sair() {
+  async function apagar() {
     try {
       await apagarConta();
 
-      // O Perfil é uma aba, e o login mora no Stack que envolve as abas.
-      // Por isso pedimos ao navegador pai para trocar de tela.
       props.navigation.getParent().replace('Login');
     } catch (error) {
       Alert.alert(
         'Erro',
-        'Não foi possível sair da conta.'
+        'Não foi possível apagar a conta.'
       );
     }
   }
@@ -306,21 +312,48 @@ export default function ProfileScreen(props) {
 
               <Pressable
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
-                onPress={confirmarSaida}
+                onPress={sair}
               >
                 <View style={styles.icone}>
                   <Ionicons
                     name="log-out-outline"
+                    size={20}
+                    color={colors.primary}
+                  />
+                </View>
+
+                <View style={styles.linhaTexto}>
+                  <Text style={styles.linhaTitulo}>Sair da conta</Text>
+
+                  <Text style={styles.linhaDescricao}>
+                    Volta para o login. A sua conta continua salva aqui.
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+              </Pressable>
+
+              <View style={styles.divisoria} />
+
+              <Pressable
+                style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
+                onPress={confirmarExclusao}
+              >
+                <View style={styles.icone}>
+                  <Ionicons
+                    name="trash-outline"
                     size={20}
                     color={colors.supportPink}
                   />
                 </View>
 
                 <View style={styles.linhaTexto}>
-                  <Text style={styles.linhaTituloSair}>Sair da conta</Text>
+                  <Text style={styles.linhaTituloSair}>
+                    Apagar a conta deste aparelho
+                  </Text>
 
                   <Text style={styles.linhaDescricao}>
-                    Apaga a conta gravada neste aparelho
+                    Remove os seus dados. Não há como recuperar.
                   </Text>
                 </View>
 
