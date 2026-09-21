@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { StyleSheet, Text, View, Pressable, Modal, Image, Alert, FlatList, TextInput, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { Ionicons } from '@expo/vector-icons';
+import { carregarAtividades, salvarAtividades } from '../services/activities';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -26,6 +27,34 @@ export default function ScheduleScreen() {
   const [activities, setActivities] = useState([]);
   
   const cameraRef = useRef(null);
+
+  useEffect(() => {
+    buscarAtividades();
+  }, []);
+
+  // As atividades ficavam so no useState: fotografar, fechar o app e
+  // perder tudo. Agora elas vem do AsyncStorage, como a lista do Modulo 2.
+  async function buscarAtividades() {
+    try {
+      const salvas = await carregarAtividades();
+
+      setActivities(salvas);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível ler as atividades salvas.');
+    }
+  }
+
+  // Toda alteracao na lista passa por aqui, para o estado da tela e o
+  // disco nunca sairem de sincronia.
+  async function gravarLista(novaLista) {
+    setActivities(novaLista);
+
+    try {
+      await salvarAtividades(novaLista);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível salvar as atividades.');
+    }
+  }
 
   async function openCamera() {
     if (!cameraPermission?.granted) {
@@ -80,7 +109,7 @@ export default function ScheduleScreen() {
       saved: savedToGallery
     };
 
-    setActivities([newActivity, ...activities]);
+    gravarLista([newActivity, ...activities]);
     closeModal();
   }
 
@@ -103,7 +132,7 @@ export default function ScheduleScreen() {
           text: 'Excluir', 
           style: 'destructive',
           onPress: () => {
-            setActivities(activities.filter(a => a.id !== id));
+            gravarLista(activities.filter(a => a.id !== id));
           }
         }
       ]
