@@ -131,6 +131,20 @@ export default function HomeScreen(props) {
     return necessidades.filter((necessidade) => !necessidade.done);
   }
 
+  function atendidas() {
+    return necessidades.filter((necessidade) => necessidade.done);
+  }
+
+  // Quanto da barra preencher, de 0 a 100. Sem necessidade nenhuma a
+  // divisao daria NaN, por isso o zero antes da conta.
+  function percentualAtendido() {
+    if (necessidades.length === 0) {
+      return 0;
+    }
+
+    return Math.round((atendidas().length / necessidades.length) * 100);
+  }
+
   function irPara(destino) {
     setAvisosVisiveis(false);
 
@@ -277,9 +291,18 @@ export default function HomeScreen(props) {
                 <Text style={styles.warningDesc}>
                   A mais recente: {necessidadesAbertas[0].title}
                 </Text>
-              </View>
 
-              <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+                <View style={styles.barraFundo}>
+                  <View
+                    style={[styles.barraCheia, { width: percentualAtendido() + '%' }]}
+                  />
+                </View>
+
+                <Text style={styles.barraTexto}>
+                  {atendidas().length} de {necessidades.length} atendidas
+                  {'  •  '}{percentualAtendido()}%
+                </Text>
+              </View>
             </Pressable>
           ) : (
             <Pressable
@@ -569,6 +592,26 @@ const styles = StyleSheet.create({
   warningDesc: {
     fontSize: 14,
     color: '#666',
+  },
+
+  barraFundo: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#F0E9DC',
+    overflow: 'hidden',
+    marginTop: 10,
+  },
+
+  barraCheia: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.supportGreen,
+  },
+
+  barraTexto: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 5,
   },
 
   activityHeader: {
