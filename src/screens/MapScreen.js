@@ -14,6 +14,8 @@ import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { ehGestor } from '../data/perfis';
+import { carregarConta } from '../services/auth';
 import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
@@ -158,6 +160,7 @@ export default function MapScreen(props) {
   const [abrigos, setAbrigos] = useState([]);
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
   const [busca, setBusca] = useState('');
+  const [conta, setConta] = useState(null);
 
   // A referência serve para mandar comandos para dentro da página, como
   // recentralizar o mapa num abrigo.
@@ -166,6 +169,7 @@ export default function MapScreen(props) {
   useEffect(() => {
     buscarLocalizacao();
     buscarAbrigos();
+    buscarConta().then(setConta).catch(() => setConta(null));
 
     // Ao voltar do cadastro, a lista precisa ser lida de novo.
     const inscricao = props.navigation.addListener('focus', buscarAbrigos);
@@ -193,6 +197,10 @@ export default function MapScreen(props) {
 
       setErro('Não foi possível obter a sua localização.');
     }
+  }
+
+  async function buscarConta() {
+    return carregarConta();
   }
 
   async function buscarAbrigos() {
@@ -294,6 +302,22 @@ export default function MapScreen(props) {
     centralizarEm(abrigo);
   }
 
+  // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
+  // interface, não de segurança: sem servidor ninguém valida nada.
+  function souDono(abrigo) {
+    return conta != null && abrigo.dono === conta.email;
+  }
+
+  function centralizarEmMim() {
+    const comando =
+      'mapa.setView([' + localizacao.latitude + ',' + localizacao.longitude +
+      '], 15); true;';
+
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(comando);
+    }
+  }
+
   function distanciaAte(abrigo) {
     const km = calcularDistancia(
       localizacao.latitude,
@@ -333,12 +357,14 @@ export default function MapScreen(props) {
             </Text>
           </View>
 
-          <Pressable
-            style={({ pressed }) => [styles.botaoMais, pressed && styles.pressionado]}
-            onPress={() => props.navigation.navigate('RegisterShelter')}
-          >
-            <Ionicons name="add" size={26} color={colors.primary} />
-          </Pressable>
+          {ehGestor(conta) && (
+            <Pressable
+              style={({ pressed }) => [styles.botaoMais, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('RegisterShelter')}
+            >
+              <Ionicons name="add" size={26} color={colors.primary} />
+            </Pressable>
+          )}
         </View>
 
         {abrigos.length > 0 && (
@@ -396,14 +422,29 @@ export default function MapScreen(props) {
               aplicativo, pela própria instituição.
             </Text>
 
-            <Pressable
-              style={({ pressed }) => [styles.conviteBotao, pressed && styles.pressionado]}
-              onPress={() => props.navigation.navigate('RegisterShelter')}
-            >
-              <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.conviteBotaoTexto}>Cadastrar um abrigo</Text>
-            </Pressable>
+            {ehGestor(conta) && (
+              <Pressable
+                style={({ pressed }) => [styles.conviteBotao, pressed && styles.pressionado]}
+                onPress={() => props.navigation.navigate('RegisterShelter')}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+                <Text style={styles.conviteBotaoTexto}>Cadastrar um abrigo</Text>
+              </Pressable>
+            )}
           </View>
+        )}
+
+        {!erro && localizacao && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.botaoMim,
+              abrigoSelecionado && styles.botaoMimAcima,
+              pressed && styles.pressionado,
+            ]}
+            onPress={centralizarEmMim}
+          >
+            <Ionicons name="locate" size={22} color={colors.primary} />
+          </Pressable>
         )}
 
         {abrigoSelecionado && (
@@ -475,6 +516,20 @@ export default function MapScreen(props) {
                 <Ionicons name="share-social" size={20} color={colors.primary} />
                 <Text style={styles.textoAcao}>Enviar</Text>
               </Pressable>
+
+              {souDono(abrigoSelecionado) && (
+                <Pressable
+                  style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                  onPress={() =>
+                    props.navigation.navigate('RegisterShelter', {
+                      abrigo: abrigoSelecionado,
+                    })
+                  }
+                >
+                  <Ionicons name="create-outline" size={20} color={colors.primary} />
+                  <Text style={styles.textoAcao}>Editar</Text>
+                </Pressable>
+              )}
             </View>
 
             <Pressable
@@ -625,6 +680,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+
+  botaoMim: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+
+  botaoMimAcima: {
+    bottom: 210,
   },
 
   cartao: {

@@ -13,15 +13,33 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { cadastrarAbrigo } from '../services/shelters';
+import { carregarConta } from '../services/auth';
+import {
+  apagarAbrigo,
+  atualizarAbrigo,
+  cadastrarAbrigo,
+} from '../services/shelters';
 import { colors } from '../theme/colors';
 
 export default function RegisterShelterScreen(props) {
 
-  const [nome, setNome] = useState('');
-  const [criancas, setCriancas] = useState('');
-  const [contato, setContato] = useState('');
-  const [localizacao, setLocalizacao] = useState(null);
+  // A mesma tela cadastra e edita. Recebendo um abrigo por parâmetro, ela
+  // abre preenchida e salva por cima em vez de criar outro.
+  const parametros = props.route.params || {};
+  const abrigoEditado = parametros.abrigo || null;
+
+  const [nome, setNome] = useState(abrigoEditado ? abrigoEditado.nome : '');
+  const [criancas, setCriancas] = useState(
+    abrigoEditado ? String(abrigoEditado.criancas) : ''
+  );
+  const [contato, setContato] = useState(
+    abrigoEditado ? abrigoEditado.contato : ''
+  );
+  const [localizacao, setLocalizacao] = useState(
+    abrigoEditado
+      ? { latitude: abrigoEditado.latitude, longitude: abrigoEditado.longitude }
+      : null
+  );
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
@@ -84,28 +102,70 @@ export default function RegisterShelterScreen(props) {
       return;
     }
 
-    const abrigo = {
-      id: Date.now().toString(),
-      nome: nomeLimpo,
-      criancas: quantidade,
-      contato: contato.trim(),
-      latitude: localizacao.latitude,
-      longitude: localizacao.longitude,
-      cadastradoEm: new Date().toISOString(),
-    };
-
     setSalvando(true);
 
     try {
-      await cadastrarAbrigo(abrigo);
+      if (abrigoEditado) {
+        await atualizarAbrigo({
+          ...abrigoEditado,
+          nome: nomeLimpo,
+          criancas: quantidade,
+          contato: contato.trim(),
+          latitude: localizacao.latitude,
+          longitude: localizacao.longitude,
+        });
+      } else {
+        // O dono é a conta que cadastrou. É por ele que a tela do mapa
+        // decide quem pode editar e excluir aquele abrigo.
+        const conta = await carregarConta();
+
+        await cadastrarAbrigo({
+          id: Date.now().toString(),
+          nome: nomeLimpo,
+          criancas: quantidade,
+          contato: contato.trim(),
+          latitude: localizacao.latitude,
+          longitude: localizacao.longitude,
+          dono: conta ? conta.email : '',
+          cadastradoEm: new Date().toISOString(),
+        });
+      }
 
       Keyboard.dismiss();
 
       props.navigation.goBack();
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível cadastrar o abrigo.');
+      Alert.alert('Erro', 'Não foi possível salvar o abrigo.');
     } finally {
       setSalvando(false);
+    }
+  }
+
+  function confirmarExclusao() {
+    Alert.alert(
+      'Excluir abrigo',
+      'O abrigo deixa de aparecer no mapa. Esta ação não pode ser desfeita.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: excluir,
+        },
+      ]
+    );
+  }
+
+  async function excluir() {
+    try {
+      await apagarAbrigo(abrigoEditado.id);
+
+      props.navigation.goBack();
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível excluir o abrigo.');
     }
   }
 
@@ -126,7 +186,9 @@ export default function RegisterShelterScreen(props) {
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </Pressable>
 
-          <Text style={styles.headerTitulo}>Cadastrar abrigo</Text>
+          <Text style={styles.headerTitulo}>
+            {abrigoEditado ? 'Editar abrigo' : 'Cadastrar abrigo'}
+          </Text>
 
           <View style={styles.voltar} />
         </View>
@@ -139,10 +201,12 @@ export default function RegisterShelterScreen(props) {
         showsVerticalScrollIndicator={false}
       >
 
-        <Text style={styles.explicacao}>
-          O abrigo aparece no mapa para quem quer doar. Cadastre apenas
-          instituições que você administra ou que autorizaram aparecer.
-        </Text>
+        {!abrigoEditado && (
+          <Text style={styles.explicacao}>
+            O abrigo aparece no mapa para quem quer doar. Cadastre apenas
+            instituições que você administra ou que autorizaram aparecer.
+          </Text>
+        )}
 
         <Text style={styles.rotulo}>Nome do abrigo</Text>
         <TextInput
@@ -185,7 +249,11 @@ export default function RegisterShelterScreen(props) {
           <Ionicons name="location" size={20} color={colors.primary} />
 
           <Text style={styles.textoBotaoLocal}>
-            {buscando ? 'Buscando...' : 'Usar a localização atual'}
+            {buscando
+              ? 'Buscando...'
+              : abrigoEditado
+              ? 'Atualizar para a localização atual'
+              : 'Usar a localização atual'}
           </Text>
         </Pressable>
 
@@ -205,9 +273,23 @@ export default function RegisterShelterScreen(props) {
           disabled={salvando}
         >
           <Text style={styles.textoBotao}>
-            {salvando ? 'Salvando...' : 'Cadastrar abrigo'}
+            {salvando
+              ? 'Salvando...'
+              : abrigoEditado
+              ? 'Salvar alterações'
+              : 'Cadastrar abrigo'}
           </Text>
         </Pressable>
+
+        {abrigoEditado && (
+          <Pressable
+            style={({ pressed }) => [styles.botaoExcluir, pressed && styles.pressionado]}
+            onPress={confirmarExclusao}
+          >
+            <Ionicons name="trash-outline" size={18} color={colors.supportPink} />
+            <Text style={styles.textoExcluir}>Excluir abrigo</Text>
+          </Pressable>
+        )}
 
         <Text style={styles.aviso}>
           O cadastro fica apenas neste aparelho. Ainda não existe servidor
@@ -334,6 +416,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+
+  botaoExcluir: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 50,
+    marginTop: 12,
+  },
+
+  textoExcluir: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: colors.supportPink,
+    marginLeft: 8,
   },
 
   aviso: {
