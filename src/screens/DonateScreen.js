@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
 import { carregarConta } from '../services/auth';
+import { registrarDoacao } from '../services/donations';
 import { colors } from '../theme/colors';
 
 const ABRIGO = 'Lar Esperança';
@@ -48,8 +49,27 @@ export default function DonateScreen(props) {
   }
 
   // O BiometricButton avisa por aqui que a identidade foi confirmada.
-  // Só depois disso a doação é dada como registrada.
-  function registrarDoacao() {
+  // Só depois disso a doação é gravada no histórico e a tela troca para
+  // o selo de confirmada.
+  async function confirmarDoacao() {
+    const doacao = {
+      id: Date.now().toString(),
+      valor: valor,
+      abrigo: ABRIGO,
+      data: new Date().toISOString(),
+    };
+
+    try {
+      await registrarDoacao(doacao);
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível registrar a doação.'
+      );
+
+      return;
+    }
+
     setConfirmada(true);
   }
 
@@ -83,7 +103,7 @@ export default function DonateScreen(props) {
 
     Keyboard.dismiss();
 
-    registrarDoacao();
+    confirmarDoacao();
   }
 
   function voltar() {
@@ -177,7 +197,7 @@ export default function DonateScreen(props) {
           <BiometricButton
             rotulo="Confirmar com biometria"
             mensagem={'Confirme a doação de R$ ' + valor + ',00'}
-            onSuccess={registrarDoacao}
+            onSuccess={confirmarDoacao}
             onVerificado={setTemBiometria}
           />
 
