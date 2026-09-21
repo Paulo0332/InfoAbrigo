@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -169,6 +171,13 @@ export default function DonateScreen(props) {
           </Pressable>
         </View>
       ) : (
+        // Sem isto o teclado sobe por cima do campo de senha. No iOS o
+        // KeyboardAvoidingView empurra o conteúdo; no Android o sistema
+        // redimensiona a janela, e a folga no fim da rolagem dá espaço.
+        <KeyboardAvoidingView
+          style={styles.corpo}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <ScrollView
           style={styles.corpo}
           contentContainerStyle={styles.corpoConteudo}
@@ -264,6 +273,7 @@ export default function DonateScreen(props) {
           </Text>
 
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
     </SafeAreaView>
@@ -310,6 +320,7 @@ const styles = StyleSheet.create({
 
   corpoConteudo: {
     padding: 16,
+    paddingBottom: 140,
   },
 
   cartao: {

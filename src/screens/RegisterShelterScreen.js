@@ -2,6 +2,8 @@ import { useState } from 'react';
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -194,6 +196,14 @@ export default function RegisterShelterScreen(props) {
         </View>
       </LinearGradient>
 
+      {/* Sem isto o teclado sobe por cima do campo que está sendo
+          digitado. No iOS o KeyboardAvoidingView empurra o conteúdo; no
+          Android o próprio sistema redimensiona a janela, e a folga no fim
+          da rolagem garante espaço para o campo subir. */}
+      <KeyboardAvoidingView
+        style={styles.corpo}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView
         style={styles.corpo}
         contentContainerStyle={styles.corpoConteudo}
@@ -297,6 +307,7 @@ export default function RegisterShelterScreen(props) {
         </Text>
 
       </ScrollView>
+      </KeyboardAvoidingView>
 
     </SafeAreaView>
   );
@@ -342,6 +353,7 @@ const styles = StyleSheet.create({
 
   corpoConteudo: {
     padding: 20,
+    paddingBottom: 140,
   },
 
   explicacao: {
