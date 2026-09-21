@@ -46,3 +46,14 @@ export function buscarPerfil(id) {
 export function ehGestor(conta) {
   return conta != null && conta.perfil === 'gestor';
 }
+
+// Contas criadas antes do campo perfil existir não têm o campo. Tratamos
+// essas como gestor, senão quem já usava o app perderia o formulário de
+// necessidades sem entender por quê.
+export function podeGerenciarNecessidades(conta) {
+  if (conta == null) {
+    return false;
+  }
+
+  return conta.perfil === undefined || conta.perfil === 'gestor';
+}

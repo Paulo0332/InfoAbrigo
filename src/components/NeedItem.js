@@ -6,10 +6,12 @@ export default function NeedItem(props) {
   return (
     <View style={styles.item}>
 
-      {/* Caixa de marcação: mostra o "check" quando a necessidade já foi atendida */}
+      {/* Caixa de marcação: mostra o "check" quando a necessidade já foi
+          atendida. Quem não administra o abrigo vê o estado, mas não muda. */}
       <Pressable
         style={[styles.checkbox, props.need.done && styles.checkboxDone]}
         onPress={() => props.onToggle(props.need.id)}
+        disabled={props.somenteLeitura}
       >
         {props.need.done && (
           <Ionicons name="checkmark" size={16} color="#FFFFFF" />
@@ -20,18 +22,31 @@ export default function NeedItem(props) {
       <Pressable
         style={styles.content}
         onPress={() => props.onToggle(props.need.id)}
+        disabled={props.somenteLeitura}
       >
         <Text style={[styles.title, props.need.done && styles.titleDone]}>
           {props.need.title}
         </Text>
+
+        {/* Necessidade cadastrada por um gestor carrega o nome do abrigo.
+            As antigas, de antes deste campo existir, não têm — e a etiqueta
+            simplesmente não aparece. */}
+        {props.need.abrigoNome ? (
+          <View style={styles.abrigo}>
+            <Ionicons name="business-outline" size={11} color="#9A8F7E" />
+            <Text style={styles.abrigoNome}>{props.need.abrigoNome}</Text>
+          </View>
+        ) : null}
       </Pressable>
 
-      <Pressable
-        style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
-        onPress={() => props.onDelete(props.need.id)}
-      >
-        <Ionicons name="trash-outline" size={20} color={colors.supportPink} />
-      </Pressable>
+      {props.somenteLeitura ? null : (
+        <Pressable
+          style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
+          onPress={() => props.onDelete(props.need.id)}
+        >
+          <Ionicons name="trash-outline" size={20} color={colors.supportPink} />
+        </Pressable>
+      )}
 
     </View>
   );
@@ -76,6 +91,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     color: colors.textMain,
+  },
+
+  abrigo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+
+  abrigoNome: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    marginLeft: 4,
   },
 
   titleDone: {

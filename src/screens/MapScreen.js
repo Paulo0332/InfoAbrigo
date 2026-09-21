@@ -533,6 +533,14 @@ export default function MapScreen(props) {
             </View>
 
             <Pressable
+              style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('Doações')}
+            >
+              <Ionicons name="list-outline" size={17} color={colors.primary} />
+              <Text style={styles.textoVer}>Ver o que o abrigo precisa</Text>
+            </Pressable>
+
+            <Pressable
               style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Donate', { abrigo: abrigoSelecionado.nome })
@@ -778,6 +786,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMain,
     marginTop: 3,
+  },
+
+  botaoVer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    marginTop: 12,
+  },
+
+  textoVer: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 7,
   },
 
   botaoDoar: {
