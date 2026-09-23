@@ -33,7 +33,7 @@ export default function DonationsScreen(props) {
   const [atualizando, setAtualizando] = useState(false);
   const [conta, setConta] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
-  const [meuAbrigo, setMeuAbrigo] = useState(null);
+  const [meusAbrigos, setMeusAbrigos] = useState([]);
   const [filtro, setFiltro] = useState(TODOS);
   const [busca, setBusca] = useState('');
 
@@ -73,19 +73,20 @@ export default function DonationsScreen(props) {
       setAbrigos(listaAbrigos);
       setNeeds(listaNecessidades || []);
 
-      // O gestor cadastra necessidades em nome do abrigo dele. É o
-      // primeiro abrigo cujo dono seja a conta atual.
-      const meu = ehGestor(contaSalva)
-        ? listaAbrigos.find((abrigo) => abrigo.dono === contaSalva.email)
-        : null;
+      // Quem administra pode administrar mais de um abrigo. Guardar só o
+      // primeiro fazia toda necessidade cair nele, qualquer que fosse o
+      // filtro escolhido — e o segundo abrigo nunca recebia nada.
+      const meus = ehGestor(contaSalva)
+        ? listaAbrigos.filter((abrigo) => abrigo.dono === contaSalva.email)
+        : [];
 
-      setMeuAbrigo(meu || null);
+      setMeusAbrigos(meus);
 
       // Quem administra um abrigo abre a tela já na lista dele. Depois
       // troca o filtro à vontade, e por isso só na primeira vez. Chegando
       // pelo mapa, quem manda é o abrigo que a pessoa tocou.
-      if (primeiraVez && meu && !pedido.abrigoId) {
-        setFiltro(meu.id);
+      if (primeiraVez && meus.length > 0 && !pedido.abrigoId) {
+        setFiltro(meus[0].id);
       }
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
@@ -114,11 +115,36 @@ export default function DonationsScreen(props) {
     }
   }
 
+  // Para qual abrigo a necessidade vai. É o do filtro, quando ele é meu;
+  // com o filtro em "Todos" e um abrigo só, é esse mesmo; com mais de um
+  // abrigo e nenhum escolhido, não há como adivinhar, e a tela pede que
+  // se escolha em vez de mandar tudo para o primeiro da lista.
+  function abrigoDoCadastro() {
+    const doFiltro = meusAbrigos.find((abrigo) => abrigo.id === filtro);
+
+    if (doFiltro) {
+      return doFiltro;
+    }
+
+    return meusAbrigos.length === 1 ? meusAbrigos[0] : null;
+  }
+
   function addNeed(title) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle) {
       Alert.alert('Atenção', 'Digite o nome da necessidade.');
+
+      return;
+    }
+
+    const destino = abrigoDoCadastro();
+
+    if (destino == null && meusAbrigos.length > 1) {
+      Alert.alert(
+        'Para qual abrigo?',
+        'Você administra mais de um abrigo. Escolha acima em qual deles cadastrar esta necessidade.'
+      );
 
       return;
     }
@@ -129,8 +155,8 @@ export default function DonationsScreen(props) {
       done: false,
       // Quem cadastra em nome de um abrigo deixa o vínculo gravado. Sem
       // abrigo, a necessidade fica geral, como eram todas antes.
-      abrigoId: meuAbrigo ? meuAbrigo.id : null,
-      abrigoNome: meuAbrigo ? meuAbrigo.nome : null,
+      abrigoId: destino ? destino.id : null,
+      abrigoNome: destino ? destino.nome : null,
     };
 
     gravarLista([newNeed, ...needs], 'Falha ao salvar a necessidade.');
@@ -194,7 +220,7 @@ export default function DonationsScreen(props) {
       return true;
     }
 
-    return meuAbrigo != null && need.abrigoId === meuAbrigo.id;
+    return meusAbrigos.some((abrigo) => abrigo.id === need.abrigoId);
   }
 
   function combinaComFiltro(need) {
@@ -469,17 +495,30 @@ export default function DonationsScreen(props) {
           </View>
         )}
 
-        {gerencia && meuAbrigo && (
+        {gerencia && abrigoDoCadastro() && (
           <View style={styles.vinculo}>
             <Ionicons name="business" size={14} color={colors.primary} />
 
             <Text style={styles.vinculoTexto}>
-              Cadastrando para {meuAbrigo.nome}
+              Cadastrando para {abrigoDoCadastro().nome}
             </Text>
           </View>
         )}
 
-        {gerencia && ehGestor(conta) && !meuAbrigo && (
+        {/* Com mais de um abrigo e o filtro em "Todos", não há como
+            adivinhar o destino — e mandar para o primeiro da lista era
+            exatamente o que fazia o segundo abrigo nunca receber nada. */}
+        {gerencia && !abrigoDoCadastro() && meusAbrigos.length > 1 && (
+          <View style={styles.vinculo}>
+            <Ionicons name="alert-circle" size={14} color={colors.supportPink} />
+
+            <Text style={styles.vinculoEscolha}>
+              Escolha acima para qual dos seus abrigos cadastrar
+            </Text>
+          </View>
+        )}
+
+        {gerencia && ehGestor(conta) && meusAbrigos.length === 0 && (
           <Pressable
             style={({ pressed }) => [styles.vinculoAviso, pressed && styles.doarPressionado]}
             onPress={() => props.navigation.navigate('RegisterShelter')}
@@ -675,6 +714,14 @@ const styles = StyleSheet.create({
   vinculoTexto: {
     fontSize: 12,
     color: colors.primary,
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+
+  vinculoEscolha: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.supportPink,
     fontWeight: 'bold',
     marginLeft: 5,
   },

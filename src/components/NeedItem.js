@@ -32,15 +32,27 @@ export default function NeedItem(props) {
           {props.need.title}
         </Text>
 
-        {/* Necessidade cadastrada por um gestor carrega o nome do abrigo.
-            As antigas, de antes deste campo existir, não têm — e a etiqueta
-            simplesmente não aparece. */}
-        {props.need.abrigoNome ? (
-          <View style={styles.abrigo}>
-            <Ionicons name="business-outline" size={11} color="#9A8F7E" />
-            <Text style={styles.abrigoNome}>{props.need.abrigoNome}</Text>
-          </View>
-        ) : null}
+        {/* De quem é a necessidade. Com o filtro em "Todos" a lista junta
+            os abrigos, e sem isto não dá para saber quem está precisando
+            do quê. A etiqueta era discreta demais para esse trabalho, e
+            as necessidades sem abrigo não diziam nada — agora dizem. */}
+        <View style={[styles.abrigo, !props.need.abrigoNome && styles.abrigoSolto]}>
+          <Ionicons
+            name="business"
+            size={11}
+            color={props.need.abrigoNome ? colors.primary : '#9A8F7E'}
+          />
+
+          <Text
+            style={[
+              styles.abrigoNome,
+              !props.need.abrigoNome && styles.abrigoNomeSolto,
+            ]}
+            numberOfLines={1}
+          >
+            {props.need.abrigoNome || 'Sem abrigo'}
+          </Text>
+        </View>
 
         {/* A reserva avisa que alguém já se ofereceu para levar o item.
             Não marca como atendida: quem confirma que chegou é o abrigo. */}
@@ -138,13 +150,29 @@ const styles = StyleSheet.create({
   abrigo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF3E6',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 5,
+  },
+
+  abrigoSolto: {
+    backgroundColor: colors.backgroundLight,
   },
 
   abrigoNome: {
+    flexShrink: 1,
     fontSize: 11,
-    color: '#9A8F7E',
+    fontWeight: 'bold',
+    color: colors.primary,
     marginLeft: 4,
+  },
+
+  abrigoNomeSolto: {
+    color: '#9A8F7E',
+    fontWeight: 'normal',
   },
 
   reserva: {
