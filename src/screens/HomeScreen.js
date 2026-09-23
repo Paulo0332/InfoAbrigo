@@ -174,13 +174,24 @@ export default function HomeScreen(props) {
   function montarAvisos() {
     const avisos = [];
 
-    for (const necessidade of abertas()) {
+    // As urgentes primeiro: uma necessidade marcada como urgente entrando
+    // no fim da fila é o mesmo que não ter sido marcada.
+    const emOrdem = abertas()
+      .slice()
+      .sort((a, b) => (b.urgente === true) - (a.urgente === true));
+
+    for (const necessidade of emOrdem) {
       avisos.push({
         id: 'n' + necessidade.id,
         icone: 'alert-circle',
-        cor: colors.primary,
-        titulo: 'O abrigo precisa de ' + necessidade.title,
-        texto: 'Cadastrado na aba Doações e ainda não atendido',
+        cor: necessidade.urgente ? colors.supportPink : colors.primary,
+        titulo:
+          (necessidade.urgente ? 'Urgente: ' : 'O abrigo precisa de ') +
+          necessidade.title +
+          (necessidade.quantidade ? ' (' + necessidade.quantidade + ')' : ''),
+        texto: necessidade.abrigoNome
+          ? 'Para o ' + necessidade.abrigoNome
+          : 'Cadastrado na aba Doações e ainda não atendido',
         destino: 'Doações',
       });
     }
@@ -209,7 +220,7 @@ export default function HomeScreen(props) {
         icone: aguardando ? 'time-outline' : ehItem ? 'cube' : 'heart',
         cor: aguardando || ehItem ? colors.primary : colors.supportGreen,
         titulo: ehItem
-          ? 'Você vai levar ' + ultima.item
+          ? (aguardando ? 'Você vai levar ' : 'Você entregou ') + ultima.item
           : aguardando
           ? 'Falta pagar R$ ' + formatarReais(ultima.valor)
           : 'Você doou R$ ' + formatarReais(ultima.valor),

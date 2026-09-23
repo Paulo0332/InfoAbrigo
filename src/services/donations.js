@@ -121,6 +121,40 @@ export async function apagarDoacao(id) {
 // Só entra na soma o que a pessoa confirmou ter pago. Somar o que está
 // pendente seria dizer que o abrigo recebeu um dinheiro que pode não ter
 // saído da conta de ninguém.
+// Usado quando o abrigo marca que o item prometido chegou: a promessa
+// daquela pessoa deixa de ficar "a caminho" e passa a entregue. É o único
+// caso em que a situação muda sem ser a própria pessoa marcando — e aqui
+// faz sentido, porque quem recebe é quem sabe que chegou.
+export async function atualizarSituacao(id, situacao) {
+  try {
+    const atuais = await carregarDoacoes();
+
+    const nova = atuais.map((doacao) => {
+      if (doacao.id !== id) {
+        return doacao;
+      }
+
+      const trocada = { ...doacao, situacao: situacao };
+
+      if (situacao === CONFIRMADA) {
+        trocada.recebidaEm = new Date().toISOString();
+      } else {
+        delete trocada.recebidaEm;
+      }
+
+      return trocada;
+    });
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+
+    return nova;
+  } catch (error) {
+    console.log('Erro ao atualizar a situação da doação:', error);
+
+    throw error;
+  }
+}
+
 export async function desfazerPagamento(id) {
   try {
     const atuais = await carregarDoacoes();

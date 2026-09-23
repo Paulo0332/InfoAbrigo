@@ -176,6 +176,16 @@ export default function HistoryScreen(props) {
           {aguardando && ehItem ? (
             <Text style={styles.aguardando}>Combinado, aguardando a entrega</Text>
           ) : null}
+
+          {/* Quem confirma que o item chegou é o abrigo, marcando a
+              necessidade como atendida. É o fim do ciclo que começou no
+              "vou doar". */}
+          {!aguardando && ehItem ? (
+            <Text style={styles.entregue}>
+              Entregue
+              {item.recebidaEm ? ' em ' + formatarData(item.recebidaEm) : ''}
+            </Text>
+          ) : null}
         </View>
       </View>
     );
@@ -379,6 +389,13 @@ const styles = StyleSheet.create({
 
   pressionado: {
     opacity: 0.6,
+  },
+
+  entregue: {
+    fontSize: 12,
+    color: colors.supportGreen,
+    fontWeight: 'bold',
+    marginTop: 6,
   },
 
   aguardando: {

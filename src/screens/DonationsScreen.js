@@ -18,7 +18,14 @@ import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 import { ehGestor, podeGerenciarNecessidades } from '../data/perfis';
 import { carregarConta } from '../services/auth';
-import { ITEM, apagarDoacao, registrarDoacao } from '../services/donations';
+import {
+  CONFIRMADA,
+  ITEM,
+  PENDENTE,
+  apagarDoacao,
+  atualizarSituacao,
+  registrarDoacao,
+} from '../services/donations';
 import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
@@ -154,7 +161,7 @@ export default function DonationsScreen(props) {
     return doFiltro != null && abrigoDoCadastro() == null;
   }
 
-  function addNeed(title) {
+  function addNeed(title, detalhes) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle) {
@@ -178,6 +185,10 @@ export default function DonationsScreen(props) {
       id: Date.now().toString(),
       title: cleanTitle,
       done: false,
+      // Quanto falta e se é para agora. Sem os dois, "fraldas" não diz
+      // nada a quem quer ajudar.
+      quantidade: detalhes ? detalhes.quantidade : '',
+      urgente: detalhes ? detalhes.urgente === true : false,
       // Quem cadastra em nome de um abrigo deixa o vínculo gravado. Sem
       // abrigo, a necessidade fica geral, como eram todas antes.
       abrigoId: destino ? destino.id : null,
@@ -187,19 +198,47 @@ export default function DonationsScreen(props) {
     gravarLista([newNeed, ...needs], 'Falha ao salvar a necessidade.');
   }
 
-  function toggleNeed(id) {
+  // Marcar atendida é o abrigo dizendo que o item chegou. Quando alguém
+  // tinha se oferecido para levar, isso fecha o ciclo: a promessa daquela
+  // pessoa deixa de ficar "a caminho" no histórico dela e passa a
+  // entregue. Desmarcar desfaz as duas coisas.
+  async function toggleNeed(id) {
+    const alvo = needs.find((need) => need.id === id);
+
+    if (alvo == null) {
+      return;
+    }
+
+    const recebendo = !alvo.done;
+
     const newList = needs.map((need) => {
-      if (need.id === id) {
-        return {
-          ...need,
-          done: !need.done,
-        };
+      if (need.id !== id) {
+        return need;
       }
 
-      return need;
+      const atualizada = { ...need, done: recebendo };
+
+      if (recebendo) {
+        atualizada.recebidoEm = new Date().toISOString();
+      } else {
+        delete atualizada.recebidoEm;
+      }
+
+      return atualizada;
     });
 
     gravarLista(newList, 'Falha ao atualizar a necessidade.');
+
+    if (alvo.reserva && alvo.reserva.doacaoId) {
+      try {
+        await atualizarSituacao(
+          alvo.reserva.doacaoId,
+          recebendo ? CONFIRMADA : PENDENTE
+        );
+      } catch (error) {
+        console.log('Erro ao fechar o ciclo da doação:', error);
+      }
+    }
   }
 
   function confirmDelete(id) {
@@ -268,16 +307,29 @@ export default function DonationsScreen(props) {
     return need.abrigoId === filtro;
   }
 
+  // A ordem é a da utilidade: o que falta vem antes do que já chegou, e
+  // dentro do que falta o urgente vem primeiro. Com a lista em ordem de
+  // cadastro, uma necessidade urgente entrava no fim e ficava invisível.
+  function pesoNaLista(need) {
+    if (need.done) {
+      return 2;
+    }
+
+    return need.urgente ? 0 : 1;
+  }
+
   function visiveis() {
     const texto = busca.trim().toLowerCase();
 
-    return needs.filter((need) => {
-      if (!combinaComFiltro(need)) {
-        return false;
-      }
+    return needs
+      .filter((need) => {
+        if (!combinaComFiltro(need)) {
+          return false;
+        }
 
-      return !texto || need.title.toLowerCase().indexOf(texto) >= 0;
-    });
+        return !texto || need.title.toLowerCase().indexOf(texto) >= 0;
+      })
+      .sort((a, b) => pesoNaLista(a) - pesoNaLista(b));
   }
 
   function minhaReserva(need) {

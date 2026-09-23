@@ -28,9 +28,26 @@ export default function NeedItem(props) {
         onPress={() => props.onToggle(props.need.id)}
         disabled={props.somenteLeitura}
       >
-        <Text style={[styles.title, props.need.done && styles.titleDone]}>
-          {props.need.title}
-        </Text>
+        <View style={styles.linhaTitulo}>
+          {/* Urgente precisa ser visto antes de ler o nome, senão não
+              adianta existir. */}
+          {props.need.urgente && !props.need.done ? (
+            <View style={styles.urgente}>
+              <Ionicons name="alert-circle" size={11} color="#FFFFFF" />
+              <Text style={styles.urgenteTexto}>Urgente</Text>
+            </View>
+          ) : null}
+
+          <Text style={[styles.title, props.need.done && styles.titleDone]}>
+            {props.need.title}
+          </Text>
+        </View>
+
+        {props.need.quantidade ? (
+          <Text style={[styles.quantidade, props.need.done && styles.quantidadeDone]}>
+            {props.need.quantidade}
+          </Text>
+        ) : null}
 
         {/* De quem é a necessidade. Com o filtro em "Todos" a lista junta
             os abrigos, e sem isto não dá para saber quem está precisando
@@ -66,6 +83,18 @@ export default function NeedItem(props) {
 
             <Text style={[styles.reservaTexto, minha && styles.reservaMinha]}>
               {minha ? 'Você vai levar' : reserva.nome + ' vai levar'}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* O abrigo marcou que chegou. É o fim do ciclo que começou em
+            "vou doar", e por isso fica escrito quem trouxe. */}
+        {reserva && props.need.done ? (
+          <View style={styles.reserva}>
+            <Ionicons name="checkmark-circle" size={11} color={colors.supportGreen} />
+
+            <Text style={[styles.reservaTexto, styles.reservaMinha]}>
+              {minha ? 'Você entregou' : 'Entregue por ' + reserva.nome}
             </Text>
           </View>
         ) : null}
@@ -142,9 +171,44 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
 
+  linhaTitulo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+
   title: {
+    flexShrink: 1,
     fontSize: 16,
     color: colors.textMain,
+  },
+
+  urgente: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.supportPink,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginRight: 6,
+  },
+
+  urgenteTexto: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 3,
+  },
+
+  quantidade: {
+    fontSize: 13,
+    color: colors.textMain,
+    marginTop: 2,
+  },
+
+  quantidadeDone: {
+    color: '#9A8F7E',
+    textDecorationLine: 'line-through',
   },
 
   abrigo: {
