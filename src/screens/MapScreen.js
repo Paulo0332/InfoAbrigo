@@ -18,6 +18,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { ehGestor } from '../data/perfis';
 import { carregarConta } from '../services/auth';
+import {
+  contatosDoAbrigo,
+  linkEmail,
+  linkInstagram,
+  linkTelefone,
+  linkWhatsapp,
+} from '../services/contato';
 import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
@@ -302,22 +309,74 @@ export default function MapScreen(props) {
     }
   }
 
-  // Só oferecemos ligar quando o contato tem cara de telefone.
-  function telefoneDoContato(contato) {
-    const digitos = (contato || '').replace(/[^0-9]/g, '');
+  // Os canais que o abrigo tem, na ordem em que as pessoas procuram. A
+  // lista sai vazia quando ninguém preencheu contato nenhum, e aí a
+  // linha inteira some do cartão.
+  function canais(abrigo) {
+    const contatos = contatosDoAbrigo(abrigo);
+    const lista = [];
 
-    return digitos.length >= 8 ? digitos : null;
+    if (contatos.celular) {
+      lista.push({
+        nome: 'whatsapp',
+        icone: 'logo-whatsapp',
+        rotulo: 'WhatsApp',
+        url: linkWhatsapp(
+          contatos.celular,
+          'Olá! Encontrei o ' + abrigo.nome + ' no InfoAbrigo e gostaria de ajudar.'
+        ),
+        aviso: 'Não foi possível abrir o WhatsApp.',
+      });
+    }
+
+    // O fixo é o número de ligar por natureza; o celular só entra aqui
+    // quando o abrigo não informou um fixo.
+    const paraLigar = contatos.fixo || contatos.celular;
+
+    if (paraLigar) {
+      lista.push({
+        nome: 'telefone',
+        icone: 'call',
+        rotulo: 'Ligar',
+        url: linkTelefone(paraLigar),
+        aviso: 'Não foi possível iniciar a chamada.',
+      });
+    }
+
+    if (contatos.email) {
+      lista.push({
+        nome: 'email',
+        icone: 'mail',
+        rotulo: 'E-mail',
+        url: linkEmail(contatos.email, 'Doação para o ' + abrigo.nome),
+        aviso: 'Não foi possível abrir o aplicativo de e-mail.',
+      });
+    }
+
+    if (contatos.instagram) {
+      lista.push({
+        nome: 'instagram',
+        icone: 'logo-instagram',
+        rotulo: 'Instagram',
+        url: linkInstagram(contatos.instagram),
+        aviso: 'Não foi possível abrir o Instagram.',
+      });
+    }
+
+    return lista;
   }
 
-  async function ligar(abrigo) {
-    const telefone = telefoneDoContato(abrigo.contato);
-
+  // Antes o cartão adivinhava o contato: se o texto tivesse oito dígitos
+  // virava telefone, e era só isso que dava para fazer. Agora o abrigo
+  // guarda cada canal no seu campo, e cada um vira um botão que abre o
+  // aplicativo certo do celular.
+  async function abrirCanal(url, aviso) {
     try {
-      await Linking.openURL('tel:' + telefone);
+      await Linking.openURL(url);
     } catch (error) {
-      console.log('Erro ao ligar:', error);
+      console.log('Erro ao abrir o contato:', error);
 
-      Alert.alert('Erro', 'Não foi possível iniciar a chamada.');
+      Alert.alert('Erro', aviso);
     }
   }
 
@@ -667,14 +726,25 @@ export default function MapScreen(props) {
                   {abrigoSelecionado.criancas} crianças
                 </Text>
               </View>
-
-              {abrigoSelecionado.contato ? (
-                <View style={styles.dado}>
-                  <Ionicons name="call-outline" size={15} color={colors.primary} />
-                  <Text style={styles.textoDado}>{abrigoSelecionado.contato}</Text>
-                </View>
-              ) : null}
             </View>
+
+            {canais(abrigoSelecionado).length > 0 && (
+              <View style={styles.contatos}>
+                {canais(abrigoSelecionado).map((canal) => (
+                  <Pressable
+                    key={canal.nome}
+                    style={({ pressed }) => [
+                      styles.contato,
+                      pressed && styles.pressionado,
+                    ]}
+                    onPress={() => abrirCanal(canal.url, canal.aviso)}
+                  >
+                    <Ionicons name={canal.icone} size={17} color={colors.primary} />
+                    <Text style={styles.textoContato}>{canal.rotulo}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             <View style={styles.acoes}>
               <Pressable
@@ -692,16 +762,6 @@ export default function MapScreen(props) {
                 <Ionicons name="locate" size={20} color={colors.primary} />
                 <Text style={styles.textoAcao}>Centralizar</Text>
               </Pressable>
-
-              {telefoneDoContato(abrigoSelecionado.contato) ? (
-                <Pressable
-                  style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
-                  onPress={() => ligar(abrigoSelecionado)}
-                >
-                  <Ionicons name="call" size={20} color={colors.primary} />
-                  <Text style={styles.textoAcao}>Ligar</Text>
-                </Pressable>
-              ) : null}
 
               <Pressable
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
@@ -1085,6 +1145,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9A8F7E',
     marginLeft: 5,
+  },
+
+  contatos: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+
+  contato: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+    marginTop: 6,
+  },
+
+  textoContato: {
+    fontSize: 13,
+    color: colors.textMain,
+    fontWeight: 'bold',
+    marginLeft: 6,
   },
 
   acoes: {
