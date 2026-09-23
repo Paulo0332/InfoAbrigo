@@ -430,6 +430,12 @@ export default function DonationsScreen(props) {
       return 'Nenhuma necessidade com esse nome nesta lista.';
     }
 
+    // Sem o formulário na tela, mandar cadastrar acima seria apontar para
+    // um campo que não existe.
+    if (abrigoDeOutro()) {
+      return 'Este abrigo ainda não publicou o que está precisando.';
+    }
+
     if (gerencia) {
       return 'Cadastre acima o que o abrigo está precisando.';
     }
@@ -501,9 +507,6 @@ export default function DonationsScreen(props) {
                   numberOfLines={1}
                 >
                   {opcao.nome}
-                  {meusAbrigos.some((abrigo) => abrigo.id === opcao.id)
-                    ? '  ·  seu'
-                    : ''}
                 </Text>
               </Pressable>
             ))}
