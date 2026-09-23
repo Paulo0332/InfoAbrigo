@@ -21,6 +21,7 @@ import { carregarVistos, marcarVistos } from '../services/avisos';
 import {
   ITEM,
   carregarDoacoes,
+  estaPendente,
   formatarReais,
   tipoDaDoacao,
   totalEmDinheiro,
@@ -192,16 +193,28 @@ export default function HomeScreen(props) {
       });
     }
 
+    // A última doação vira aviso. Enquanto ela estiver aguardando
+    // pagamento o aviso diz isso, e leva ao histórico, que é onde dá para
+    // marcar como paga.
     if (doacoes.length > 0) {
+      const ultima = doacoes[0];
+      const aguardando = estaPendente(ultima);
+      const ehItem = tipoDaDoacao(ultima) === ITEM;
+
       avisos.push({
-        id: 'd' + doacoes[0].id,
-        icone: tipoDaDoacao(doacoes[0]) === ITEM ? 'cube' : 'heart',
-        cor: tipoDaDoacao(doacoes[0]) === ITEM ? colors.primary : colors.supportGreen,
-        titulo: tipoDaDoacao(doacoes[0]) === ITEM
-          ? 'Você vai levar ' + doacoes[0].item
-          : 'Você doou R$ ' + formatarReais(doacoes[0].valor),
-        texto: 'Para o ' + doacoes[0].abrigo,
-        destino: 'Doações',
+        id: 'd' + ultima.id,
+        icone: aguardando ? 'time-outline' : ehItem ? 'cube' : 'heart',
+        cor: aguardando || ehItem ? colors.primary : colors.supportGreen,
+        titulo: ehItem
+          ? 'Você vai levar ' + ultima.item
+          : aguardando
+          ? 'Falta pagar R$ ' + formatarReais(ultima.valor)
+          : 'Você doou R$ ' + formatarReais(ultima.valor),
+        texto:
+          aguardando && !ehItem
+            ? 'Para o ' + ultima.abrigo + ' — toque para marcar como paga'
+            : 'Para o ' + ultima.abrigo,
+        destino: aguardando && !ehItem ? 'History' : 'Doações',
       });
     }
 

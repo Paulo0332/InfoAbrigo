@@ -6,10 +6,13 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   ITEM,
   carregarDoacoes,
+  confirmarPagamento,
+  estaPendente,
   formatarReais,
   tipoDaDoacao,
   totalDeItens,
   totalEmDinheiro,
+  totalPendente,
 } from '../services/donations';
 import { colors } from '../theme/colors';
 
@@ -53,6 +56,23 @@ export default function HistoryScreen(props) {
     return totalDeItens(doacoes);
   }
 
+  function pendentes() {
+    return totalPendente(doacoes);
+  }
+
+  // Quem sabe se o dinheiro saiu é quem pagou: não há servidor nem aviso
+  // do banco chegando aqui. Marcar por aqui é a saída de quem fechou a
+  // tela do pagamento antes de confirmar.
+  async function marcarComoPaga(doacao) {
+    try {
+      const nova = await confirmarPagamento(doacao.id);
+
+      setDoacoes(nova);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível registrar o pagamento.');
+    }
+  }
+
   // A data é gravada em ISO, que é bom para ordenar e ruim para ler. Aqui
   // ela vira o formato brasileiro, com a hora.
   function formatarData(iso) {
@@ -69,14 +89,15 @@ export default function HistoryScreen(props) {
   // valor, o outro mostra o que foi prometido levar.
   function renderizarDoacao({ item }) {
     const ehItem = tipoDaDoacao(item) === ITEM;
+    const aguardando = estaPendente(item);
 
     return (
       <View style={styles.item}>
         <View style={styles.itemIcone}>
           <Ionicons
-            name={ehItem ? 'cube' : 'heart'}
+            name={aguardando ? 'time-outline' : ehItem ? 'cube' : 'heart'}
             size={20}
-            color={ehItem ? colors.primary : colors.supportGreen}
+            color={aguardando ? colors.primary : ehItem ? colors.primary : colors.supportGreen}
           />
         </View>
 
@@ -87,6 +108,20 @@ export default function HistoryScreen(props) {
 
           <Text style={styles.itemAbrigo}>{item.abrigo}</Text>
           <Text style={styles.itemData}>{formatarData(item.data)}</Text>
+
+          {aguardando && !ehItem ? (
+            <Pressable
+              style={({ pressed }) => [styles.pagar, pressed && styles.pressionado]}
+              onPress={() => marcarComoPaga(item)}
+            >
+              <Ionicons name="checkmark-circle-outline" size={15} color={colors.supportGreen} />
+              <Text style={styles.pagarTexto}>Marcar como paga</Text>
+            </Pressable>
+          ) : null}
+
+          {aguardando && ehItem ? (
+            <Text style={styles.aguardando}>Combinado, aguardando a entrega</Text>
+          ) : null}
         </View>
       </View>
     );
@@ -116,7 +151,7 @@ export default function HistoryScreen(props) {
 
         {doacoes.length > 0 && (
           <View style={styles.resumo}>
-            <Text style={styles.resumoRotulo}>Total doado em dinheiro</Text>
+            <Text style={styles.resumoRotulo}>Total já pago</Text>
             <Text style={styles.resumoValor}>R$ {formatarReais(total())}</Text>
 
             <Text style={styles.resumoRotulo}>
@@ -127,6 +162,14 @@ export default function HistoryScreen(props) {
                 ? ', sendo ' + (itens() === 1 ? '1 item' : itens() + ' itens')
                 : ''}
             </Text>
+
+            {pendentes() > 0 && (
+              <Text style={styles.resumoPendente}>
+                {pendentes() === 1
+                  ? '1 aguardando pagamento ou entrega'
+                  : pendentes() + ' aguardando pagamento ou entrega'}
+              </Text>
+            )}
           </View>
         )}
       </LinearGradient>
@@ -217,6 +260,39 @@ const styles = StyleSheet.create({
   resumoRotulo: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.85)',
+  },
+
+  resumoPendente: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: 'bold',
+    marginTop: 6,
+  },
+
+  pagar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.supportGreen,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+  },
+
+  pagarTexto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.supportGreen,
+    marginLeft: 5,
+  },
+
+  aguardando: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: 'bold',
+    marginTop: 6,
   },
 
   resumoValor: {

@@ -13,6 +13,53 @@ export function tipoDaDoacao(doacao) {
   return doacao.tipo || DINHEIRO;
 }
 
+// Confirmar a identidade não é pagar. A biometria diz que foi você quem
+// pediu o código de pagamento; quem cobra é o banco, no passo seguinte, e
+// o aplicativo não tem como saber se a transferência aconteceu — não há
+// servidor nem aviso do banco chegando aqui.
+//
+// Por isso a doação nasce pendente e só vira concluída quando a própria
+// pessoa diz que pagou. Dar como feita na hora enchia o histórico de
+// dinheiro que talvez nunca tenha saído.
+export const PENDENTE = 'pendente';
+export const CONFIRMADA = 'confirmada';
+
+// Os registros gravados antes desta separação já entravam como feitos, e
+// continuam contando como tal.
+export function situacaoDaDoacao(doacao) {
+  return doacao.situacao || CONFIRMADA;
+}
+
+export function estaPendente(doacao) {
+  return situacaoDaDoacao(doacao) === PENDENTE;
+}
+
+export async function confirmarPagamento(id) {
+  try {
+    const atuais = await carregarDoacoes();
+
+    const nova = atuais.map((doacao) => {
+      if (doacao.id !== id) {
+        return doacao;
+      }
+
+      return {
+        ...doacao,
+        situacao: CONFIRMADA,
+        pagaEm: new Date().toISOString(),
+      };
+    });
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+
+    return nova;
+  } catch (error) {
+    console.log('Erro ao confirmar o pagamento:', error);
+
+    throw error;
+  }
+}
+
 export async function carregarDoacoes() {
   try {
     const dados = await AsyncStorage.getItem(STORAGE_KEY);
@@ -60,10 +107,18 @@ export async function apagarDoacao(id) {
   }
 }
 
+// Só entra na soma o que a pessoa confirmou ter pago. Somar o que está
+// pendente seria dizer que o abrigo recebeu um dinheiro que pode não ter
+// saído da conta de ninguém.
 export function totalEmDinheiro(lista) {
   return lista
     .filter((doacao) => tipoDaDoacao(doacao) === DINHEIRO)
+    .filter((doacao) => !estaPendente(doacao))
     .reduce((soma, doacao) => soma + Number(doacao.valor || 0), 0);
+}
+
+export function totalPendente(lista) {
+  return lista.filter(estaPendente).length;
 }
 
 export function totalDeItens(lista) {

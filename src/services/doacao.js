@@ -100,6 +100,37 @@ export function temFundoDaInfancia(abrigo) {
 // As formas de doar dinheiro que aquele abrigo realmente oferece. Vazia
 // quando ele não cadastrou nenhuma, e aí a tela diz isso em vez de
 // mostrar botão que não leva a lugar nenhum.
+// O que aquele abrigo ainda não cadastrou. Serve para a tela dizer que
+// as outras formas existem: escondendo o que falta, quem doa conclui que
+// o aplicativo só sabe fazer Pix, e quem administra o abrigo nunca
+// descobre que podia ter cadastrado o resto.
+export function formasQueFaltam(abrigo) {
+  const faltando = [];
+
+  if (!temPix(abrigo)) {
+    faltando.push('Pix');
+  }
+
+  if (!temTransferencia(abrigo)) {
+    faltando.push('transferência');
+  }
+
+  if (!temSite(abrigo)) {
+    faltando.push('página para cartão ou boleto');
+  }
+
+  return faltando;
+}
+
+// Junta a lista do jeito que se fala: "a, b e c".
+export function juntarComE(lista) {
+  if (lista.length <= 1) {
+    return lista.join('');
+  }
+
+  return lista.slice(0, -1).join(', ') + ' e ' + lista[lista.length - 1];
+}
+
 export function formasDeDinheiro(abrigo) {
   const formas = [];
 
