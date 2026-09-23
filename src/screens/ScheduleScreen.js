@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { StyleSheet, Text, View, Pressable, Modal, Image, Alert, FlatList, TextInput, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,13 @@ const TAGS = ['Doação', 'Visita', 'Manutenção', 'Outros'];
 
 export default function ScheduleScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  // O SafeAreaView do topo do formulário piscava sem parar quando o
+  // teclado abria na descrição: dentro de um Modal ele remede a folga a
+  // cada mudança da janela, aplica o novo espaço, e a mudança dispara
+  // outra medição. O hook devolve a mesma folga sem remedir, então o
+  // laço não existe.
+  const areaSegura = useSafeAreaInsets();
   
   const [modalVisible, setModalVisible] = useState(false);
   const [photo, setPhoto] = useState(null);
@@ -25,6 +32,14 @@ export default function ScheduleScreen() {
 
   // Lista de atividades registradas
   const [activities, setActivities] = useState([]);
+
+  // O registro que está sendo editado. Nulo quando é um registro novo.
+  const [editando, setEditando] = useState(null);
+
+  // A prévia do formulário é cortada em 250 px de altura, o que esconde
+  // as bordas da foto. Guardando aqui qual foto ampliar, dá para ver a
+  // imagem inteira antes de salvar.
+  const [fotoAmpliada, setFotoAmpliada] = useState(null);
   
   const cameraRef = useRef(null);
 
@@ -80,23 +95,37 @@ export default function ScheduleScreen() {
     }
   }
 
+  // Tenta salvar nativamente na galeria exigida pelo módulo. Devolve se
+  // conseguiu, porque no Expo Go a permissão às vezes não vem e aí o
+  // registro continua valendo, só que apenas dentro do aplicativo.
+  async function guardarNaGaleria(uri) {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
+
+      if (status !== 'granted') {
+        return false;
+      }
+
+      await MediaLibrary.saveToLibraryAsync(uri);
+
+      return true;
+    } catch (error) {
+      console.log('Galeria nativa bloqueada ou inacessível no Expo Go:', error);
+
+      return false;
+    }
+  }
+
   async function saveActivity() {
     if (!title.trim()) {
       Alert.alert('Aviso', 'Dê um título para sua atividade.');
       return;
     }
 
-    let savedToGallery = false;
+    if (editando) {
+      await salvarEdicao();
 
-    // Tenta salvar nativamente na galeria exigida pelo módulo
-    try {
-      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
-      if (status === 'granted') {
-        await MediaLibrary.saveToLibraryAsync(photo);
-        savedToGallery = true;
-      }
-    } catch (error) {
-      console.log('Galeria nativa bloqueada ou inacessível no Expo Go:', error);
+      return;
     }
 
     const newActivity = {
@@ -106,11 +135,49 @@ export default function ScheduleScreen() {
       description: description.trim(),
       tag: selectedTag,
       date: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      saved: savedToGallery
+      saved: await guardarNaGaleria(photo)
     };
 
     gravarLista([newActivity, ...activities]);
     closeModal();
+  }
+
+  // Editar troca o registro no lugar, pelo id, como o atualizarAbrigo do
+  // mapa. A data original fica: ela diz quando a atividade aconteceu, não
+  // quando o texto foi corrigido.
+  async function salvarEdicao() {
+    const trocouFoto = photo !== editando.uri;
+    const naGaleria = trocouFoto ? await guardarNaGaleria(photo) : editando.saved;
+
+    const nova = activities.map((item) => {
+      if (item.id !== editando.id) {
+        return item;
+      }
+
+      return {
+        ...item,
+        uri: photo,
+        title: title.trim(),
+        description: description.trim(),
+        tag: selectedTag,
+        saved: naGaleria
+      };
+    });
+
+    gravarLista(nova);
+    closeModal();
+  }
+
+  // Abrir um registro que já existe reaproveita o mesmo formulário: a
+  // foto vem do registro, os campos vêm preenchidos e o salvar troca no
+  // lugar em vez de criar outro.
+  function editarAtividade(atividade) {
+    setEditando(atividade);
+    setPhoto(atividade.uri);
+    setTitle(atividade.title);
+    setDescription(atividade.description);
+    setSelectedTag(atividade.tag);
+    setModalVisible(true);
   }
 
   function closeModal() {
@@ -120,6 +187,28 @@ export default function ScheduleScreen() {
     setTitle('');
     setDescription('');
     setSelectedTag(TAGS[0]);
+    setEditando(null);
+    setFotoAmpliada(null);
+  }
+
+  // Mostra a foto inteira por cima de tudo. É uma camada absoluta, e não
+  // outro Modal, porque Modal dentro de Modal se comporta mal no Android.
+  function fotoEmTelaCheia() {
+    if (!fotoAmpliada) {
+      return null;
+    }
+
+    return (
+      <Pressable style={styles.camadaFoto} onPress={() => setFotoAmpliada(null)}>
+        <Image
+          source={{ uri: fotoAmpliada }}
+          style={styles.fotoInteira}
+          resizeMode="contain"
+        />
+
+        <Text style={styles.dicaFoto}>Toque em qualquer lugar para fechar</Text>
+      </Pressable>
+    );
   }
 
   function deleteActivity(id) {
@@ -142,11 +231,22 @@ export default function ScheduleScreen() {
   function renderActivityItem({ item }) {
     return (
       <View style={styles.activityCard}>
-        <Image source={{ uri: item.uri }} style={styles.activityImage} />
-        
+        <Pressable onPress={() => setFotoAmpliada(item.uri)}>
+          <Image source={{ uri: item.uri }} style={styles.activityImage} />
+
+          <View style={styles.lupa}>
+            <Ionicons name="expand" size={12} color="#FFF" />
+          </View>
+        </Pressable>
+
         <View style={styles.activityInfo}>
           <View style={styles.activityHeader}>
             <Text style={styles.activityTitle} numberOfLines={1}>{item.title}</Text>
+
+            <Pressable onPress={() => editarAtividade(item)} style={styles.deleteButton}>
+              <Ionicons name="create-outline" size={18} color={colors.primary} />
+            </Pressable>
+
             <Pressable onPress={() => deleteActivity(item.id)} style={styles.deleteButton}>
               <Ionicons name="trash-outline" size={18} color="#FF5252" />
             </Pressable>
@@ -222,11 +322,11 @@ export default function ScheduleScreen() {
                 onCameraReady={() => setIsCameraReady(true)}
               />
               <View style={styles.cameraOverlay}>
-                <SafeAreaView style={styles.cameraHeader}>
+                <View style={[styles.cameraHeader, { paddingTop: areaSegura.top + 20 }]}>
                   <Pressable onPress={closeModal} style={styles.glassButton}>
                     <Ionicons name="close" size={28} color="#FFF" />
                   </Pressable>
-                </SafeAreaView>
+                </View>
                 <View style={styles.cameraFooter}>
                   <Pressable 
                     onPress={takePicture} 
@@ -243,16 +343,24 @@ export default function ScheduleScreen() {
               <View style={styles.previewHeader}>
                 <Image source={{ uri: photo }} style={styles.formPreviewImage} />
                 <LinearGradient colors={['rgba(0,0,0,0.6)', 'transparent']} style={styles.formPreviewGradient}>
-                  <SafeAreaView>
-                    <Pressable onPress={() => setPhoto(null)} style={styles.glassButtonSmall}>
-                      <Ionicons name="arrow-back" size={24} color="#FFF" />
+                  <View style={[styles.barraPrevia, { paddingTop: areaSegura.top + 16 }]}>
+                    <Pressable onPress={() => setPhoto(null)} style={styles.botaoPrevia}>
+                      <Ionicons name="camera-reverse" size={18} color="#FFF" />
+                      <Text style={styles.textoPrevia}>Refazer foto</Text>
                     </Pressable>
-                  </SafeAreaView>
+
+                    <Pressable onPress={() => setFotoAmpliada(photo)} style={styles.botaoPrevia}>
+                      <Ionicons name="expand" size={18} color="#FFF" />
+                      <Text style={styles.textoPrevia}>Ver inteira</Text>
+                    </Pressable>
+                  </View>
                 </LinearGradient>
               </View>
 
               <View style={styles.formBody}>
-                <Text style={styles.formTitle}>Detalhes do Registro</Text>
+                <Text style={styles.formTitle}>
+                  {editando ? 'Editar Registro' : 'Detalhes do Registro'}
+                </Text>
                 
                 <Text style={styles.inputLabel}>Título da Atividade</Text>
                 <TextInput
@@ -292,14 +400,21 @@ export default function ScheduleScreen() {
                 <Pressable style={styles.saveAction} onPress={saveActivity}>
                   <LinearGradient colors={[colors.primary, colors.primaryGradient]} style={styles.saveActionGradient}>
                     <Ionicons name="checkmark-done" size={24} color="#FFF" />
-                    <Text style={styles.saveActionText}>Salvar Registro</Text>
+
+                    <Text style={styles.saveActionText}>
+                      {editando ? 'Salvar Alterações' : 'Salvar Registro'}
+                    </Text>
                   </LinearGradient>
                 </Pressable>
               </View>
             </ScrollView>
           )}
+
+          {fotoEmTelaCheia()}
         </KeyboardAvoidingView>
       </Modal>
+
+      {!modalVisible && fotoEmTelaCheia()}
     </SafeAreaView>
   );
 }
@@ -474,14 +589,60 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
-  glassButtonSmall: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    padding: 10,
-    borderRadius: 20,
+  barraPrevia: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+
+  botaoPrevia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.45)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
-    margin: 20,
-    alignSelf: 'flex-start',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+
+  textoPrevia: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  camadaFoto: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.94)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+
+  fotoInteira: {
+    width: '100%',
+    height: '80%',
+  },
+
+  dicaFoto: {
+    color: '#FFF',
+    fontSize: 13,
+    marginTop: 16,
+    opacity: 0.7,
+  },
+
+  lupa: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cameraFooter: {
     paddingBottom: 50,
@@ -523,6 +684,7 @@ const styles = StyleSheet.create({
   },
   formBody: {
     padding: 24,
+    paddingBottom: 60,
     backgroundColor: colors.backgroundLight,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

@@ -892,8 +892,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  // A folga entre as colunas fica na linha, e não na coluna: com a margem
+  // na coluna maior, a dupla Cidade/UF saía colada de um lado e afastada
+  // do outro, porque nessa linha a coluna maior vem primeiro.
   linha: {
     flexDirection: 'row',
+    gap: 10,
   },
 
   colunaMenor: {
@@ -902,7 +906,6 @@ const styles = StyleSheet.create({
 
   colunaMaior: {
     flex: 2,
-    marginLeft: 10,
   },
 
   botaoBuscar: {
