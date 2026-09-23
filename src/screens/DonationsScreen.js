@@ -27,6 +27,7 @@ import {
   registrarDoacao,
 } from '../services/donations';
 import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
+import { aviso, deuCerto, toqueLeve } from '../services/tato';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
 // Os dois filtros que não são um abrigo específico.
@@ -195,6 +196,8 @@ export default function DonationsScreen(props) {
       abrigoNome: destino ? destino.nome : null,
     };
 
+    toqueLeve();
+
     gravarLista([newNeed, ...needs], 'Falha ao salvar a necessidade.');
   }
 
@@ -226,6 +229,10 @@ export default function DonationsScreen(props) {
 
       return atualizada;
     });
+
+    if (recebendo) {
+      deuCerto();
+    }
 
     gravarLista(newList, 'Falha ao atualizar a necessidade.');
 
@@ -260,6 +267,8 @@ export default function DonationsScreen(props) {
   }
 
   function deleteNeed(id) {
+    aviso();
+
     gravarLista(
       needs.filter((need) => need.id !== id),
       'Falha ao excluir a necessidade.'
@@ -393,6 +402,7 @@ export default function DonationsScreen(props) {
       };
     });
 
+    deuCerto();
     setNeeds(novaLista);
 
     try {

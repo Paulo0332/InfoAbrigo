@@ -33,6 +33,7 @@ import {
   formatarDuracao,
 } from '../services/rota';
 import { calcularDistancia, carregarAbrigos, ehDono } from '../services/shelters';
+import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 
 // Nível de aproximação inicial. 14 mostra pouco mais de 3 km.
@@ -588,6 +589,8 @@ export default function MapScreen(props) {
 
         return;
       }
+
+      toqueLeve();
 
       setRota({ ...achada, abrigoId: abrigo.id, modo: modo });
       setVerPassos(false);

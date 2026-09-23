@@ -38,6 +38,7 @@ import {
   textoDaTransferencia,
 } from '../services/doacao';
 import { montarCodigoPix } from '../services/pix';
+import { deuCerto, deuErrado, toqueLeve } from '../services/tato';
 import { conferirSenha } from '../services/senha';
 import { carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
@@ -196,6 +197,8 @@ export default function DonateScreen(props) {
 
     // O código só é montado quando a forma escolhida é Pix. Nas outras a
     // tela seguinte mostra os dados da conta ou abre a página do abrigo.
+    deuCerto();
+
     setDoacaoId(doacao.id);
     setCodigoPix(forma === PIX ? gerarCodigoPix() : '');
     setConfirmada(true);
@@ -219,6 +222,8 @@ export default function DonateScreen(props) {
     const conferida = await conferirSenha(conta, senha);
 
     if (!conferida.confere) {
+      deuErrado();
+
       Alert.alert('Não confirmado', 'Senha incorreta.');
 
       return;
@@ -233,6 +238,7 @@ export default function DonateScreen(props) {
     try {
       await Clipboard.setStringAsync(texto);
 
+      toqueLeve();
       setCopiado(true);
     } catch (error) {
       console.log('Erro ao copiar:', error);
@@ -273,6 +279,7 @@ export default function DonateScreen(props) {
     try {
       await confirmarPagamento(doacaoId);
 
+      deuCerto();
       setPaga(true);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível registrar o pagamento.');

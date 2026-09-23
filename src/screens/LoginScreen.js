@@ -18,6 +18,7 @@ import BiometricButton from '../components/BiometricButton';
 import { buscarPerfil } from '../data/perfis';
 import { carregarConta, carregarContas, entrarNaConta, salvarConta } from '../services/auth';
 import { conferirResposta, conferirSenha, novoSal, resumir } from '../services/senha';
+import { deuErrado } from '../services/tato';
 import { colors } from '../theme/colors';
 
 export default function LoginScreen(props) {
@@ -107,6 +108,8 @@ export default function LoginScreen(props) {
     const conferida = await conferirSenha(selecionada, senha);
 
     if (!conferida.confere) {
+      deuErrado();
+
       Alert.alert('Não foi possível entrar', 'Senha incorreta.');
 
       return;
