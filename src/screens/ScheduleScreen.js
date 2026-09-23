@@ -83,6 +83,25 @@ export default function ScheduleScreen() {
     setIsCameraReady(false);
   }
 
+  // Voltar para a câmera não é só limpar a foto: a permissão pode ter
+  // sido revogada nas configurações desde o último registro, e o
+  // isCameraReady precisa voltar a false para o botão de disparo só
+  // liberar quando a câmera estiver de pé outra vez.
+  async function refazerFoto() {
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+
+      if (!granted) {
+        Alert.alert('Aviso', 'Você precisa permitir o acesso à câmera para trocar a foto.');
+
+        return;
+      }
+    }
+
+    setPhoto(null);
+    setIsCameraReady(false);
+  }
+
   async function takePicture() {
     if (cameraRef.current && isCameraReady) {
       try {
@@ -344,7 +363,7 @@ export default function ScheduleScreen() {
                 <Image source={{ uri: photo }} style={styles.formPreviewImage} />
                 <LinearGradient colors={['rgba(0,0,0,0.6)', 'transparent']} style={styles.formPreviewGradient}>
                   <View style={[styles.barraPrevia, { paddingTop: areaSegura.top + 16 }]}>
-                    <Pressable onPress={() => setPhoto(null)} style={styles.botaoPrevia}>
+                    <Pressable onPress={refazerFoto} style={styles.botaoPrevia}>
                       <Ionicons name="camera-reverse" size={18} color="#FFF" />
                       <Text style={styles.textoPrevia}>Refazer foto</Text>
                     </Pressable>
