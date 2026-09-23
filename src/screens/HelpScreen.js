@@ -187,6 +187,8 @@ export default function HelpScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={() => props.navigation.goBack()}
           >

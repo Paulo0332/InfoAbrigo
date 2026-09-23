@@ -347,7 +347,17 @@ export default function HomeScreen(props) {
               </Text>
             </View>
 
+            {/* O sino tem a bolinha com o número, mas o número sozinho
+                não diz o que ele é. O rótulo diz. */}
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                novos.length === 0
+                  ? 'Avisos, nenhum novo'
+                  : novos.length === 1
+                  ? 'Avisos, 1 novo'
+                  : 'Avisos, ' + novos.length + ' novos'
+              }
               style={({ pressed }) => [styles.notificationBtn, pressed && styles.pressionado]}
               onPress={abrirAvisos}
             >
@@ -607,6 +617,8 @@ export default function HomeScreen(props) {
               <Text style={styles.painelTitulo}>Avisos</Text>
 
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Fechar os avisos"
                 style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
                 onPress={() => setAvisosVisiveis(false)}
               >

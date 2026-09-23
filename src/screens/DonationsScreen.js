@@ -589,7 +589,9 @@ export default function DonationsScreen(props) {
             />
 
             {busca ? (
-              <Pressable onPress={() => setBusca('')}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Limpar a busca" onPress={() => setBusca('')}>
                 <Ionicons name="close-circle" size={17} color="#9A8F7E" />
               </Pressable>
             ) : null}

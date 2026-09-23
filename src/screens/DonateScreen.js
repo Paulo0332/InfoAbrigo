@@ -336,6 +336,8 @@ export default function DonateScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={voltar}
           >

@@ -6,9 +6,4 @@ export const colors = {
   supportPink: '#C96E8C',
   backgroundLight: '#FBF7F1',
   textMain: '#3A3226',
-  
-  // Tema Escuro
-  backgroundDark: '#1E1B18',
-  cardDark: '#2A2622',
-  textLight: '#F0E9DF',
 };

@@ -13,6 +13,8 @@ export default function NeedItem(props) {
       {/* Caixa de marcação: mostra o "check" quando a necessidade já foi
           atendida. Quem não administra o abrigo vê o estado, mas não muda. */}
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Marcar como atendida"
         style={[styles.checkbox, props.need.done && styles.checkboxDone]}
         onPress={() => props.onToggle(props.need.id)}
         disabled={props.somenteLeitura}
@@ -105,6 +107,8 @@ export default function NeedItem(props) {
           nunca aparecem as duas para a mesma pessoa. */}
       {props.somenteLeitura ? null : (
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Excluir necessidade"
           style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
           onPress={() => props.onDelete(props.need.id)}
         >
@@ -124,6 +128,8 @@ export default function NeedItem(props) {
 
       {props.somenteLeitura && !props.need.done && minha ? (
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Desistir de doar este item"
           style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
           onPress={() => props.onCancelarReserva(props.need)}
         >

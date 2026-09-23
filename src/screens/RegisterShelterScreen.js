@@ -535,6 +535,8 @@ export default function RegisterShelterScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={() => props.navigation.goBack()}
           >
@@ -816,6 +818,8 @@ export default function RegisterShelterScreen(props) {
           />
 
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Buscar o endereço pelo CEP"
             style={({ pressed }) => [styles.botaoBuscar, pressed && styles.pressionado]}
             onPress={procurarPeloCep}
             disabled={buscandoCep}

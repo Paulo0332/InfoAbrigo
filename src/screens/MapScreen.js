@@ -912,6 +912,8 @@ export default function MapScreen(props) {
           <View style={styles.acoesTopo}>
             {abrigos.length > 0 && (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Alternar entre mapa e lista"
                 style={({ pressed }) => [styles.botaoTopo, pressed && styles.pressionado]}
                 onPress={() => setModoLista(!modoLista)}
               >
@@ -925,6 +927,8 @@ export default function MapScreen(props) {
 
             {ehGestor(conta) && (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cadastrar um abrigo"
                 style={({ pressed }) => [
                   styles.botaoTopo,
                   styles.botaoTopoEspaco,
@@ -968,7 +972,9 @@ export default function MapScreen(props) {
             />
 
             {busca.length > 0 && (
-              <Pressable onPress={() => setBusca('')}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Limpar a busca" onPress={() => setBusca('')}>
                 <Ionicons name="close-circle" size={18} color="#9A8F7E" />
               </Pressable>
             )}
@@ -1113,6 +1119,8 @@ export default function MapScreen(props) {
 
         {!erro && localizacao && !modoLista && (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Centralizar onde você está"
             style={({ pressed }) => [
               styles.botaoMim,
               rota && !abrigoSelecionado && styles.botaoMimSobreFaixa,
@@ -1147,6 +1155,8 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Apagar a rota do mapa"
               style={({ pressed }) => [styles.faixaFechar, pressed && styles.pressionado]}
               onPress={limparRota}
             >
@@ -1166,6 +1176,8 @@ export default function MapScreen(props) {
               <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
 
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Fechar o cartão do abrigo"
                 style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
                 onPress={fecharCartao}
               >
@@ -1277,6 +1289,8 @@ export default function MapScreen(props) {
                   </Text>
 
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Apagar a rota do mapa"
                     style={({ pressed }) => [styles.rotaFechar, pressed && styles.pressionado]}
                     onPress={limparRota}
                   >

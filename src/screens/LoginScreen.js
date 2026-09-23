@@ -371,6 +371,8 @@ export default function LoginScreen(props) {
                   {/* Digitar senha às cegas no celular é o motivo número
                       um de erro na hora de entrar. */}
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Mostrar ou esconder a senha"
                     style={({ pressed }) => [styles.olho, pressed && styles.pressionado]}
                     onPress={() => setVerSenha(!verSenha)}
                   >

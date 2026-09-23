@@ -298,6 +298,8 @@ export default function SignUpScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={() => props.navigation.goBack()}
           >
@@ -363,6 +365,8 @@ export default function SignUpScreen(props) {
           {/* Digitar senha às cegas no celular é o motivo número um de
               erro na hora de entrar. */}
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Mostrar ou esconder a senha"
             style={({ pressed }) => [styles.olho, pressed && styles.pressionado]}
             onPress={() => setVerSenha(!verSenha)}
           >
