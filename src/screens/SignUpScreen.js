@@ -105,7 +105,11 @@ export default function SignUpScreen(props) {
   // os espaços das pontas e, se sobrar vazio, avisa e interrompe.
   async function criarConta() {
     const nomeLimpo = nome.trim();
-    const emailLimpo = email.trim();
+    // Em minúsculas: o e-mail identifica a conta e marca o dono do
+    // abrigo, e "Josue@x.com" e "josue@x.com" são a mesma pessoa em
+    // qualquer serviço de e-mail. Sem normalizar, uma diferença de
+    // maiúscula fazia o abrigo parecer de outro dono.
+    const emailLimpo = email.trim().toLowerCase();
 
     if (!nomeLimpo || !emailLimpo || !senha) {
       Alert.alert(

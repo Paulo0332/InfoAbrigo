@@ -72,6 +72,25 @@ export async function apagarAbrigo(id) {
   }
 }
 
+// De quem é o abrigo. A comparação ignora maiúscula e espaço nas pontas:
+// o e-mail é digitado à mão no cadastro da conta, e "Josue@x.com" e
+// "josue@x.com" são a mesma pessoa em qualquer serviço de e-mail. Sem
+// isso, uma diferença de maiúscula fazia o abrigo parecer de outro dono.
+export function ehDono(abrigo, conta) {
+  if (abrigo == null || conta == null) {
+    return false;
+  }
+
+  const dono = (abrigo.dono || '').trim().toLowerCase();
+  const email = (conta.email || '').trim().toLowerCase();
+
+  return dono !== '' && dono === email;
+}
+
+export function abrigosDaConta(lista, conta) {
+  return lista.filter((abrigo) => ehDono(abrigo, conta));
+}
+
 function grausParaRadianos(graus) {
   return (graus * Math.PI) / 180;
 }

@@ -32,7 +32,7 @@ import {
   formatarDistancia,
   formatarDuracao,
 } from '../services/rota';
-import { calcularDistancia, carregarAbrigos } from '../services/shelters';
+import { calcularDistancia, carregarAbrigos, ehDono } from '../services/shelters';
 import { colors } from '../theme/colors';
 
 // Nível de aproximação inicial. 14 mostra pouco mais de 3 km.
@@ -783,7 +783,7 @@ export default function MapScreen(props) {
   // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
   // interface, não de segurança: sem servidor ninguém valida nada.
   function souDono(abrigo) {
-    return conta != null && abrigo.dono === conta.email;
+    return ehDono(abrigo, conta);
   }
 
   function centralizarEmMim() {

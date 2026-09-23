@@ -19,7 +19,7 @@ import { globalStyles } from '../theme/styles';
 import { ehGestor, podeGerenciarNecessidades } from '../data/perfis';
 import { carregarConta } from '../services/auth';
 import { ITEM, apagarDoacao, registrarDoacao } from '../services/donations';
-import { carregarAbrigos } from '../services/shelters';
+import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
 // Os dois filtros que não são um abrigo específico.
@@ -77,7 +77,7 @@ export default function DonationsScreen(props) {
       // primeiro fazia toda necessidade cair nele, qualquer que fosse o
       // filtro escolhido — e o segundo abrigo nunca recebia nada.
       const meus = ehGestor(contaSalva)
-        ? listaAbrigos.filter((abrigo) => abrigo.dono === contaSalva.email)
+        ? abrigosDaConta(listaAbrigos, contaSalva)
         : [];
 
       setMeusAbrigos(meus);
@@ -115,18 +115,43 @@ export default function DonationsScreen(props) {
     }
   }
 
-  // Para qual abrigo a necessidade vai. É o do filtro, quando ele é meu;
-  // com o filtro em "Todos" e um abrigo só, é esse mesmo; com mais de um
-  // abrigo e nenhum escolhido, não há como adivinhar, e a tela pede que
-  // se escolha em vez de mandar tudo para o primeiro da lista.
-  function abrigoDoCadastro() {
-    const doFiltro = meusAbrigos.find((abrigo) => abrigo.id === filtro);
+  function abrigoDoFiltro() {
+    return abrigos.find((abrigo) => abrigo.id === filtro) || null;
+  }
 
-    if (doFiltro) {
-      return doFiltro;
+  // Para qual abrigo a necessidade vai. Quem manda é o filtro: estando
+  // num abrigo específico, é para ele — e se ele não for meu, eu não
+  // cadastro nele, ponto.
+  //
+  // O atalho de "um abrigo só, então é esse" vale apenas com o filtro em
+  // Todos. Deixar esse atalho valer sempre foi o erro da correção
+  // anterior: com o filtro num abrigo de outro dono, ele silenciosamente
+  // mandava a necessidade para o meu primeiro abrigo, e por fora parecia
+  // que o filtro estava sendo ignorado.
+  function abrigoDoCadastro() {
+    if (filtro !== TODOS && filtro !== SEM_ABRIGO) {
+      const doFiltro = abrigoDoFiltro();
+
+      // Abrigo sem dono gravado foi cadastrado sem conta aberta. Deixá-lo
+      // sem ninguém que possa mexer seria condenar a lista dele a nunca
+      // mudar, e qualquer gestor consegue arrumar isso.
+      if (doFiltro != null && !doFiltro.dono) {
+        return doFiltro;
+      }
+
+      return meusAbrigos.find((abrigo) => abrigo.id === filtro) || null;
     }
 
     return meusAbrigos.length === 1 ? meusAbrigos[0] : null;
+  }
+
+  // O filtro está num abrigo que existe, mas que não é meu. Nesse caso a
+  // tela não oferece o formulário: publicar necessidade em nome de um
+  // abrigo alheio não é coisa que deva acontecer calada.
+  function abrigoDeOutro() {
+    const doFiltro = abrigoDoFiltro();
+
+    return doFiltro != null && abrigoDoCadastro() == null;
   }
 
   function addNeed(title) {
@@ -220,7 +245,15 @@ export default function DonationsScreen(props) {
       return true;
     }
 
-    return meusAbrigos.some((abrigo) => abrigo.id === need.abrigoId);
+    if (meusAbrigos.some((abrigo) => abrigo.id === need.abrigoId)) {
+      return true;
+    }
+
+    // Necessidade de abrigo sem dono gravado: pela mesma razão do
+    // cadastro, qualquer gestor pode arrumar.
+    const dela = abrigos.find((abrigo) => abrigo.id === need.abrigoId);
+
+    return dela != null && !dela.dono;
   }
 
   function combinaComFiltro(need) {
@@ -468,6 +501,9 @@ export default function DonationsScreen(props) {
                   numberOfLines={1}
                 >
                   {opcao.nome}
+                  {meusAbrigos.some((abrigo) => abrigo.id === opcao.id)
+                    ? '  ·  seu'
+                    : ''}
                 </Text>
               </Pressable>
             ))}
@@ -508,12 +544,27 @@ export default function DonationsScreen(props) {
         {/* Com mais de um abrigo e o filtro em "Todos", não há como
             adivinhar o destino — e mandar para o primeiro da lista era
             exatamente o que fazia o segundo abrigo nunca receber nada. */}
-        {gerencia && !abrigoDoCadastro() && meusAbrigos.length > 1 && (
+        {gerencia && !abrigoDoCadastro() && !abrigoDeOutro() && meusAbrigos.length > 1 && (
           <View style={styles.vinculo}>
             <Ionicons name="alert-circle" size={14} color={colors.supportPink} />
 
             <Text style={styles.vinculoEscolha}>
               Escolha acima para qual dos seus abrigos cadastrar
+            </Text>
+          </View>
+        )}
+
+        {/* Sem esta explicação, a pessoa trocava o filtro, cadastrava e a
+            necessidade aparecia noutro abrigo sem nenhum aviso. */}
+        {gerencia && abrigoDeOutro() && (
+          <View style={styles.alheio}>
+            <Ionicons name="lock-closed-outline" size={16} color={colors.supportPink} />
+
+            <Text style={styles.alheioTexto}>
+              A lista do {abrigoDoFiltro().nome} é mantida por quem
+              administra aquele abrigo
+              {abrigoDoFiltro().dono ? ' (' + abrigoDoFiltro().dono + ')' : ''}.
+              Você está nesta conta como {conta ? conta.email : 'visitante'}.
             </Text>
           </View>
         )}
@@ -532,9 +583,9 @@ export default function DonationsScreen(props) {
           </Pressable>
         )}
 
-        {gerencia ? (
+        {gerencia && !abrigoDeOutro() ? (
           <NeedForm onAdd={addNeed} />
-        ) : (
+        ) : gerencia ? null : (
           <View style={styles.leitura}>
             <Ionicons name="hand-left-outline" size={16} color="#9A8F7E" />
 
@@ -716,6 +767,23 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: 'bold',
     marginLeft: 5,
+  },
+
+  alheio: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+
+  alheioTexto: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textMain,
+    lineHeight: 17,
+    marginLeft: 8,
   },
 
   vinculoEscolha: {
