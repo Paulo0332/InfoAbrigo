@@ -32,6 +32,7 @@ import {
   formatarCep,
   montarEndereco,
 } from '../services/endereco';
+import { chaveValida, nomeDoTipo, tipoDaChave } from '../services/pix';
 import {
   apagarAbrigo,
   atualizarAbrigo,
@@ -68,6 +69,9 @@ export default function RegisterShelterScreen(props) {
   const [fixo, setFixo] = useState(contatos.fixo);
   const [email, setEmail] = useState(contatos.email);
   const [instagram, setInstagram] = useState(contatos.instagram);
+  const [chavePix, setChavePix] = useState(
+    abrigoEditado ? abrigoEditado.chavePix || '' : ''
+  );
   const [localizacao, setLocalizacao] = useState(
     abrigoEditado
       ? { latitude: abrigoEditado.latitude, longitude: abrigoEditado.longitude }
@@ -378,6 +382,15 @@ export default function RegisterShelterScreen(props) {
       return;
     }
 
+    if (chavePix.trim() && !chaveValida(chavePix)) {
+      Alert.alert(
+        'Chave Pix inválida',
+        'A chave precisa ser um CPF, um CNPJ, um e-mail, um telefone com +55 ou a chave aleatória do banco.'
+      );
+
+      return;
+    }
+
     if (!localizacao) {
       Alert.alert(
         'Atenção',
@@ -397,6 +410,7 @@ export default function RegisterShelterScreen(props) {
           criancas: quantidade,
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
+          chavePix: chavePix.trim(),
           endereco: montarEndereco(enderecoAtual()),
           enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
@@ -413,6 +427,7 @@ export default function RegisterShelterScreen(props) {
           criancas: quantidade,
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
+          chavePix: chavePix.trim(),
           endereco: montarEndereco(enderecoAtual()),
           enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
@@ -581,6 +596,39 @@ export default function RegisterShelterScreen(props) {
           autoCorrect={false}
           maxLength={40}
         />
+
+        <Text style={styles.titulo}>Doações</Text>
+
+        <Text style={styles.ajuda}>
+          Com a chave Pix cadastrada, o aplicativo monta na tela de doação o
+          código que o banco de quem doa lê. O dinheiro vai direto para a
+          conta do abrigo — nada passa pelo InfoAbrigo.
+        </Text>
+
+        <Text style={styles.rotulo}>Chave Pix (opcional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="CNPJ, e-mail, telefone ou chave aleatória"
+          placeholderTextColor="#9A8F7E"
+          value={chavePix}
+          onChangeText={setChavePix}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={77}
+        />
+
+        {chavePix.trim() ? (
+          <Text
+            style={[
+              styles.retornoChave,
+              !chaveValida(chavePix) && styles.retornoRuim,
+            ]}
+          >
+            {chaveValida(chavePix)
+              ? 'Reconhecida como ' + nomeDoTipo(tipoDaChave(chavePix)) + '.'
+              : 'Ainda não parece uma chave válida.'}
+          </Text>
+        ) : null}
 
         <Text style={styles.titulo}>Endereço</Text>
 
@@ -829,6 +877,16 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     lineHeight: 19,
     marginBottom: 8,
+  },
+
+  retornoChave: {
+    fontSize: 12,
+    color: colors.supportGreen,
+    marginTop: 6,
+  },
+
+  retornoRuim: {
+    color: colors.supportPink,
   },
 
   titulo: {

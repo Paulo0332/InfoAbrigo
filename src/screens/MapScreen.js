@@ -797,7 +797,10 @@ export default function MapScreen(props) {
             <Pressable
               style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
               onPress={() =>
-                props.navigation.navigate('Donate', { abrigo: abrigoSelecionado.nome })
+                props.navigation.navigate('Donate', {
+                  abrigo: abrigoSelecionado.nome,
+                  abrigoId: abrigoSelecionado.id,
+                })
               }
             >
               <Ionicons name="heart" size={18} color="#FFFFFF" />
