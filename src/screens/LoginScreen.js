@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as SplashScreen from 'expo-splash-screen';
 import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
 import { buscarPerfil } from '../data/perfis';
@@ -70,6 +71,13 @@ export default function LoginScreen(props) {
       Alert.alert('Erro', 'Não foi possível ler as contas deste aparelho.');
     } finally {
       setCarregando(false);
+
+      // A tela de abertura fica de pé até aqui. Escondê-la só agora faz o
+      // primeiro quadro que a pessoa vê ser o aplicativo pronto, e não um
+      // "Carregando..." no meio do caminho.
+      SplashScreen.hideAsync().catch(() => {
+        // Já escondida: nada a fazer.
+      });
     }
   }
 

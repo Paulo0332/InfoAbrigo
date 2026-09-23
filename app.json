@@ -7,18 +7,13 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#E07A1F"
       },
       "edgeToEdgeEnabled": true
     },
@@ -52,6 +47,15 @@
           "photosPermission": "Permitir que o $(PRODUCT_NAME) acesse e salve fotos das atividades na sua galeria.",
           "savePhotosPermission": "Permitir que o $(PRODUCT_NAME) salve fotos das atividades na sua galeria.",
           "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#E07A1F"
         }
       ]
     ]

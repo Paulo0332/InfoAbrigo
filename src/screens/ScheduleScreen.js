@@ -33,7 +33,7 @@ import {
   montarQuando,
   ordenarAgenda,
   quandoAcontece,
-  salvarAgenda,
+  salvarAgendaDaConta,
 } from '../services/agenda';
 import { carregarConta } from '../services/auth';
 import { carregarAbrigos } from '../services/shelters';
@@ -103,11 +103,14 @@ export default function ScheduleScreen(props) {
 
   // Toda alteração passa por aqui, para o estado da tela e o disco nunca
   // saírem de sincronia.
+  // A tela mostra só os compromissos desta conta. Quem junta com os das
+  // outras antes de gravar é o serviço — se a junção morasse aqui, bastava
+  // uma tela esquecer para a agenda das outras contas sumir.
   async function gravar(novaLista) {
     setAgenda(novaLista);
 
     try {
-      await salvarAgenda(novaLista);
+      await salvarAgendaDaConta(novaLista, conta);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível salvar a agenda.');
     }

@@ -108,12 +108,35 @@ export async function salvarAgenda(lista) {
 // A agenda é de quem marcou. Compromissos de antes deste campo não têm
 // dono e continuam aparecendo para todos, como o resto do que veio do
 // formato de uma conta só.
-export function compromissosDaConta(lista, conta) {
+function ehDaConta(item, conta) {
   if (conta == null) {
-    return lista;
+    return true;
   }
 
-  return lista.filter((item) => item.conta == null || item.conta === conta.email);
+  return item.conta == null || item.conta === conta.email;
+}
+
+export function compromissosDaConta(lista, conta) {
+  return lista.filter((item) => ehDaConta(item, conta));
+}
+
+// Grava a agenda de uma conta sem encostar na das outras.
+//
+// O aparelho guarda mais de uma conta e a agenda mora num arquivo só. A
+// tela mostra apenas o que é da conta aberta — gravar direto o que está
+// na tela apagaria os compromissos de todas as outras, calado. Por isso
+// a junção acontece aqui, onde a tela não tem como esquecer de fazer.
+export async function salvarAgendaDaConta(lista, conta) {
+  try {
+    const todos = await carregarAgenda();
+    const dosOutros = todos.filter((item) => !ehDaConta(item, conta));
+
+    await salvarAgenda([...dosOutros, ...lista]);
+  } catch (error) {
+    console.log('Erro ao salvar a agenda da conta:', error);
+
+    throw error;
+  }
 }
 
 const DIA = 24 * 60 * 60 * 1000;
