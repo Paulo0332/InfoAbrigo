@@ -34,6 +34,17 @@ export function estaPendente(doacao) {
   return situacaoDaDoacao(doacao) === PENDENTE;
 }
 
+// Marcar como paga é a pessoa anotando para si mesma, e nada mais. O
+// aplicativo não confere: conferir um Pix exige o banco que recebeu
+// avisar alguém, o que é servidor e integração bancária.
+//
+// Por isso esta marcação nunca é apresentada como confirmação do abrigo.
+// A tela diz "você marcou como paga", e não "confirmada" — e dá para
+// desmarcar, porque marcar errado é engano comum.
+//
+// Quem faz o abrigo realmente saber é o comprovante do banco, enviado
+// para ele. É assim que acontece fora do aplicativo, e é isso que a tela
+// oferece logo depois de marcar.
 export async function confirmarPagamento(id) {
   try {
     const atuais = await carregarDoacoes();
@@ -110,6 +121,49 @@ export async function apagarDoacao(id) {
 // Só entra na soma o que a pessoa confirmou ter pago. Somar o que está
 // pendente seria dizer que o abrigo recebeu um dinheiro que pode não ter
 // saído da conta de ninguém.
+export async function desfazerPagamento(id) {
+  try {
+    const atuais = await carregarDoacoes();
+
+    const nova = atuais.map((doacao) => {
+      if (doacao.id !== id) {
+        return doacao;
+      }
+
+      const voltando = { ...doacao, situacao: PENDENTE };
+
+      delete voltando.pagaEm;
+
+      return voltando;
+    });
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+
+    return nova;
+  } catch (error) {
+    console.log('Erro ao desfazer o pagamento:', error);
+
+    throw error;
+  }
+}
+
+// O histórico é de quem doou, não do aparelho. Agora que o aparelho
+// guarda mais de uma conta, sem esta separação o gestor entraria e veria
+// as doações de quem usou o celular antes dele.
+//
+// Registros de antes deste campo não têm dono, e continuam aparecendo
+// para todos: eles foram feitos quando existia uma conta só, então
+// esconder seria perder o histórico de quem já usava.
+export function doacoesDaConta(lista, conta) {
+  if (conta == null) {
+    return lista;
+  }
+
+  return lista.filter((doacao) => {
+    return doacao.conta == null || doacao.conta === conta.email;
+  });
+}
+
 export function totalEmDinheiro(lista) {
   return lista
     .filter((doacao) => tipoDaDoacao(doacao) === DINHEIRO)

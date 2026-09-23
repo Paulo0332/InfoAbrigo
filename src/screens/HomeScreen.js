@@ -21,6 +21,7 @@ import { carregarVistos, marcarVistos } from '../services/avisos';
 import {
   ITEM,
   carregarDoacoes,
+  doacoesDaConta,
   estaPendente,
   formatarReais,
   tipoDaDoacao,
@@ -74,7 +75,9 @@ export default function HomeScreen(props) {
       setConta(contaSalva);
       setNecessidades(listaNecessidades || []);
       setAtividades(listaAtividades);
-      setDoacoes(listaDoacoes);
+      // O contador é do que esta conta doou, não do que passou pelo
+      // aparelho: agora mais de uma conta mora aqui.
+      setDoacoes(doacoesDaConta(listaDoacoes, contaSalva));
       setAbrigos(listaAbrigos);
     } catch (error) {
       console.log('Erro ao carregar os dados da home:', error);

@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import BiometricButton from '../components/BiometricButton';
+import { contatosDoAbrigo, linkEmail, linkWhatsapp } from '../services/contato';
 import PixQrCode from '../components/PixQrCode';
 import { carregarConta } from '../services/auth';
 import {
@@ -177,6 +178,8 @@ export default function DonateScreen(props) {
       abrigo: abrigo,
       abrigoId: abrigoCompleto ? abrigoCompleto.id : null,
       forma: forma,
+      // O histórico é de quem doou, e o aparelho guarda mais de uma conta.
+      conta: conta ? conta.email : null,
       // Confirmar a identidade não é pagar. A biometria diz que foi você
       // quem pediu o código; quem cobra é o banco, no passo seguinte.
       situacao: PENDENTE,
@@ -273,6 +276,41 @@ export default function DonateScreen(props) {
       setPaga(true);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível registrar o pagamento.');
+    }
+  }
+
+  // Marcar como paga é anotação pessoal: o aplicativo não confere nada, e
+  // o abrigo não fica sabendo por causa dela. Quem faz o abrigo saber é o
+  // comprovante do banco, e é assim que acontece fora daqui — a pessoa
+  // manda o comprovante no WhatsApp da instituição. A tela oferece esse
+  // caminho no lugar de fingir que a marcação vale como aviso.
+  function podeAvisar() {
+    if (abrigoCompleto == null) {
+      return false;
+    }
+
+    const contatos = contatosDoAbrigo(abrigoCompleto);
+
+    return Boolean(contatos.celular || contatos.email);
+  }
+
+  async function avisarAbrigo() {
+    const contatos = contatosDoAbrigo(abrigoCompleto);
+
+    const mensagem =
+      'Olá! Fiz uma doação de R$ ' + formatarReais(emReais()) + ' para o ' +
+      abrigoCompleto.nome + '. Envio o comprovante do banco em seguida.';
+
+    const url = contatos.celular
+      ? linkWhatsapp(contatos.celular, mensagem)
+      : linkEmail(contatos.email, 'Doação para o ' + abrigoCompleto.nome);
+
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.log('Erro ao avisar o abrigo:', error);
+
+      Alert.alert('Erro', 'Não foi possível abrir o contato do abrigo.');
     }
   }
 
@@ -467,6 +505,24 @@ export default function DonateScreen(props) {
               <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
               <Text style={styles.textoBotaoPaguei}>Já fiz o pagamento</Text>
             </Pressable>
+          ) : null}
+
+          {paga && podeAvisar() ? (
+            <Pressable
+              style={({ pressed }) => [styles.botaoEnviar, styles.botaoAvisar, pressed && styles.pressionado]}
+              onPress={avisarAbrigo}
+            >
+              <Ionicons name="paper-plane-outline" size={18} color={colors.primary} />
+              <Text style={styles.textoBotaoEnviar}>Enviar o comprovante ao abrigo</Text>
+            </Pressable>
+          ) : null}
+
+          {paga ? (
+            <Text style={styles.avisoPendente}>
+              Esta marcação é a sua anotação: o aplicativo não confere
+              pagamento, e o abrigo não fica sabendo por ela. Quem avisa o
+              abrigo é o comprovante do seu banco.
+            </Text>
           ) : null}
 
           <Pressable
@@ -1027,6 +1083,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+
+  botaoAvisar: {
+    marginTop: 24,
   },
 
   botaoEnviar: {

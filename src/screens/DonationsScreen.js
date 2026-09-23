@@ -262,6 +262,7 @@ export default function DonationsScreen(props) {
       item: need.title,
       abrigo: need.abrigoNome || 'Abrigo não informado',
       valor: 0,
+      conta: conta.email,
       data: new Date().toISOString(),
     };
 

@@ -7,6 +7,8 @@ import {
   ITEM,
   carregarDoacoes,
   confirmarPagamento,
+  desfazerPagamento,
+  doacoesDaConta,
   estaPendente,
   formatarReais,
   tipoDaDoacao,
@@ -14,11 +16,13 @@ import {
   totalEmDinheiro,
   totalPendente,
 } from '../services/donations';
+import { carregarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
 export default function HistoryScreen(props) {
 
   const [doacoes, setDoacoes] = useState([]);
+  const [conta, setConta] = useState(null);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
@@ -33,9 +37,14 @@ export default function HistoryScreen(props) {
 
   async function buscarDoacoes() {
     try {
+      const contaSalva = await carregarConta();
       const lista = await carregarDoacoes();
 
-      setDoacoes(lista);
+      setConta(contaSalva);
+
+      // O histórico é de quem doou, não do aparelho. Sem isto o gestor
+      // entraria e veria as doações de quem usou o celular antes dele.
+      setDoacoes(doacoesDaConta(lista, contaSalva));
     } catch (error) {
       Alert.alert(
         'Erro',
@@ -67,9 +76,38 @@ export default function HistoryScreen(props) {
     try {
       const nova = await confirmarPagamento(doacao.id);
 
-      setDoacoes(nova);
+      setDoacoes(doacoesDaConta(nova, conta));
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível registrar o pagamento.');
+    }
+  }
+
+  // Marcar por engano é comum, e desfazer precisa ser tão fácil quanto
+  // marcar. Sem isto a anotação errada ficava para sempre.
+  function confirmarDesfazer(doacao) {
+    Alert.alert(
+      'Desmarcar o pagamento',
+      'A doação volta a aparecer como aguardando, e sai da soma do total.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Desmarcar',
+          onPress: () => desmarcar(doacao),
+        },
+      ]
+    );
+  }
+
+  async function desmarcar(doacao) {
+    try {
+      const nova = await desfazerPagamento(doacao.id);
+
+      setDoacoes(doacoesDaConta(nova, conta));
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível desmarcar.');
     }
   }
 
@@ -116,6 +154,22 @@ export default function HistoryScreen(props) {
             >
               <Ionicons name="checkmark-circle-outline" size={15} color={colors.supportGreen} />
               <Text style={styles.pagarTexto}>Marcar como paga</Text>
+            </Pressable>
+          ) : null}
+
+          {/* "Você marcou", e não "confirmada": o aplicativo não confere
+              pagamento nenhum, e escrever confirmada daria a entender que
+              alguém conferiu. */}
+          {!aguardando && !ehItem && item.pagaEm ? (
+            <Pressable
+              style={({ pressed }) => [styles.marcada, pressed && styles.pressionado]}
+              onPress={() => confirmarDesfazer(item)}
+            >
+              <Text style={styles.marcadaTexto}>
+                Você marcou como paga em {formatarData(item.pagaEm)}
+              </Text>
+
+              <Text style={styles.desmarcar}>Desmarcar</Text>
             </Pressable>
           ) : null}
 
@@ -185,6 +239,16 @@ export default function HistoryScreen(props) {
             keyExtractor={(item) => item.id}
             renderItem={renderizarDoacao}
             showsVerticalScrollIndicator={false}
+            ListFooterComponent={
+              doacoes.length > 0 ? (
+                <Text style={styles.rodape}>
+                  Este histórico é a sua anotação neste aparelho. O
+                  aplicativo não confere pagamento e não emite recibo —
+                  quem emite recibo, inclusive para deduzir no imposto, é a
+                  própria instituição.
+                </Text>
+              ) : null
+            }
             contentContainerStyle={[
               styles.lista,
               doacoes.length === 0 && styles.listaVazia,
@@ -286,6 +350,35 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.supportGreen,
     marginLeft: 5,
+  },
+
+  rodape: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 18,
+    paddingHorizontal: 8,
+  },
+
+  marcada: {
+    marginTop: 6,
+  },
+
+  marcadaTexto: {
+    fontSize: 12,
+    color: '#9A8F7E',
+  },
+
+  desmarcar: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginTop: 2,
+  },
+
+  pressionado: {
+    opacity: 0.6,
   },
 
   aguardando: {
