@@ -17,6 +17,7 @@ import { carregarConta } from '../services/auth';
 import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { loadNeeds } from '../services/storage';
 import { carregarAtividades } from '../services/activities';
+import { carregarVistos, marcarVistos } from '../services/avisos';
 import {
   ITEM,
   carregarDoacoes,
@@ -36,6 +37,15 @@ export default function HomeScreen(props) {
   const [abrigos, setAbrigos] = useState([]);
   const [localizacao, setLocalizacao] = useState(null);
   const [avisosVisiveis, setAvisosVisiveis] = useState(false);
+
+  // Os avisos não são mensagens que chegaram: são lidos do que está
+  // gravado, a cada vez que a tela abre. Por isso a memória de quais já
+  // foram lidos precisa ficar do lado de fora deles.
+  const [vistos, setVistos] = useState([]);
+
+  // A lista congelada no instante em que o painel abriu. Sem congelar,
+  // marcar como lido esvaziaria o painel na frente da pessoa.
+  const [avisosDoPainel, setAvisosDoPainel] = useState([]);
   const [atualizando, setAtualizando] = useState(false);
 
   // Além de buscar quando a tela monta, buscamos de novo a cada vez que a
@@ -57,7 +67,9 @@ export default function HomeScreen(props) {
       const listaAtividades = await carregarAtividades();
       const listaDoacoes = await carregarDoacoes();
       const listaAbrigos = await carregarAbrigos();
+      const listaVistos = await carregarVistos();
 
+      setVistos(listaVistos);
       setConta(contaSalva);
       setNecessidades(listaNecessidades || []);
       setAtividades(listaAtividades);
@@ -214,6 +226,22 @@ export default function HomeScreen(props) {
     return Math.round((atendidas().length / necessidades.length) * 100);
   }
 
+  function naoVistos() {
+    return montarAvisos().filter((aviso) => vistos.indexOf(aviso.id) < 0);
+  }
+
+  // Tocar no sino agora registra que a pessoa viu. Antes ele só abria o
+  // painel: a conta era refeita do zero no instante seguinte, com o mesmo
+  // resultado, e a bolinha nunca saía.
+  async function abrirAvisos() {
+    setAvisosDoPainel(naoVistos());
+    setAvisosVisiveis(true);
+
+    const marcados = await marcarVistos(montarAvisos().map((aviso) => aviso.id));
+
+    setVistos(marcados);
+  }
+
   function irPara(destino) {
     setAvisosVisiveis(false);
 
@@ -259,6 +287,7 @@ export default function HomeScreen(props) {
   }
 
   const avisos = montarAvisos();
+  const novos = naoVistos();
   const necessidadesAbertas = abertas();
 
   return (
@@ -293,13 +322,17 @@ export default function HomeScreen(props) {
 
             <Pressable
               style={({ pressed }) => [styles.notificationBtn, pressed && styles.pressionado]}
-              onPress={() => setAvisosVisiveis(true)}
+              onPress={abrirAvisos}
             >
-              <Ionicons name="notifications-outline" size={24} color="#FFF" />
+              <Ionicons
+                name={novos.length > 0 ? 'notifications' : 'notifications-outline'}
+                size={24}
+                color="#FFF"
+              />
 
-              {avisos.length > 0 && (
+              {novos.length > 0 && (
                 <View style={styles.badge}>
-                  <Text style={styles.textoBadge}>{avisos.length}</Text>
+                  <Text style={styles.textoBadge}>{novos.length}</Text>
                 </View>
               )}
             </Pressable>
@@ -554,15 +587,15 @@ export default function HomeScreen(props) {
               </Pressable>
             </View>
 
-            {avisos.length === 0 ? (
+            {avisosDoPainel.length === 0 ? (
               <Text style={styles.painelVazio}>
-                Nenhum aviso por enquanto. Eles aparecem conforme você usa o
-                aplicativo: necessidades cadastradas, atividades registradas e
-                doações confirmadas.
+                {avisos.length === 0
+                  ? 'Nenhum aviso por enquanto. Eles aparecem conforme você usa o aplicativo: necessidades cadastradas, atividades registradas e doações confirmadas.'
+                  : 'Nada novo por aqui. O que você já leu continua nas abas de sempre — as necessidades em Doações, os registros na Agenda.'}
               </Text>
             ) : (
               <ScrollView style={styles.painelLista}>
-                {avisos.map((aviso) => (
+                {avisosDoPainel.map((aviso) => (
                   <Pressable
                     key={aviso.id}
                     style={({ pressed }) => [styles.aviso, pressed && styles.pressionado]}
