@@ -41,6 +41,19 @@ const ZOOM = 14;
 // Cores dos pinos, aplicadas em ordem para os abrigos se distinguirem.
 const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
 
+// A rota não usa o laranja da marca, e isso é de propósito. O mapa base
+// desenha as avenidas em salmão, então uma linha laranja por cima some no
+// meio delas justamente na olhada rápida, que é quando ela mais precisa
+// ser achada. Comparando as duas sobre os mesmos blocos, o azul é a única
+// cor fria num mapa quente e o olho encontra na hora.
+//
+// O contorno branco por baixo é o que separa a linha da rua: sem ele a
+// rota encosta no traçado da via e as duas viram uma coisa só.
+const COR_ROTA = '#1A73E8';
+const COR_CONTORNO_ROTA = '#FFFFFF';
+const PESO_ROTA = 6;
+const PESO_CONTORNO_ROTA = 11;
+
 // Monta a página do mapa que roda dentro do WebView.
 //
 // Os blocos preferidos são o World Street Map da Esri: colorido, com
@@ -199,18 +212,28 @@ function montarHtml(localizacao, abrigos) {
         })
       }).addTo(mapa);
 
+      var contornoRota = null;
       var linhaRota = null;
 
-      // Chamadas de fora, pelo injectJavaScript. A linha da rota é
-      // desenhada por cima dos blocos e o mapa se ajusta para mostrar o
-      // caminho inteiro, que é o que todo aplicativo de mapa faz.
+      // Chamadas de fora, pelo injectJavaScript. São duas linhas no mesmo
+      // caminho: a branca mais grossa por baixo, que abre espaço na rua, e
+      // a colorida por cima. O mapa se ajusta para mostrar o caminho
+      // inteiro, que é o que todo aplicativo de mapa faz.
       function desenharRota(pontos) {
         limparRota();
 
+        contornoRota = L.polyline(pontos, {
+          color: '${COR_CONTORNO_ROTA}',
+          weight: ${PESO_CONTORNO_ROTA},
+          opacity: 1,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(mapa);
+
         linhaRota = L.polyline(pontos, {
-          color: '${colors.primary}',
-          weight: 6,
-          opacity: 0.85,
+          color: '${COR_ROTA}',
+          weight: ${PESO_ROTA},
+          opacity: 1,
           lineJoin: 'round',
           lineCap: 'round'
         }).addTo(mapa);
@@ -219,6 +242,11 @@ function montarHtml(localizacao, abrigos) {
       }
 
       function limparRota() {
+        if (contornoRota) {
+          mapa.removeLayer(contornoRota);
+          contornoRota = null;
+        }
+
         if (linhaRota) {
           mapa.removeLayer(linhaRota);
           linhaRota = null;
@@ -847,7 +875,7 @@ export default function MapScreen(props) {
               style={({ pressed }) => [styles.faixaToque, pressed && styles.pressionado]}
               onPress={reabrirCartao}
             >
-              <Ionicons name="navigate-circle" size={22} color={colors.primary} />
+              <Ionicons name="navigate-circle" size={22} color={COR_ROTA} />
 
               <View style={styles.faixaTexto}>
                 <Text style={styles.faixaResumo}>
@@ -984,7 +1012,7 @@ export default function MapScreen(props) {
             {rotaDoAbrigo(abrigoSelecionado) && (
               <View style={styles.rota}>
                 <View style={styles.rotaTopo}>
-                  <Ionicons name="navigate-circle" size={20} color={colors.primary} />
+                  <Ionicons name="navigate-circle" size={20} color={COR_ROTA} />
 
                   <Text style={styles.rotaResumo}>
                     {formatarDistancia(rotaDoAbrigo(abrigoSelecionado).distanciaKm)}
@@ -1589,7 +1617,7 @@ const styles = StyleSheet.create({
   },
 
   modoAtivo: {
-    backgroundColor: colors.primary,
+    backgroundColor: COR_ROTA,
   },
 
   modoTexto: {
@@ -1612,7 +1640,7 @@ const styles = StyleSheet.create({
   rotaLinkTexto: {
     fontSize: 13,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: COR_ROTA,
     marginRight: 4,
   },
 
@@ -1629,7 +1657,7 @@ const styles = StyleSheet.create({
     width: 20,
     fontSize: 12,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: COR_ROTA,
   },
 
   passoTexto: {
