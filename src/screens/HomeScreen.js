@@ -18,6 +18,7 @@ import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { loadNeeds } from '../services/storage';
 import { carregarAtividades } from '../services/activities';
 import { carregarVistos, marcarVistos } from '../services/avisos';
+import { faltam, temMeta, textoDoQueFalta } from '../services/necessidades';
 import {
   ITEM,
   carregarDoacoes,
@@ -188,7 +189,7 @@ export default function HomeScreen(props) {
         titulo:
           (necessidade.urgente ? 'Urgente: ' : 'O abrigo precisa de ') +
           necessidade.title +
-          (necessidade.quantidade ? ' (' + necessidade.quantidade + ')' : ''),
+          (temMeta(necessidade) ? ' — faltam ' + faltam(necessidade) : ''),
         texto: necessidade.abrigoNome
           ? 'Para o ' + necessidade.abrigoNome
           : 'Cadastrado na aba Doações e ainda não atendido',
@@ -516,8 +517,13 @@ export default function HomeScreen(props) {
                     : necessidadesAbertas.length + ' necessidades em aberto'}
                 </Text>
 
+                {/* Além de quantas faltam atender, o quanto falta da
+                    primeira: é o número que diz o tamanho do pedido. */}
                 <Text style={styles.warningDesc}>
-                  A mais recente: {necessidadesAbertas[0].title}
+                  {necessidadesAbertas[0].title}
+                  {temMeta(necessidadesAbertas[0])
+                    ? ' — ' + textoDoQueFalta(necessidadesAbertas[0]).toLowerCase()
+                    : ''}
                 </Text>
 
                 <View style={styles.barraFundo}>

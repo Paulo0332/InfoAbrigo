@@ -14,22 +14,25 @@ export default function NeedForm(props) {
 
   const [text, setText] = useState('');
 
-  // "Fraldas" não diz quantas nem se é para hoje. Quem vai doar precisa
-  // dos dois para decidir, e quem administra o abrigo precisa dos dois
-  // para a lista significar alguma coisa.
-  const [quantidade, setQuantidade] = useState('');
+  // A meta é um número e uma unidade, separados. Guardar "10 pacotes"
+  // como texto solto não permitia dizer que três chegaram e faltam sete —
+  // e é isso que quem quer ajudar precisa saber antes de decidir.
+  const [alvo, setAlvo] = useState('');
+  const [unidade, setUnidade] = useState('');
   const [urgente, setUrgente] = useState(false);
 
   // Entrega o que foi digitado para a tela e limpa os campos. Quem valida
   // é a tela, seguindo o mesmo desenho do exemplo de aula.
   function handleAdd() {
     props.onAdd(text, {
-      quantidade: quantidade.trim(),
+      alvo: Number(alvo.replace(/[^0-9]/g, '')) || null,
+      unidade: unidade.trim(),
       urgente: urgente,
     });
 
     setText('');
-    setQuantidade('');
+    setAlvo('');
+    setUnidade('');
     setUrgente(false);
     Keyboard.dismiss();
   }
@@ -58,12 +61,22 @@ export default function NeedForm(props) {
 
       <View style={styles.detalhes}>
         <TextInput
-          style={styles.quantidade}
-          placeholder="Quanto? Ex.: 10 pacotes"
+          style={styles.alvo}
+          placeholder="10"
           placeholderTextColor="#9A8F7E"
-          value={quantidade}
-          onChangeText={setQuantidade}
-          maxLength={30}
+          value={alvo}
+          onChangeText={setAlvo}
+          keyboardType="number-pad"
+          maxLength={5}
+        />
+
+        <TextInput
+          style={styles.unidade}
+          placeholder="pacotes"
+          placeholderTextColor="#9A8F7E"
+          value={unidade}
+          onChangeText={setUnidade}
+          maxLength={20}
         />
 
         <Pressable
@@ -133,7 +146,20 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
-  quantidade: {
+  alvo: {
+    width: 64,
+    height: 44,
+    color: colors.textMain,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 12,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+
+  unidade: {
     flex: 1,
     height: 44,
     color: colors.textMain,
@@ -143,6 +169,7 @@ const styles = StyleSheet.create({
     borderColor: '#F0E9DC',
     paddingHorizontal: 14,
     fontSize: 14,
+    marginLeft: 8,
   },
 
   urgente: {

@@ -1,11 +1,50 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  contribuicoesDaNecessidade,
+  estaCompleta,
+  percentualPrometido,
+  percentualRecebido,
+  temMeta,
+  textoDoQueFalta,
+} from '../services/necessidades';
 import { colors } from '../theme/colors';
 
 export default function NeedItem(props) {
 
-  const reserva = props.need.reserva || null;
-  const minha = reserva != null && props.minhaReserva;
+  const contribuicoes = contribuicoesDaNecessidade(props.need);
+  const comMeta = temMeta(props.need);
+  const completa = estaCompleta(props.need);
+
+  function minha(contribuicao) {
+    return props.email != null && contribuicao.por === props.email;
+  }
+
+  // Quem já ofereceu não oferece de novo pelo mesmo item; quem administra
+  // não doa para o próprio abrigo. E item atendido, ou com tudo já
+  // prometido, não precisa de mais ninguém.
+  function podeOferecer() {
+    if (!props.somenteLeitura || props.need.done) {
+      return false;
+    }
+
+    if (comMeta && completa) {
+      return false;
+    }
+
+    return !contribuicoes.some(minha);
+  }
+
+  function rotuloDaContribuicao(contribuicao) {
+    const quem = minha(contribuicao) ? 'Você' : contribuicao.nome;
+    const quanto = comMeta ? ' ' + contribuicao.quantidade : '';
+
+    if (contribuicao.entregue) {
+      return quem + (minha(contribuicao) ? ' entregou' : ' entregou') + quanto;
+    }
+
+    return quem + ' vai levar' + quanto;
+  }
 
   return (
     <View style={styles.item}>
@@ -24,12 +63,7 @@ export default function NeedItem(props) {
         )}
       </Pressable>
 
-      {/* Tocar no texto também marca ou desmarca */}
-      <Pressable
-        style={styles.content}
-        onPress={() => props.onToggle(props.need.id)}
-        disabled={props.somenteLeitura}
-      >
+      <View style={styles.content}>
         <View style={styles.linhaTitulo}>
           {/* Urgente precisa ser visto antes de ler o nome, senão não
               adianta existir. */}
@@ -45,16 +79,43 @@ export default function NeedItem(props) {
           </Text>
         </View>
 
-        {props.need.quantidade ? (
-          <Text style={[styles.quantidade, props.need.done && styles.quantidadeDone]}>
-            {props.need.quantidade}
-          </Text>
+        {/* Quanto ainda falta, que é a pergunta de quem quer ajudar. A
+            barra tem duas camadas: o que o abrigo já recebeu, cheia, e o
+            que foi prometido e ainda não chegou, clara. Uma promessa não
+            é uma entrega, e a barra não deve dizer que é. */}
+        {comMeta ? (
+          <View style={styles.progresso}>
+            <Text
+              style={[
+                styles.falta,
+                completa && styles.faltaCompleta,
+                props.need.done && styles.faltaFeita,
+              ]}
+            >
+              {textoDoQueFalta(props.need)}
+            </Text>
+
+            <View style={styles.barraFundo}>
+              <View
+                style={[
+                  styles.barraPrometida,
+                  { width: percentualPrometido(props.need) + '%' },
+                ]}
+              />
+
+              <View
+                style={[
+                  styles.barraRecebida,
+                  { width: percentualRecebido(props.need) + '%' },
+                ]}
+              />
+            </View>
+          </View>
         ) : null}
 
         {/* De quem é a necessidade. Com o filtro em "Todos" a lista junta
             os abrigos, e sem isto não dá para saber quem está precisando
-            do quê. A etiqueta era discreta demais para esse trabalho, e
-            as necessidades sem abrigo não diziam nada — agora dizem. */}
+            do quê. */}
         <View style={[styles.abrigo, !props.need.abrigoNome && styles.abrigoSolto]}>
           <Ionicons
             name="business"
@@ -73,38 +134,51 @@ export default function NeedItem(props) {
           </Text>
         </View>
 
-        {/* A reserva avisa que alguém já se ofereceu para levar o item.
-            Não marca como atendida: quem confirma que chegou é o abrigo. */}
-        {reserva && !props.need.done ? (
-          <View style={styles.reserva}>
+        {/* Quem se ofereceu, quanto, e se já chegou. O abrigo confirma
+            cada entrega por aqui: é ele quem sabe que o item chegou. */}
+        {contribuicoes.map((contribuicao) => (
+          <View key={contribuicao.id} style={styles.contribuicao}>
             <Ionicons
-              name="hand-left"
-              size={11}
-              color={minha ? colors.supportGreen : '#9A8F7E'}
+              name={contribuicao.entregue ? 'checkmark-circle' : 'hand-left'}
+              size={12}
+              color={contribuicao.entregue ? colors.supportGreen : '#9A8F7E'}
             />
 
-            <Text style={[styles.reservaTexto, minha && styles.reservaMinha]}>
-              {minha ? 'Você vai levar' : reserva.nome + ' vai levar'}
+            <Text
+              style={[
+                styles.contribuicaoTexto,
+                contribuicao.entregue && styles.contribuicaoEntregue,
+              ]}
+              numberOfLines={1}
+            >
+              {rotuloDaContribuicao(contribuicao)}
             </Text>
+
+            {!props.somenteLeitura && !contribuicao.entregue ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Confirmar que esta doação chegou"
+                style={({ pressed }) => [styles.recebi, pressed && styles.pressed]}
+                onPress={() => props.onReceber(props.need, contribuicao)}
+              >
+                <Text style={styles.recebiTexto}>Recebi</Text>
+              </Pressable>
+            ) : null}
+
+            {minha(contribuicao) && !contribuicao.entregue ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Desistir de doar este item"
+                style={({ pressed }) => [styles.desistir, pressed && styles.pressed]}
+                onPress={() => props.onCancelarReserva(props.need, contribuicao)}
+              >
+                <Ionicons name="close-circle-outline" size={17} color={colors.supportPink} />
+              </Pressable>
+            ) : null}
           </View>
-        ) : null}
+        ))}
+      </View>
 
-        {/* O abrigo marcou que chegou. É o fim do ciclo que começou em
-            "vou doar", e por isso fica escrito quem trouxe. */}
-        {reserva && props.need.done ? (
-          <View style={styles.reserva}>
-            <Ionicons name="checkmark-circle" size={11} color={colors.supportGreen} />
-
-            <Text style={[styles.reservaTexto, styles.reservaMinha]}>
-              {minha ? 'Você entregou' : 'Entregue por ' + reserva.nome}
-            </Text>
-          </View>
-        ) : null}
-      </Pressable>
-
-      {/* Quem administra o abrigo apaga; quem vai doar se oferece para
-          levar ou desiste. São ações diferentes no mesmo lugar, porque
-          nunca aparecem as duas para a mesma pessoa. */}
       {props.somenteLeitura ? null : (
         <Pressable
           accessibilityRole="button"
@@ -116,24 +190,15 @@ export default function NeedItem(props) {
         </Pressable>
       )}
 
-      {props.somenteLeitura && !props.need.done && !reserva ? (
+      {podeOferecer() ? (
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Oferecer-se para doar este item"
           style={({ pressed }) => [styles.doar, pressed && styles.pressed]}
           onPress={() => props.onReservar(props.need)}
         >
           <Ionicons name="hand-left-outline" size={14} color={colors.primary} />
           <Text style={styles.doarTexto}>Vou doar</Text>
-        </Pressable>
-      ) : null}
-
-      {props.somenteLeitura && !props.need.done && minha ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Desistir de doar este item"
-          style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
-          onPress={() => props.onCancelarReserva(props.need)}
-        >
-          <Ionicons name="close-circle-outline" size={20} color={colors.supportPink} />
         </Pressable>
       ) : null}
 
@@ -144,7 +209,7 @@ export default function NeedItem(props) {
 const styles = StyleSheet.create({
   item: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 14,
@@ -165,6 +230,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 2,
   },
 
   checkboxDone: {
@@ -174,7 +240,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     marginHorizontal: 12,
-    paddingVertical: 5,
   },
 
   linhaTitulo: {
@@ -187,6 +252,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 16,
     color: colors.textMain,
+  },
+
+  titleDone: {
+    color: '#9A8F7E',
+    textDecorationLine: 'line-through',
   },
 
   urgente: {
@@ -206,15 +276,46 @@ const styles = StyleSheet.create({
     marginLeft: 3,
   },
 
-  quantidade: {
-    fontSize: 13,
-    color: colors.textMain,
-    marginTop: 2,
+  progresso: {
+    marginTop: 5,
   },
 
-  quantidadeDone: {
+  falta: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  faltaCompleta: {
+    color: colors.supportGreen,
+  },
+
+  faltaFeita: {
     color: '#9A8F7E',
-    textDecorationLine: 'line-through',
+    fontWeight: 'normal',
+  },
+
+  barraFundo: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#F0E9DC',
+    overflow: 'hidden',
+    marginTop: 5,
+  },
+
+  barraPrometida: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFD9AE',
+  },
+
+  barraRecebida: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.supportGreen,
   },
 
   abrigo: {
@@ -225,7 +326,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    marginTop: 5,
+    marginTop: 6,
   },
 
   abrigoSolto: {
@@ -245,26 +346,43 @@ const styles = StyleSheet.create({
     fontWeight: 'normal',
   },
 
-  reserva: {
+  contribuicao: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
+    marginTop: 6,
   },
 
-  reservaTexto: {
-    fontSize: 11,
+  contribuicaoTexto: {
+    flex: 1,
+    fontSize: 12,
     color: '#9A8F7E',
-    marginLeft: 4,
+    marginLeft: 5,
   },
 
-  reservaMinha: {
+  contribuicaoEntregue: {
     color: colors.supportGreen,
     fontWeight: 'bold',
   },
 
-  titleDone: {
-    color: '#9A8F7E',
-    textDecorationLine: 'line-through',
+  recebi: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.supportGreen,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    marginLeft: 6,
+  },
+
+  recebiTexto: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: colors.supportGreen,
+  },
+
+  desistir: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    marginLeft: 4,
   },
 
   deleteButton: {
