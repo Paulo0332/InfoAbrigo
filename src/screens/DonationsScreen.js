@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import NeedForm from '../components/NeedForm';
@@ -8,69 +18,94 @@ import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 import { ehGestor, podeGerenciarNecessidades } from '../data/perfis';
 import { carregarConta } from '../services/auth';
+import { ITEM, apagarDoacao, registrarDoacao } from '../services/donations';
 import { carregarAbrigos } from '../services/shelters';
 import { loadNeeds, saveNeeds } from '../services/storage';
+
+// Os dois filtros que não são um abrigo específico.
+const TODOS = 'todos';
+const SEM_ABRIGO = 'sem-abrigo';
 
 export default function DonationsScreen(props) {
 
   const [needs, setNeeds] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [atualizando, setAtualizando] = useState(false);
   const [conta, setConta] = useState(null);
+  const [abrigos, setAbrigos] = useState([]);
   const [meuAbrigo, setMeuAbrigo] = useState(null);
+  const [filtro, setFiltro] = useState(TODOS);
+  const [busca, setBusca] = useState('');
 
   useEffect(() => {
-    async function fetchNeeds() {
-      try {
-        const storedNeeds = await loadNeeds();
-        if (storedNeeds) {
-          setNeeds(storedNeeds);
-        }
-      } catch (error) {
-        Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
-      } finally {
-        setCarregando(false);
-      }
-    }
-    fetchNeeds();
-    buscarMeuAbrigo();
+    carregarTudo(true);
 
-    // Ao voltar do cadastro de abrigo, o vínculo pode ter mudado.
-    const inscricao = props.navigation.addListener('focus', buscarMeuAbrigo);
+    // Ao voltar do cadastro de abrigo, o vínculo e a lista podem ter
+    // mudado.
+    const inscricao = props.navigation.addListener('focus', () => {
+      carregarTudo(false);
+    });
 
     return inscricao;
   }, []);
 
-  // O gestor cadastra necessidades em nome do abrigo dele. Procuramos o
-  // primeiro abrigo cujo dono seja a conta atual.
-  async function buscarMeuAbrigo() {
+  // Uma leitura só para tudo que a tela mostra: a conta diz o perfil, os
+  // abrigos alimentam o filtro e as necessidades são a lista.
+  async function carregarTudo(primeiraVez) {
     try {
       const contaSalva = await carregarConta();
+      const listaAbrigos = await carregarAbrigos();
+      const listaNecessidades = await loadNeeds();
 
       setConta(contaSalva);
+      setAbrigos(listaAbrigos);
+      setNeeds(listaNecessidades || []);
 
-      if (!ehGestor(contaSalva)) {
-        setMeuAbrigo(null);
-
-        return;
-      }
-
-      const abrigos = await carregarAbrigos();
-      const meu = abrigos.find((abrigo) => abrigo.dono === contaSalva.email);
+      // O gestor cadastra necessidades em nome do abrigo dele. É o
+      // primeiro abrigo cujo dono seja a conta atual.
+      const meu = ehGestor(contaSalva)
+        ? listaAbrigos.find((abrigo) => abrigo.dono === contaSalva.email)
+        : null;
 
       setMeuAbrigo(meu || null);
+
+      // Quem administra um abrigo abre a tela já na lista dele. Depois
+      // troca o filtro à vontade, e por isso só na primeira vez.
+      if (primeiraVez && meu) {
+        setFiltro(meu.id);
+      }
     } catch (error) {
-      console.log('Erro ao buscar o abrigo do gestor:', error);
+      Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
+    } finally {
+      setCarregando(false);
     }
   }
 
-  async function addNeed(title) {
+  async function atualizar() {
+    setAtualizando(true);
+
+    await carregarTudo(false);
+
+    setAtualizando(false);
+  }
+
+  // Toda alteração na lista passa por aqui, para o estado da tela e o
+  // disco nunca saírem de sincronia.
+  async function gravarLista(novaLista, aviso) {
+    setNeeds(novaLista);
+
+    try {
+      await saveNeeds(novaLista);
+    } catch (error) {
+      Alert.alert('Erro', aviso);
+    }
+  }
+
+  function addNeed(title) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle) {
-      Alert.alert(
-        'Atenção',
-        'Digite o nome da necessidade.'
-      );
+      Alert.alert('Atenção', 'Digite o nome da necessidade.');
 
       return;
     }
@@ -85,17 +120,10 @@ export default function DonationsScreen(props) {
       abrigoNome: meuAbrigo ? meuAbrigo.nome : null,
     };
 
-    const newList = [newNeed, ...needs];
-    setNeeds(newList);
-
-    try {
-      await saveNeeds(newList);
-    } catch (error) {
-      Alert.alert('Erro', 'Falha ao salvar a necessidade.');
-    }
+    gravarLista([newNeed, ...needs], 'Falha ao salvar a necessidade.');
   }
 
-  async function toggleNeed(id) {
+  function toggleNeed(id) {
     const newList = needs.map((need) => {
       if (need.id === id) {
         return {
@@ -107,13 +135,7 @@ export default function DonationsScreen(props) {
       return need;
     });
 
-    setNeeds(newList);
-
-    try {
-      await saveNeeds(newList);
-    } catch (error) {
-      Alert.alert('Erro', 'Falha ao atualizar a necessidade.');
-    }
+    gravarLista(newList, 'Falha ao atualizar a necessidade.');
   }
 
   function confirmDelete(id) {
@@ -134,21 +156,213 @@ export default function DonationsScreen(props) {
     );
   }
 
-  async function deleteNeed(id) {
-    const newList = needs.filter((need) => need.id !== id);
-
-    setNeeds(newList);
-
-    try {
-      await saveNeeds(newList);
-    } catch (error) {
-      Alert.alert('Erro', 'Falha ao excluir a necessidade.');
-    }
+  function deleteNeed(id) {
+    gravarLista(
+      needs.filter((need) => need.id !== id),
+      'Falha ao excluir a necessidade.'
+    );
   }
 
   // Quem administra o abrigo mantém a lista; os outros perfis veem o que
   // os abrigos precisam, que é justamente o propósito do aplicativo.
   const gerencia = podeGerenciarNecessidades(conta);
+
+  // E administrar não é administrar tudo: cada gestor mexe só na lista do
+  // abrigo dele, senão um apaga a necessidade do outro. As necessidades
+  // antigas, cadastradas antes do vínculo existir, não têm abrigo nenhum
+  // — essas continuam abertas a qualquer gestor, senão ficariam presas
+  // sem ninguém para arrumar.
+  function podeMexer(need) {
+    if (!gerencia) {
+      return false;
+    }
+
+    if (!need.abrigoId) {
+      return true;
+    }
+
+    return meuAbrigo != null && need.abrigoId === meuAbrigo.id;
+  }
+
+  function combinaComFiltro(need) {
+    if (filtro === TODOS) {
+      return true;
+    }
+
+    if (filtro === SEM_ABRIGO) {
+      return !need.abrigoId;
+    }
+
+    return need.abrigoId === filtro;
+  }
+
+  function visiveis() {
+    const texto = busca.trim().toLowerCase();
+
+    return needs.filter((need) => {
+      if (!combinaComFiltro(need)) {
+        return false;
+      }
+
+      return !texto || need.title.toLowerCase().indexOf(texto) >= 0;
+    });
+  }
+
+  function minhaReserva(need) {
+    return (
+      conta != null && need.reserva != null && need.reserva.por === conta.email
+    );
+  }
+
+  // "Vou doar isto" não marca a necessidade como atendida: quem confirma
+  // que o item chegou é o abrigo. O que fica registrado é a reserva, para
+  // dois doadores não levarem a mesma coisa e o abrigo saber que alguém
+  // está a caminho.
+  function confirmarReserva(need) {
+    if (conta == null) {
+      Alert.alert('Erro', 'Não foi possível ler a sua conta.');
+
+      return;
+    }
+
+    Alert.alert(
+      'Vou doar este item',
+      'O abrigo vai ver que você se ofereceu para levar ' + need.title +
+        '. Combine a entrega pelo contato do abrigo, na aba do mapa.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirmar',
+          onPress: () => reservar(need),
+        },
+      ]
+    );
+  }
+
+  async function reservar(need) {
+    const doacao = {
+      id: Date.now().toString(),
+      tipo: ITEM,
+      item: need.title,
+      abrigo: need.abrigoNome || 'Abrigo não informado',
+      valor: 0,
+      data: new Date().toISOString(),
+    };
+
+    const novaLista = needs.map((item) => {
+      if (item.id !== need.id) {
+        return item;
+      }
+
+      return {
+        ...item,
+        reserva: {
+          por: conta.email,
+          nome: conta.nome || conta.email,
+          em: doacao.data,
+          doacaoId: doacao.id,
+        },
+      };
+    });
+
+    setNeeds(novaLista);
+
+    try {
+      await saveNeeds(novaLista);
+      await registrarDoacao(doacao);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível registrar a doação.');
+    }
+  }
+
+  function confirmarDesistencia(need) {
+    Alert.alert(
+      'Desistir da doação',
+      'O item volta a aparecer como disponível para outra pessoa levar.',
+      [
+        {
+          text: 'Voltar',
+          style: 'cancel',
+        },
+        {
+          text: 'Desistir',
+          style: 'destructive',
+          onPress: () => soltar(need),
+        },
+      ]
+    );
+  }
+
+  async function soltar(need) {
+    const doacaoId = need.reserva ? need.reserva.doacaoId : null;
+
+    const novaLista = needs.map((item) => {
+      if (item.id !== need.id) {
+        return item;
+      }
+
+      const semReserva = { ...item };
+
+      delete semReserva.reserva;
+
+      return semReserva;
+    });
+
+    setNeeds(novaLista);
+
+    try {
+      await saveNeeds(novaLista);
+
+      if (doacaoId) {
+        await apagarDoacao(doacaoId);
+      }
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível cancelar a doação.');
+    }
+  }
+
+  // As opções do filtro: todos, um por abrigo cadastrado e, só quando
+  // existirem, as necessidades soltas de antes do vínculo.
+  function opcoesDoFiltro() {
+    const lista = [{ id: TODOS, nome: 'Todos' }];
+
+    abrigos.forEach((abrigo) => {
+      lista.push({ id: abrigo.id, nome: abrigo.nome });
+    });
+
+    if (needs.some((need) => !need.abrigoId)) {
+      lista.push({ id: SEM_ABRIGO, nome: 'Sem abrigo' });
+    }
+
+    return lista;
+  }
+
+  // Com o filtro num abrigo, a doação em dinheiro já vai para ele, e a
+  // pessoa não precisa voltar ao mapa só para escolher.
+  function abrigoEscolhido() {
+    const escolhido = abrigos.find((abrigo) => abrigo.id === filtro);
+
+    if (!escolhido) {
+      return undefined;
+    }
+
+    return { abrigo: escolhido.nome, abrigoId: escolhido.id };
+  }
+
+  function textoDoVazio() {
+    if (busca) {
+      return 'Nenhuma necessidade com esse nome nesta lista.';
+    }
+
+    if (gerencia) {
+      return 'Cadastre acima o que o abrigo está precisando.';
+    }
+
+    return 'Nenhum abrigo publicou necessidades ainda.';
+  }
 
   function renderNeed({ item }) {
     return (
@@ -156,12 +370,17 @@ export default function DonationsScreen(props) {
         need={item}
         onToggle={toggleNeed}
         onDelete={confirmDelete}
-        somenteLeitura={!gerencia}
+        onReservar={confirmarReserva}
+        onCancelarReserva={confirmarDesistencia}
+        minhaReserva={minhaReserva(item)}
+        somenteLeitura={!podeMexer(item)}
       />
     );
   }
 
-  const doneCount = needs.filter((need) => need.done).length;
+  const lista = visiveis();
+  const atendidas = lista.filter((need) => need.done).length;
+  const reservadas = lista.filter((need) => need.reserva && !need.done).length;
 
   if (carregando) {
     return (
@@ -176,9 +395,65 @@ export default function DonationsScreen(props) {
       <View style={styles.content}>
 
         <Text style={styles.title}>Doações</Text>
+
         <Text style={styles.summary}>
-          {needs.length} necessidade(s) • {doneCount} atendida(s)
+          {lista.length} necessidade(s) • {atendidas} atendida(s)
+          {reservadas > 0 ? ' • ' + reservadas + ' a caminho' : ''}
         </Text>
+
+        {/* O filtro por abrigo é o que separa uma lista da outra. Sem ele
+            as necessidades de todos os abrigos apareciam misturadas. */}
+        {opcoesDoFiltro().length > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filtros}
+            contentContainerStyle={styles.filtrosConteudo}
+          >
+            {opcoesDoFiltro().map((opcao) => (
+              <Pressable
+                key={opcao.id}
+                style={({ pressed }) => [
+                  styles.filtro,
+                  filtro === opcao.id && styles.filtroAtivo,
+                  pressed && styles.doarPressionado,
+                ]}
+                onPress={() => setFiltro(opcao.id)}
+              >
+                <Text
+                  style={[
+                    styles.filtroTexto,
+                    filtro === opcao.id && styles.filtroTextoAtivo,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {opcao.nome}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {needs.length > 4 && (
+          <View style={styles.buscaCaixa}>
+            <Ionicons name="search" size={17} color="#9A8F7E" />
+
+            <TextInput
+              style={styles.buscaInput}
+              placeholder="Procurar na lista"
+              placeholderTextColor="#9A8F7E"
+              value={busca}
+              onChangeText={setBusca}
+              maxLength={40}
+            />
+
+            {busca ? (
+              <Pressable onPress={() => setBusca('')}>
+                <Ionicons name="close-circle" size={17} color="#9A8F7E" />
+              </Pressable>
+            ) : null}
+          </View>
+        )}
 
         {gerencia && meuAbrigo && (
           <View style={styles.vinculo}>
@@ -208,11 +483,11 @@ export default function DonationsScreen(props) {
           <NeedForm onAdd={addNeed} />
         ) : (
           <View style={styles.leitura}>
-            <Ionicons name="eye-outline" size={16} color="#9A8F7E" />
+            <Ionicons name="hand-left-outline" size={16} color="#9A8F7E" />
 
             <Text style={styles.leituraTexto}>
-              Esta é a lista que os abrigos publicaram. Quem mantém a lista é
-              quem administra o abrigo.
+              Esta é a lista que os abrigos publicaram. Toque em Vou doar
+              para avisar que você leva o item.
             </Text>
           </View>
         )}
@@ -221,7 +496,7 @@ export default function DonationsScreen(props) {
             acima é o que o abrigo precisa; aqui a pessoa contribui. */}
         <Pressable
           style={({ pressed }) => [styles.doar, pressed && styles.doarPressionado]}
-          onPress={() => props.navigation.navigate('Donate')}
+          onPress={() => props.navigation.navigate('Donate', abrigoEscolhido())}
         >
           <View style={styles.doarIcone}>
             <Ionicons name="heart" size={20} color={colors.primary} />
@@ -229,39 +504,39 @@ export default function DonationsScreen(props) {
 
           <View style={styles.doarConteudo}>
             <Text style={styles.doarTitulo}>Fazer uma doação em dinheiro</Text>
-            <Text style={styles.doarTexto}>Confirmação por biometria</Text>
+            <Text style={styles.doarTexto}>Pix, confirmado por biometria</Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
         </Pressable>
 
         <FlatList
-          data={needs}
+          data={lista}
           keyExtractor={(item) => item.id}
           renderItem={renderNeed}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={atualizando}
+              onRefresh={atualizar}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
           contentContainerStyle={[
             styles.list,
-            needs.length === 0 && styles.emptyList,
+            lista.length === 0 && styles.emptyList,
           ]}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Ionicons
-                name="gift-outline"
-                size={48}
-                color={colors.primary}
-              />
+              <Ionicons name="gift-outline" size={48} color={colors.primary} />
 
               <Text style={styles.emptyTitle}>
-                Nenhuma necessidade
+                {busca ? 'Nada encontrado' : 'Nenhuma necessidade'}
               </Text>
 
-              <Text style={styles.emptyText}>
-                {gerencia
-                  ? 'Cadastre acima o que o abrigo está precisando.'
-                  : 'Nenhum abrigo publicou necessidades ainda.'}
-              </Text>
+              <Text style={styles.emptyText}>{textoDoVazio()}</Text>
             </View>
           }
         />
@@ -298,7 +573,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9A8F7E',
     marginTop: 4,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+
+  filtros: {
+    flexGrow: 0,
+    marginBottom: 12,
+  },
+
+  filtrosConteudo: {
+    paddingRight: 16,
+  },
+
+  filtro: {
+    maxWidth: 170,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+
+  filtroAtivo: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+
+  filtroTexto: {
+    fontSize: 13,
+    color: colors.textMain,
+  },
+
+  filtroTextoAtivo: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+
+  buscaCaixa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+
+  buscaInput: {
+    flex: 1,
+    height: 44,
+    color: colors.textMain,
+    fontSize: 15,
+    marginHorizontal: 8,
   },
 
   vinculo: {
@@ -417,5 +746,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9A8F7E',
     marginTop: 5,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 });
