@@ -22,8 +22,19 @@ import {
   consultarCnpj,
   formatarCnpj,
 } from '../services/cnpj';
-import { salvarConta } from '../services/auth';
+import { carregarContas, emailJaUsado, salvarConta } from '../services/auth';
+import { novoSal, resumir, resumirResposta } from '../services/senha';
 import { colors } from '../theme/colors';
+
+// Perguntas fixas para a recuperação. Escolher de uma lista é melhor que
+// escrever a pergunta: quem escreve costuma criar uma que não lembra
+// depois, e a resposta livre já basta para não ser adivinhável.
+const PERGUNTAS = [
+  'Qual era o nome do seu primeiro animal de estimação?',
+  'Em que cidade a sua mãe nasceu?',
+  'Qual foi o nome da sua primeira escola?',
+  'Qual é o seu prato preferido?',
+];
 
 export default function SignUpScreen(props) {
 
@@ -34,6 +45,9 @@ export default function SignUpScreen(props) {
   const [cnpj, setCnpj] = useState('');
   const [instituicao, setInstituicao] = useState(null);
   const [verificando, setVerificando] = useState(false);
+  const [verSenha, setVerSenha] = useState(false);
+  const [pergunta, setPergunta] = useState(PERGUNTAS[0]);
+  const [resposta, setResposta] = useState('');
 
   function digitarCnpj(texto) {
     setCnpj(formatarCnpj(texto));
@@ -120,6 +134,28 @@ export default function SignUpScreen(props) {
       return;
     }
 
+    if (resposta.trim().length < 2) {
+      Alert.alert(
+        'Atenção',
+        'Responda à pergunta de segurança. É por ela que você recupera a conta se esquecer a senha.'
+      );
+
+      return;
+    }
+
+    // Duas contas com o mesmo e-mail no mesmo aparelho deixariam a tela de
+    // entrada sem saber qual das duas conferir.
+    const contas = await carregarContas();
+
+    if (emailJaUsado(contas, emailLimpo)) {
+      Alert.alert(
+        'E-mail já cadastrado',
+        'Já existe uma conta com este e-mail neste aparelho. Entre por ela na tela inicial.'
+      );
+
+      return;
+    }
+
     // Gestor administra abrigo e publica necessidades em nome de uma
     // instituição. Por isso ele precisa informar o CNPJ dela.
     if (perfil === 'gestor') {
@@ -142,10 +178,18 @@ export default function SignUpScreen(props) {
       }
     }
 
+    // A senha não é gravada: o que fica é o resumo dela com um sal
+    // próprio da conta. De dentro do resumo não se volta para a senha, e
+    // senha é justamente o que as pessoas repetem em outros serviços.
+    const sal = novoSal();
+
     const conta = {
       nome: nomeLimpo,
       email: emailLimpo,
-      senha: senha,
+      sal: sal,
+      senhaResumo: await resumir(senha, sal),
+      pergunta: pergunta,
+      respostaResumo: await resumirResposta(resposta, sal),
       perfil: perfil,
       instituicao:
         perfil === 'gestor'
@@ -300,14 +344,67 @@ export default function SignUpScreen(props) {
         />
 
         <Text style={styles.rotulo}>Senha</Text>
+
+        <View style={styles.campoSenha}>
+          <TextInput
+            style={styles.entradaSenha}
+            placeholder="Pelo menos 6 caracteres"
+            placeholderTextColor="#9A8F7E"
+            value={senha}
+            onChangeText={setSenha}
+            secureTextEntry={!verSenha}
+            maxLength={40}
+          />
+
+          {/* Digitar senha às cegas no celular é o motivo número um de
+              erro na hora de entrar. */}
+          <Pressable
+            style={({ pressed }) => [styles.olho, pressed && styles.pressionado]}
+            onPress={() => setVerSenha(!verSenha)}
+          >
+            <Ionicons
+              name={verSenha ? 'eye-off-outline' : 'eye-outline'}
+              size={21}
+              color="#9A8F7E"
+            />
+          </Pressable>
+        </View>
+
+        <Text style={styles.rotulo}>Pergunta de segurança</Text>
+
+        <Text style={styles.ajudaPergunta}>
+          Sem servidor não existe "enviar link por e-mail". Esta resposta é
+          o que devolve o acesso se você esquecer a senha.
+        </Text>
+
+        {PERGUNTAS.map((opcao) => (
+          <Pressable
+            key={opcao}
+            style={({ pressed }) => [
+              styles.opcaoPergunta,
+              pergunta === opcao && styles.opcaoPerguntaAtiva,
+              pressed && styles.pressionado,
+            ]}
+            onPress={() => setPergunta(opcao)}
+          >
+            <Ionicons
+              name={pergunta === opcao ? 'radio-button-on' : 'radio-button-off'}
+              size={18}
+              color={pergunta === opcao ? colors.primary : '#9A8F7E'}
+            />
+
+            <Text style={styles.textoPergunta}>{opcao}</Text>
+          </Pressable>
+        ))}
+
         <TextInput
           style={styles.input}
-          placeholder="Pelo menos 6 caracteres"
+          placeholder="Sua resposta"
           placeholderTextColor="#9A8F7E"
-          value={senha}
-          onChangeText={setSenha}
-          secureTextEntry
-          maxLength={40}
+          value={resposta}
+          onChangeText={setResposta}
+          autoCapitalize="none"
+          maxLength={60}
         />
 
         <Text style={styles.rotulo}>Como você vai usar o aplicativo</Text>
@@ -497,6 +594,61 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 6,
     marginTop: 14,
+  },
+
+  campoSenha: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingRight: 8,
+  },
+
+  entradaSenha: {
+    flex: 1,
+    height: 52,
+    color: colors.textMain,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+
+  olho: {
+    width: 40,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  ajudaPergunta: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+
+  opcaoPergunta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 12,
+    marginBottom: 8,
+  },
+
+  opcaoPerguntaAtiva: {
+    borderColor: colors.primary,
+  },
+
+  textoPergunta: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMain,
+    lineHeight: 18,
+    marginLeft: 8,
   },
 
   input: {

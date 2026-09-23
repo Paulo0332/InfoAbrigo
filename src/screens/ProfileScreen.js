@@ -14,7 +14,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Location from 'expo-location';
 import { useCameraPermissions } from 'expo-camera';
-import { apagarConta, carregarConta, salvarConta } from '../services/auth';
+import {
+  apagarConta,
+  carregarConta,
+  sairDaConta,
+  salvarConta,
+} from '../services/auth';
 import { colors } from '../theme/colors';
 
 const VERSAO = '1.0.0';
@@ -129,7 +134,16 @@ export default function ProfileScreen(props) {
   //
   // O semBiometria avisa o login para não abrir a digital sozinha: quem
   // acabou de sair seria jogado de volta para dentro do app.
-  function sair() {
+  async function sair() {
+    // Agora que o aparelho guarda mais de uma conta, sair precisa soltar
+    // qual delas está em uso. Sem isso a tela de entrada voltaria já
+    // grudada na mesma conta, e trocar de conta ficaria impossível.
+    try {
+      await sairDaConta();
+    } catch (error) {
+      console.log('Erro ao sair da conta:', error);
+    }
+
     props.navigation.getParent().replace('Login', { semBiometria: true });
   }
 

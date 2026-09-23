@@ -21,6 +21,7 @@ import PixQrCode from '../components/PixQrCode';
 import { carregarConta } from '../services/auth';
 import { DINHEIRO, formatarReais, registrarDoacao } from '../services/donations';
 import { montarCodigoPix } from '../services/pix';
+import { conferirSenha } from '../services/senha';
 import { carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
@@ -158,7 +159,9 @@ export default function DonateScreen(props) {
     setConfirmada(true);
   }
 
-  function confirmarComSenha() {
+  // A senha deixou de ser guardada como texto: agora fica só o resumo
+  // dela, e quem compara é o mesmo serviço que a tela de entrada usa.
+  async function confirmarComSenha() {
     if (!conta) {
       Alert.alert('Erro', 'Não foi possível ler a sua conta.');
 
@@ -171,7 +174,9 @@ export default function DonateScreen(props) {
       return;
     }
 
-    if (senha !== conta.senha) {
+    const conferida = await conferirSenha(conta, senha);
+
+    if (!conferida.confere) {
       Alert.alert('Não confirmado', 'Senha incorreta.');
 
       return;
