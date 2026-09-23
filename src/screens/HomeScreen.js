@@ -11,7 +11,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { acoesDoPerfil, ehGestor } from '../data/perfis';
 import { carregarConta } from '../services/auth';
+import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { loadNeeds } from '../services/storage';
 import { carregarAtividades } from '../services/activities';
 import {
@@ -30,6 +33,8 @@ export default function HomeScreen(props) {
   const [necessidades, setNecessidades] = useState([]);
   const [atividades, setAtividades] = useState([]);
   const [doacoes, setDoacoes] = useState([]);
+  const [abrigos, setAbrigos] = useState([]);
+  const [localizacao, setLocalizacao] = useState(null);
   const [avisosVisiveis, setAvisosVisiveis] = useState(false);
   const [atualizando, setAtualizando] = useState(false);
 
@@ -38,6 +43,7 @@ export default function HomeScreen(props) {
   // Doações não apareceria aqui até o app ser reaberto.
   useEffect(() => {
     buscarDados();
+    buscarLocalizacao();
 
     const inscricao = props.navigation.addListener('focus', buscarDados);
 
@@ -50,11 +56,13 @@ export default function HomeScreen(props) {
       const listaNecessidades = await loadNeeds();
       const listaAtividades = await carregarAtividades();
       const listaDoacoes = await carregarDoacoes();
+      const listaAbrigos = await carregarAbrigos();
 
       setConta(contaSalva);
       setNecessidades(listaNecessidades || []);
       setAtividades(listaAtividades);
       setDoacoes(listaDoacoes);
+      setAbrigos(listaAbrigos);
     } catch (error) {
       console.log('Erro ao carregar os dados da home:', error);
     }
@@ -68,6 +76,57 @@ export default function HomeScreen(props) {
     await buscarDados();
 
     setAtualizando(false);
+  }
+
+  // Consultamos a permissão em vez de pedir. Quem pede é a aba do mapa,
+  // onde a localização é o assunto da tela; aqui ela é um extra, e abrir
+  // a janela de permissão logo na abertura do aplicativo seria invasivo.
+  async function buscarLocalizacao() {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+
+      if (status !== 'granted') {
+        return;
+      }
+
+      const posicao = await Location.getCurrentPositionAsync({});
+
+      setLocalizacao(posicao.coords);
+    } catch (error) {
+      console.log('Erro ao obter a localização na home:', error);
+    }
+  }
+
+  function distanciaAte(abrigo) {
+    return calcularDistancia(
+      localizacao.latitude,
+      localizacao.longitude,
+      abrigo.latitude,
+      abrigo.longitude
+    );
+  }
+
+  // Estar perto é o argumento mais forte do aplicativo: quem vai levar
+  // uma doação escolhe pelo que dá para ir a pé. Sem permissão de
+  // localização não há como saber, e aí o cartão simplesmente não aparece.
+  function abrigoMaisProximo() {
+    if (localizacao == null || abrigos.length === 0) {
+      return null;
+    }
+
+    return abrigos
+      .slice()
+      .sort((a, b) => distanciaAte(a) - distanciaAte(b))[0];
+  }
+
+  function textoDaDistancia(abrigo) {
+    const km = distanciaAte(abrigo);
+
+    if (km < 1) {
+      return Math.round(km * 1000) + ' m de você';
+    }
+
+    return km.toFixed(1).replace('.', ',') + ' km de você';
   }
 
   function saudacao() {
@@ -161,6 +220,44 @@ export default function HomeScreen(props) {
     props.navigation.navigate(destino);
   }
 
+  function executarAcao(acao) {
+    if (acao.destino === 'Donate') {
+      doar();
+
+      return;
+    }
+
+    irPara(acao.destino);
+  }
+
+  // Doar sem abrigo escolhido caía numa tela que respondia "escolha um
+  // abrigo no mapa": três toques para descobrir que se começou pelo lugar
+  // errado. Agora, quando dá para saber qual é o abrigo, a tela já abre
+  // nele; quando não dá, o caminho é o mapa, que é onde se escolhe.
+  function doar() {
+    const escolhido = abrigoMaisProximo() || (abrigos.length === 1 ? abrigos[0] : null);
+
+    setAvisosVisiveis(false);
+
+    if (escolhido) {
+      props.navigation.navigate('Donate', {
+        abrigo: escolhido.nome,
+        abrigoId: escolhido.id,
+      });
+
+      return;
+    }
+
+    props.navigation.navigate('Mapa');
+  }
+
+  function verNoMapa(abrigo) {
+    props.navigation.navigate('Mapa', {
+      abrigoId: abrigo.id,
+      momento: Date.now(),
+    });
+  }
+
   const avisos = montarAvisos();
   const necessidadesAbertas = abertas();
 
@@ -219,13 +316,26 @@ export default function HomeScreen(props) {
 
             <View style={styles.statDivider} />
 
-            <Pressable
-              style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
-              onPress={() => irPara('Agenda')}
-            >
-              <Text style={styles.statValue}>{atividades.length}</Text>
-              <Text style={styles.statLabel}>atividades</Text>
-            </Pressable>
+            {/* Atividade é assunto de quem trabalha no abrigo. Para quem
+                chega para doar ou conhecer, o número que interessa é
+                quantos abrigos existem para visitar. */}
+            {ehGestor(conta) ? (
+              <Pressable
+                style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
+                onPress={() => irPara('Agenda')}
+              >
+                <Text style={styles.statValue}>{atividades.length}</Text>
+                <Text style={styles.statLabel}>atividades</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
+                onPress={() => irPara('Mapa')}
+              >
+                <Text style={styles.statValue}>{abrigos.length}</Text>
+                <Text style={styles.statLabel}>abrigos</Text>
+              </Pressable>
+            )}
 
             <View style={styles.statDivider} />
 
@@ -233,7 +343,9 @@ export default function HomeScreen(props) {
               style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('History')}
             >
-              <Text style={styles.statValue}>R$ {formatarReais(totalDoado())}</Text>
+              <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
+                R$ {formatarReais(totalDoado())}
+              </Text>
               <Text style={styles.statLabel}>doado</Text>
             </Pressable>
           </View>
@@ -244,41 +356,77 @@ export default function HomeScreen(props) {
           <Text style={styles.sectionTitle}>Ações Rápidas</Text>
 
           <View style={styles.quickActions}>
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressionado]}
-              onPress={() => props.navigation.navigate('Donate')}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: colors.supportGreen }]}>
-                <Ionicons name="heart" size={24} color="#FFF" />
-              </View>
+            {acoesDoPerfil(conta).map((acao) => (
+              <Pressable
+                key={acao.id}
+                style={({ pressed }) => [styles.actionBtn, pressed && styles.pressionado]}
+                onPress={() => executarAcao(acao)}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: acao.cor }]}>
+                  <Ionicons name={acao.icone} size={24} color="#FFF" />
+                </View>
 
-              <Text style={styles.actionText}>Doar</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressionado]}
-              onPress={() => irPara('Mapa')}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: colors.supportBlue }]}>
-                <Ionicons name="location" size={24} color="#FFF" />
-              </View>
-
-              <Text style={styles.actionText}>Abrigos</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressionado]}
-              onPress={() => irPara('Agenda')}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: colors.supportPink }]}>
-                <Ionicons name="camera" size={24} color="#FFF" />
-              </View>
-
-              <Text style={styles.actionText}>Registrar</Text>
-            </Pressable>
+                <Text style={styles.actionText}>{acao.rotulo}</Text>
+              </Pressable>
+            ))}
           </View>
 
-          <Text style={styles.sectionTitle}>Avisos do Abrigo</Text>
+          {/* O argumento mais forte do aplicativo é a proximidade, e ele
+              não aparecia em lugar nenhum da tela de abertura. */}
+          {abrigoMaisProximo() && (
+            <Pressable
+              style={({ pressed }) => [styles.perto, pressed && styles.pressionado]}
+              onPress={() => verNoMapa(abrigoMaisProximo())}
+            >
+              <View style={styles.pertoIcone}>
+                <Ionicons name="navigate" size={20} color={colors.supportBlue} />
+              </View>
+
+              <View style={styles.pertoTexto}>
+                <Text style={styles.pertoRotulo}>Mais perto de você</Text>
+
+                <Text style={styles.pertoNome} numberOfLines={1}>
+                  {abrigoMaisProximo().nome}
+                </Text>
+
+                <Text style={styles.pertoDistancia}>
+                  {textoDaDistancia(abrigoMaisProximo())}
+                  {'  •  '}{abrigoMaisProximo().criancas} crianças
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+            </Pressable>
+          )}
+
+          {/* Sem abrigo nenhum cadastrado a tela mostrava três zeros e não
+              dizia o que fazer com eles. */}
+          {abrigos.length === 0 && (
+            <Pressable
+              style={({ pressed }) => [styles.vazio, pressed && styles.pressionado]}
+              onPress={() =>
+                ehGestor(conta)
+                  ? props.navigation.navigate('RegisterShelter')
+                  : irPara('Mapa')
+              }
+            >
+              <Ionicons name="business-outline" size={26} color={colors.primary} />
+
+              <View style={styles.pertoTexto}>
+                <Text style={styles.pertoNome}>Nenhum abrigo cadastrado</Text>
+
+                <Text style={styles.pertoDistancia}>
+                  {ehGestor(conta)
+                    ? 'Cadastre o seu abrigo para ele aparecer no mapa'
+                    : 'Os abrigos aparecem aqui quando as instituições se cadastram'}
+                </Text>
+              </View>
+            </Pressable>
+          )}
+
+          <Text style={styles.sectionTitle}>
+            {ehGestor(conta) ? 'Avisos do seu abrigo' : 'O que os abrigos precisam'}
+          </Text>
 
           {necessidadesAbertas.length > 0 ? (
             <Pressable
@@ -329,7 +477,9 @@ export default function HomeScreen(props) {
                 <Text style={styles.warningTitle}>Nada pendente</Text>
 
                 <Text style={styles.warningDesc}>
-                  Cadastre o que o abrigo está precisando
+                  {ehGestor(conta)
+                    ? 'Cadastre o que o abrigo está precisando'
+                    : 'Nenhum abrigo publicou necessidades agora'}
                 </Text>
               </View>
 
@@ -540,6 +690,71 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     marginTop: -20,
+  },
+
+  perto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 8,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  pertoIcone: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.backgroundLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  pertoTexto: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  pertoRotulo: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  pertoNome: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginTop: 2,
+  },
+
+  pertoDistancia: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+
+  vazio: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 8,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
 
   sectionTitle: {

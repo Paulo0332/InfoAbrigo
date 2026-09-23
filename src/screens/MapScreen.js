@@ -278,6 +278,27 @@ export default function MapScreen(props) {
   // recentralizar o mapa num abrigo.
   const mapaRef = useRef(null);
 
+  // A Home manda o abrigo junto quando alguém toca no cartão do mais
+  // próximo. Guardamos o instante do último pedido atendido: sem isso, a
+  // aba reabriria o cartão daquele abrigo a cada vez que voltasse ao
+  // foco, mesmo depois de a pessoa ter fechado.
+  const pedido = props.route.params || {};
+  const ultimoPedido = useRef(null);
+
+  useEffect(() => {
+    if (!pedido.abrigoId || pedido.momento === ultimoPedido.current) {
+      return;
+    }
+
+    const abrigo = abrigos.find((item) => item.id === pedido.abrigoId);
+
+    if (abrigo) {
+      ultimoPedido.current = pedido.momento;
+
+      selecionar(abrigo);
+    }
+  }, [pedido.momento, abrigos]);
+
   useEffect(() => {
     buscarLocalizacao();
     buscarAbrigos();
@@ -1106,7 +1127,15 @@ export default function MapScreen(props) {
 
             <Pressable
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
-              onPress={() => props.navigation.navigate('Doações')}
+              onPress={() =>
+                props.navigation.navigate('Doações', {
+                  abrigoId: abrigoSelecionado.id,
+                  // O instante faz o pedido ser sempre novo. Sem ele, tocar
+                  // duas vezes no mesmo abrigo não mexeria no filtro, porque
+                  // os parâmetros seriam iguais aos da vez anterior.
+                  momento: Date.now(),
+                })
+              }
             >
               <Ionicons name="list-outline" size={17} color={colors.primary} />
               <Text style={styles.textoVer}>Ver o que o abrigo precisa</Text>

@@ -37,6 +37,18 @@ export default function DonationsScreen(props) {
   const [filtro, setFiltro] = useState(TODOS);
   const [busca, setBusca] = useState('');
 
+  // O cartão do mapa manda o abrigo junto quando alguém toca em "Ver o
+  // que o abrigo precisa". Sem ler isto aqui, aquele botão abria a lista
+  // inteira, de todos os abrigos: dizia uma coisa e entregava outra.
+  const pedido = props.route.params || {};
+
+  useEffect(() => {
+    if (pedido.abrigoId) {
+      setFiltro(pedido.abrigoId);
+      setBusca('');
+    }
+  }, [pedido.momento]);
+
   useEffect(() => {
     carregarTudo(true);
 
@@ -70,8 +82,9 @@ export default function DonationsScreen(props) {
       setMeuAbrigo(meu || null);
 
       // Quem administra um abrigo abre a tela já na lista dele. Depois
-      // troca o filtro à vontade, e por isso só na primeira vez.
-      if (primeiraVez && meu) {
+      // troca o filtro à vontade, e por isso só na primeira vez. Chegando
+      // pelo mapa, quem manda é o abrigo que a pessoa tocou.
+      if (primeiraVez && meu && !pedido.abrigoId) {
         setFiltro(meu.id);
       }
     } catch (error) {
