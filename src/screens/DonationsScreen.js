@@ -517,11 +517,33 @@ export default function DonationsScreen(props) {
 
           <View style={styles.doarConteudo}>
             <Text style={styles.doarTitulo}>Fazer uma doação em dinheiro</Text>
-            <Text style={styles.doarTexto}>Pix, confirmado por biometria</Text>
+
+            <Text style={styles.doarTexto}>
+              Pix, transferência ou a página do abrigo
+            </Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
         </Pressable>
+
+        {/* Dinheiro e itens não são as únicas formas: existe apadrinhamento
+            e existe a destinação do imposto de renda ao fundo da infância,
+            que não custa nada a quem doa. Tudo isso mora na tela do abrigo
+            escolhido, que só faz sentido quando há um escolhido. */}
+        {abrigoEscolhido() && (
+          <Pressable
+            style={({ pressed }) => [styles.ajudar, pressed && styles.doarPressionado]}
+            onPress={() => props.navigation.navigate('Help', { abrigoId: filtro })}
+          >
+            <Ionicons name="hand-left-outline" size={17} color={colors.primary} />
+
+            <Text style={styles.ajudarTexto}>
+              Todas as formas de ajudar este abrigo
+            </Text>
+
+            <Ionicons name="chevron-forward" size={17} color="#9A8F7E" />
+          </Pressable>
+        )}
 
         <FlatList
           data={lista}
@@ -732,6 +754,26 @@ const styles = StyleSheet.create({
 
   doarPressionado: {
     opacity: 0.6,
+  },
+
+  ajudar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginTop: -6,
+    marginBottom: 16,
+  },
+
+  ajudarTexto: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginHorizontal: 8,
   },
 
   list: {

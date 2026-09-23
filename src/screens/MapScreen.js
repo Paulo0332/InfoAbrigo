@@ -1374,6 +1374,16 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
+              onPress={() =>
+                props.navigation.navigate('Help', { abrigoId: abrigoSelecionado.id })
+              }
+            >
+              <Ionicons name="hand-left-outline" size={17} color={colors.primary} />
+              <Text style={styles.textoVer}>Todas as formas de ajudar</Text>
+            </Pressable>
+
+            <Pressable
               style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Donate', {
