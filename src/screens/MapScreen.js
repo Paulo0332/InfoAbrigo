@@ -519,9 +519,33 @@ export default function MapScreen(props) {
     centralizarEm(abrigo);
   }
 
+  // Fechar o cartão não apaga a rota. Quem fecha o cartão faz isso
+  // justamente para olhar o mapa sem ele em cima — apagar o caminho aí
+  // era o contrário do que a pessoa pediu. A rota só sai quando alguém
+  // toca no fechar do painel dela, ou quando outro abrigo é escolhido.
   function fecharCartao() {
-    limparRota();
     setAbrigoSelecionado(null);
+  }
+
+  // Com o cartão fechado e a rota no mapa, a faixa de baixo é o que
+  // sobra dela: mostra distância e tempo, traz o cartão de volta ao ser
+  // tocada e tem o seu próprio fechar.
+  function abrigoDaRota() {
+    if (rota == null) {
+      return null;
+    }
+
+    return abrigos.find((abrigo) => abrigo.id === rota.abrigoId) || null;
+  }
+
+  // Reabrir pela faixa não recentraliza no abrigo: isso desfaria o
+  // enquadramento do caminho inteiro, que é o que a pessoa está vendo.
+  function reabrirCartao() {
+    const abrigo = abrigoDaRota();
+
+    if (abrigo) {
+      setAbrigoSelecionado(abrigo);
+    }
   }
 
   function rotaDoAbrigo(abrigo) {
@@ -807,6 +831,7 @@ export default function MapScreen(props) {
           <Pressable
             style={({ pressed }) => [
               styles.botaoMim,
+              rota && !abrigoSelecionado && styles.botaoMimSobreFaixa,
               abrigoSelecionado && styles.botaoMimAcima,
               pressed && styles.pressionado,
             ]}
@@ -814,6 +839,36 @@ export default function MapScreen(props) {
           >
             <Ionicons name="locate" size={22} color={colors.primary} />
           </Pressable>
+        )}
+
+        {!abrigoSelecionado && rota && abrigoDaRota() && (
+          <View style={styles.faixaRota}>
+            <Pressable
+              style={({ pressed }) => [styles.faixaToque, pressed && styles.pressionado]}
+              onPress={reabrirCartao}
+            >
+              <Ionicons name="navigate-circle" size={22} color={colors.primary} />
+
+              <View style={styles.faixaTexto}>
+                <Text style={styles.faixaResumo}>
+                  {formatarDistancia(rota.distanciaKm)}
+                  {'  •  '}
+                  {formatarDuracao(rota.minutos)}
+                </Text>
+
+                <Text style={styles.faixaAbrigo} numberOfLines={1}>
+                  até {abrigoDaRota().nome}
+                </Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.faixaFechar, pressed && styles.pressionado]}
+              onPress={limparRota}
+            >
+              <Ionicons name="close" size={19} color="#9A8F7E" />
+            </Pressable>
+          </View>
         )}
 
         {abrigoSelecionado && (
@@ -1316,6 +1371,62 @@ const styles = StyleSheet.create({
 
   botaoMimAcima: {
     bottom: 210,
+  },
+
+  // A faixa da rota é bem mais baixa que o cartão, então o botão sobe só
+  // o que ela ocupa.
+  botaoMimSobreFaixa: {
+    bottom: 104,
+  },
+
+  faixaRota: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingLeft: 14,
+    paddingRight: 6,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+
+  faixaToque: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+
+  faixaTexto: {
+    flex: 1,
+    marginLeft: 10,
+  },
+
+  faixaResumo: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  faixaAbrigo: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  faixaFechar: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   cartao: {
