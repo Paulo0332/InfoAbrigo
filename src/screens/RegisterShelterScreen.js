@@ -1151,9 +1151,11 @@ const styles = StyleSheet.create({
     height: 92,
     borderRadius: 14,
     borderWidth: 1,
-    borderStyle: 'dashed',
+    // Tracejado com canto arredondado o iOS desenha como linha contínua,
+    // então os dois sistemas mostravam coisas diferentes. Linha contínua
+    // é igual nos dois.
     borderColor: colors.primary,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFF3E6',
   },
 
   fotoVaziaTexto: {
