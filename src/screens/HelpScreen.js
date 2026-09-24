@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -220,6 +221,14 @@ export default function HelpScreen(props) {
           </Text>
         ) : (
           <View>
+            {abrigo.foto ? (
+              <Image
+                source={{ uri: abrigo.foto }}
+                style={styles.foto}
+                resizeMode="cover"
+              />
+            ) : null}
+
             <Text style={styles.secao}>Doar</Text>
 
             {formasDeDinheiro(abrigo).length > 0
@@ -412,6 +421,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginTop: 40,
+  },
+
+  foto: {
+    height: 150,
+    borderRadius: 16,
+    backgroundColor: '#F0E9DC',
+    marginBottom: 4,
   },
 
   secao: {

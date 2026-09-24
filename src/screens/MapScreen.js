@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -847,9 +848,13 @@ export default function MapScreen(props) {
         style={({ pressed }) => [styles.itemLista, pressed && styles.pressionado]}
         onPress={() => escolherDaLista(item)}
       >
-        <View style={styles.itemIcone}>
-          <Ionicons name="business" size={18} color={colors.primary} />
-        </View>
+        {item.foto ? (
+          <Image source={{ uri: item.foto }} style={styles.itemFoto} resizeMode="cover" />
+        ) : (
+          <View style={styles.itemIcone}>
+            <Ionicons name="business" size={18} color={colors.primary} />
+          </View>
+        )}
 
         <View style={styles.itemTexto}>
           <Text style={styles.itemNome}>{item.nome}</Text>
@@ -1172,6 +1177,16 @@ export default function MapScreen(props) {
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled
             >
+            {/* A foto do abrigo, quando existe. É o que faz o cartão
+                deixar de ser um nome e virar um lugar reconhecível. */}
+            {abrigoSelecionado.foto ? (
+              <Image
+                source={{ uri: abrigoSelecionado.foto }}
+                style={styles.fotoCartao}
+                resizeMode="cover"
+              />
+            ) : null}
+
             <View style={styles.cartaoTopo}>
               <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
 
@@ -1506,6 +1521,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
+  },
+
+  fotoCartao: {
+    height: 130,
+    borderRadius: 14,
+    backgroundColor: '#F0E9DC',
+    marginBottom: 12,
+  },
+
+  itemFoto: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F0E9DC',
   },
 
   itemIcone: {

@@ -587,14 +587,27 @@ export default function ScheduleScreen(props) {
 
               <Text style={styles.textoVazio}>
                 {aba === 'proximos'
-                  ? 'Toque no botão abaixo para marcar uma visita, uma entrega ou um dia de voluntariado.'
-                  : 'O que já aconteceu aparece aqui, com a foto que você registrar.'}
+                  ? 'Toque no + para marcar uma visita, uma entrega ou um dia de voluntariado.'
+                  : 'O que já aconteceu aparece aqui. Toque na câmera para registrar agora mesmo, com foto.'}
               </Text>
             </View>
           }
         />
 
         <View style={styles.areaBotao}>
+          {/* Fotografar sem compromisso marcado é o caminho de quem já
+              está no abrigo e lembrou de registrar na hora. O código
+              aceitava isso desde o começo, mas nenhum botão chegava
+              nele — a câmera só abria por um compromisso passado. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Registrar agora com foto"
+            style={({ pressed }) => [styles.botaoCamera, pressed && styles.pressionado]}
+            onPress={() => abrirCamera(null)}
+          >
+            <Ionicons name="camera" size={24} color={colors.primary} />
+          </Pressable>
+
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Marcar um compromisso"
@@ -1211,7 +1224,25 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 24,
     left: 0,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  botaoCamera: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    elevation: 5,
   },
 
   botaoFlutuante: {

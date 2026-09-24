@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import CameraFoto from '../components/CameraFoto';
 import { carregarConta } from '../services/auth';
 import {
   celularValido,
@@ -111,6 +113,13 @@ export default function RegisterShelterScreen(props) {
   );
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
+
+  // A foto do abrigo é o que faz a lista deixar de ser uma fila de nomes.
+  // Quem vai doar reconhece o lugar, e quem administra mostra o trabalho.
+  const [foto, setFoto] = useState(
+    abrigoEditado ? abrigoEditado.foto || null : null
+  );
+  const [camera, setCamera] = useState(false);
   // O endereço é guardado campo a campo, e não como um texto só: assim dá
   // para corrigir o que o CEP trouxe errado, preencher à mão quando o CEP
   // é genérico e não devolve rua, e ainda montar a busca da coordenada.
@@ -451,6 +460,7 @@ export default function RegisterShelterScreen(props) {
           criancas: quantidade,
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
+          foto: foto,
           chavePix: chavePix.trim(),
           banco: bancoAtual(),
           linkDoacao: normalizarLink(linkDoacao),
@@ -472,6 +482,7 @@ export default function RegisterShelterScreen(props) {
           criancas: quantidade,
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
+          foto: foto,
           chavePix: chavePix.trim(),
           banco: bancoAtual(),
           linkDoacao: normalizarLink(linkDoacao),
@@ -593,6 +604,46 @@ export default function RegisterShelterScreen(props) {
           keyboardType="number-pad"
           maxLength={4}
         />
+
+        <Text style={styles.titulo}>Foto do abrigo</Text>
+
+        <Text style={styles.ajuda}>
+          Uma foto da fachada ou da área comum. É o que faz a lista deixar
+          de ser uma fila de nomes: quem vai levar uma doação reconhece o
+          lugar antes de chegar.
+        </Text>
+
+        {foto ? (
+          <View style={styles.fotoArea}>
+            <Image source={{ uri: foto }} style={styles.foto} resizeMode="cover" />
+
+            <View style={styles.fotoAcoes}>
+              <Pressable
+                style={({ pressed }) => [styles.fotoBotao, pressed && styles.pressionado]}
+                onPress={() => setCamera(true)}
+              >
+                <Ionicons name="camera-reverse" size={17} color="#FFFFFF" />
+                <Text style={styles.fotoBotaoTexto}>Trocar</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.fotoBotao, pressed && styles.pressionado]}
+                onPress={() => setFoto(null)}
+              >
+                <Ionicons name="trash-outline" size={17} color="#FFFFFF" />
+                <Text style={styles.fotoBotaoTexto}>Remover</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.fotoVazia, pressed && styles.pressionado]}
+            onPress={() => setCamera(true)}
+          >
+            <Ionicons name="camera" size={26} color={colors.primary} />
+            <Text style={styles.fotoVaziaTexto}>Tirar uma foto do abrigo</Text>
+          </Pressable>
+        )}
 
         <Text style={styles.titulo}>Contatos</Text>
 
@@ -994,6 +1045,16 @@ export default function RegisterShelterScreen(props) {
       </ScrollView>
       </KeyboardAvoidingView>
 
+      <CameraFoto
+        visivel={camera}
+        titulo="Fotografe o abrigo"
+        aoFechar={() => setCamera(false)}
+        aoConfirmar={(uri) => {
+          setFoto(uri);
+          setCamera(false);
+        }}
+      />
+
     </SafeAreaView>
   );
 }
@@ -1046,6 +1107,60 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     lineHeight: 19,
     marginBottom: 8,
+  },
+
+  fotoArea: {
+    height: 170,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#F0E9DC',
+  },
+
+  foto: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  fotoAcoes: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    flexDirection: 'row',
+  },
+
+  fotoBotao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 8,
+  },
+
+  fotoBotaoTexto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 5,
+  },
+
+  fotoVazia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 92,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+  },
+
+  fotoVaziaTexto: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 8,
   },
 
   retornoChave: {
