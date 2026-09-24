@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import CameraFoto from '../components/CameraFoto';
+import EscolherNoMapa from '../components/EscolherNoMapa';
 import { carregarConta } from '../services/auth';
 import {
   celularValido,
@@ -46,9 +47,10 @@ import { colors } from '../theme/colors';
 // De onde veio o ponto marcado no mapa. A pessoa precisa saber: o ponto
 // do CEP costuma cair no meio da via, e às vezes no centro da cidade.
 const TEXTO_DA_ORIGEM = {
-  endereco: 'Ponto do endereço digitado.',
+  endereco: 'Ponto do endereço digitado. Se caiu torto, conserte no mapa.',
   cep: 'Ponto aproximado, vindo do CEP. Confira se caiu no lugar certo.',
   gps: 'Ponto do aparelho, onde você está agora.',
+  mapa: 'Ponto marcado por você no mapa.',
 };
 
 export default function RegisterShelterScreen(props) {
@@ -120,6 +122,12 @@ export default function RegisterShelterScreen(props) {
     abrigoEditado ? abrigoEditado.foto || null : null
   );
   const [camera, setCamera] = useState(false);
+
+  // Marcar tocando no mapa. As outras duas formas são aproximações: o CEP
+  // aponta para a via e o geocodificador acerta a rua mas erra o número.
+  // Para quem conhece o lugar, a mão é a única forma exata.
+  const [escolhendoNoMapa, setEscolhendoNoMapa] = useState(false);
+  const [ondeEstou, setOndeEstou] = useState(null);
   // O endereço é guardado campo a campo, e não como um texto só: assim dá
   // para corrigir o que o CEP trouxe errado, preencher à mão quando o CEP
   // é genérico e não devolve rua, e ainda montar a busca da coordenada.
@@ -157,6 +165,7 @@ export default function RegisterShelterScreen(props) {
       const posicao = await Location.getCurrentPositionAsync({});
 
       setLocalizacao(posicao.coords);
+      setOndeEstou(posicao.coords);
       setOrigemPonto('gps');
     } catch (error) {
       console.log('Erro ao obter a localização:', error);
@@ -168,6 +177,40 @@ export default function RegisterShelterScreen(props) {
     } finally {
       setBuscando(false);
     }
+  }
+
+  // Consulta a posição sem pedir nada: serve só para o mapa de escolha
+  // abrir perto de quem cadastra, em vez de no centro do país.
+  async function ondeAPessoaEsta() {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+
+      if (status !== 'granted') {
+        return;
+      }
+
+      const posicao = await Location.getCurrentPositionAsync({});
+
+      setOndeEstou(posicao.coords);
+    } catch (error) {
+      console.log('Sem posição para centralizar o mapa:', error);
+    }
+  }
+
+  function abrirMapa() {
+    ondeAPessoaEsta();
+    setEscolhendoNoMapa(true);
+  }
+
+  function marcarNoMapa(ponto) {
+    setEscolhendoNoMapa(false);
+
+    if (ponto == null) {
+      return;
+    }
+
+    setLocalizacao(ponto);
+    setOrigemPonto('mapa');
   }
 
   function digitarCep(texto) {
@@ -969,6 +1012,23 @@ export default function RegisterShelterScreen(props) {
 
         <Text style={styles.rotulo}>Ponto no mapa</Text>
 
+        {/* Tocar no mapa vem primeiro porque é o jeito exato. Os outros
+            dois são aproximações: o CEP aponta para a via, às vezes para o
+            centro da cidade, e o geocodificador acerta a rua mas erra o
+            número e o lado. Quem conhece o lugar aponta e pronto. */}
+        <Pressable
+          style={({ pressed }) => [styles.botaoMapa, pressed && styles.pressionado]}
+          onPress={abrirMapa}
+        >
+          <Ionicons name="map" size={20} color="#FFFFFF" />
+
+          <Text style={styles.textoBotaoMapa}>
+            {localizacao ? 'Ajustar o ponto no mapa' : 'Escolher no mapa'}
+          </Text>
+        </Pressable>
+
+        <Text style={styles.ou}>ou</Text>
+
         <Pressable
           style={({ pressed }) => [styles.botaoLocal, pressed && styles.pressionado]}
           onPress={localizarNoMapa}
@@ -1044,6 +1104,14 @@ export default function RegisterShelterScreen(props) {
 
       </ScrollView>
       </KeyboardAvoidingView>
+
+      <EscolherNoMapa
+        visivel={escolhendoNoMapa}
+        inicial={localizacao}
+        localizacao={ondeEstou}
+        aoFechar={() => setEscolhendoNoMapa(false)}
+        aoConfirmar={marcarNoMapa}
+      />
 
       <CameraFoto
         visivel={camera}
@@ -1200,6 +1268,22 @@ const styles = StyleSheet.create({
     borderColor: '#F0E9DC',
     paddingHorizontal: 16,
     fontSize: 16,
+  },
+
+  botaoMapa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+
+  textoBotaoMapa: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
 
   botaoLocal: {

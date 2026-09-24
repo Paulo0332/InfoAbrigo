@@ -212,7 +212,7 @@ export default function HomeScreen(props) {
         id: 'c' + proximo.id,
         icone: buscarTipo(proximo.tipo).icone,
         cor: colors.supportBlue,
-        titulo: buscarTipo(proximo.tipo).nome,
+        titulo: proximo.titulo || buscarTipo(proximo.tipo).nome,
         texto: quandoAcontece(proximo.quando) +
           (proximo.abrigoNome ? ' — ' + proximo.abrigoNome : ''),
         destino: 'Agenda',
@@ -601,7 +601,9 @@ export default function HomeScreen(props) {
               </View>
 
               <Text style={styles.activityTitle}>
-                {proximoCompromisso().abrigoNome || 'Abrigo não informado'}
+                {proximoCompromisso().titulo ||
+                  proximoCompromisso().abrigoNome ||
+                  'Abrigo não informado'}
               </Text>
 
               <View style={styles.activityLocation}>

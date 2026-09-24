@@ -75,6 +75,11 @@ export default function ScheduleScreen(props) {
   const [hora, setHora] = useState('');
   const [observacao, setObservacao] = useState('');
 
+  // O compromisso só tinha tipo, abrigo e hora. Dois do mesmo tipo no
+  // mesmo abrigo ficavam idênticos na lista, e a pessoa não lembrava
+  // qual era qual — o título é o que diferencia um do outro.
+  const [titulo, setTitulo] = useState('');
+
   // Câmera: ela continua sendo o módulo de registro, só que agora com um
   // lugar que faz sentido — documentar o que aconteceu num compromisso.
   const [cameraVisivel, setCameraVisivel] = useState(false);
@@ -148,7 +153,8 @@ export default function ScheduleScreen(props) {
       setAbrigoEscolhido(abrigo.id);
     }
 
-    setObservacao('Levar: ' + promessa.item);
+    setTitulo('Entregar ' + promessa.item);
+    setObservacao('');
   }
 
   function abrirNovo() {
@@ -158,6 +164,7 @@ export default function ScheduleScreen(props) {
     setData(dataDaquiA(1));
     setHora('14:00');
     setObservacao('');
+    setTitulo('');
     setFormVisivel(true);
   }
 
@@ -174,6 +181,7 @@ export default function ScheduleScreen(props) {
     );
     setHora(formatarHora(item.quando));
     setObservacao(item.observacao || '');
+    setTitulo(item.titulo || '');
     setFormVisivel(true);
   }
 
@@ -193,6 +201,7 @@ export default function ScheduleScreen(props) {
 
     const dados = {
       tipo: tipo,
+      titulo: titulo.trim(),
       abrigoId: abrigo ? abrigo.id : null,
       abrigoNome: abrigo ? abrigo.nome : null,
       quando: quando,
@@ -468,8 +477,14 @@ export default function ScheduleScreen(props) {
             </View>
 
             <Text style={styles.abrigoNome} numberOfLines={1}>
-              {item.abrigoNome || 'Abrigo não informado'}
+              {item.titulo || item.abrigoNome || 'Abrigo não informado'}
             </Text>
+
+            {item.titulo && item.abrigoNome ? (
+              <Text style={styles.abrigoSecundario} numberOfLines={1}>
+                {item.abrigoNome}
+              </Text>
+            ) : null}
 
             <Text style={[styles.quando, passado && styles.quandoPassado]}>
               {quandoAcontece(item.quando)}
@@ -776,6 +791,17 @@ export default function ScheduleScreen(props) {
                   ))}
                 </View>
               ) : null}
+
+              <Text style={styles.rotulo}>Título</Text>
+
+              <TextInput
+                style={styles.campo}
+                placeholder="Ex.: Entrega das fraldas de março"
+                placeholderTextColor="#9A8F7E"
+                value={titulo}
+                onChangeText={setTitulo}
+                maxLength={60}
+              />
 
               <Text style={styles.rotulo}>Com qual abrigo</Text>
 
@@ -1180,6 +1206,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.textMain,
     marginTop: 2,
+  },
+
+  abrigoSecundario: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
   },
 
   quando: {
