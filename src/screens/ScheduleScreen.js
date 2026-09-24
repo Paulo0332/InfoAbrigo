@@ -452,18 +452,22 @@ export default function ScheduleScreen(props) {
 
           </View>
 
-          {/* O lápis vale para qualquer data. Antes só o compromisso
-              futuro podia ser corrigido, e quem anotasse a hora errada
-              numa visita que já passou ficava sem conserto. */}
+          {/* Data e hora só mudam no que ainda vai acontecer. Remarcar
+              uma visita que já foi é reescrever o passado: o que vale
+              dela é o registro, e esse continua editável no cartão da
+              foto. Excluir continua valendo, porque compromisso lançado
+              errado precisa poder sumir. */}
           <View style={styles.acoesCartao}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Mudar o compromisso"
-              style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
-              onPress={() => abrirEdicao(item)}
-            >
-              <Ionicons name="create-outline" size={18} color={colors.primary} />
-            </Pressable>
+            {!passado && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Mudar o compromisso"
+                style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+                onPress={() => abrirEdicao(item)}
+              >
+                <Ionicons name="create-outline" size={18} color={colors.primary} />
+              </Pressable>
+            )}
 
             <Pressable
               accessibilityRole="button"
