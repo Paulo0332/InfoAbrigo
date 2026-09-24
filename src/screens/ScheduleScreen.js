@@ -28,6 +28,7 @@ import {
   formatarCampoData,
   formatarCampoHora,
   formatarHora,
+  ehHoje,
   jaPassou,
   mesCurto,
   montarQuando,
@@ -382,6 +383,14 @@ export default function ScheduleScreen(props) {
 
   // ------------------------------------------------------------- lista
 
+  // A foto é tirada no abrigo, durante a visita — não depois dela. Por
+  // isso registrar libera no dia, e não quando a hora marcada passa:
+  // quem chega dez minutos antes ficava sem conseguir fotografar, e
+  // quando o botão enfim aparecia a pessoa já tinha ido embora.
+  function podeRegistrar(item) {
+    return ehHoje(item.quando) || jaPassou(item.quando);
+  }
+
   function renderizarCompromisso({ item }) {
     const tipoDele = buscarTipo(item.tipo);
     const passado = jaPassou(item.quando);
@@ -483,13 +492,18 @@ export default function ScheduleScreen(props) {
               <Ionicons name="create-outline" size={17} color={colors.primary} />
             </Pressable>
           </Pressable>
-        ) : passado ? (
+        ) : podeRegistrar(item) ? (
           <Pressable
             style={({ pressed }) => [styles.botaoRegistrar, pressed && styles.pressionado]}
             onPress={() => abrirCamera(item)}
           >
             <Ionicons name="camera" size={17} color={colors.primary} />
-            <Text style={styles.textoRegistrar}>Registrar o que aconteceu</Text>
+
+            <Text style={styles.textoRegistrar}>
+              {ehHoje(item.quando) && !passado
+                ? 'Está acontecendo? Registre com foto'
+                : 'Registrar com foto'}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -571,7 +585,7 @@ export default function ScheduleScreen(props) {
               <Text style={styles.textoVazio}>
                 {aba === 'proximos'
                   ? 'Marque uma visita, uma entrega ou um dia de voluntariado no botão abaixo.'
-                  : 'Passada a hora marcada, o compromisso vem para cá e ganha o botão de registrar com foto. Se a visita já aconteceu e você não tinha marcado, marque ela para hoje: ela cai aqui na hora.'}
+                  : 'Passada a hora marcada, o compromisso vem para cá com a foto que você tiver registrado nele.'}
               </Text>
             </View>
           }
@@ -876,7 +890,7 @@ export default function ScheduleScreen(props) {
               </View>
 
               <View style={styles.corpoFormulario}>
-                <Text style={styles.formTitulo}>O que aconteceu</Text>
+                <Text style={styles.formTitulo}>Registro da visita</Text>
 
                 <Text style={styles.formContexto}>
                   {buscarTipo(registrandoEm.tipo).nome}
