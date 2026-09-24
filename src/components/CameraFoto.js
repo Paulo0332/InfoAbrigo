@@ -12,7 +12,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { escolherDoCelular } from '../services/galeria';
 import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 
@@ -81,26 +80,6 @@ export default function CameraFoto(props) {
     setPronta(false);
   }
 
-  // Nem todo abrigo e fotografado na hora do cadastro: muita vez a foto
-  // ja existe no celular de quem administra.
-  async function trazerDoCelular() {
-    const escolha = await escolherDoCelular();
-
-    if (escolha.situacao === 'escolhida') {
-      toqueLeve();
-      setFoto(escolha.uri);
-
-      return;
-    }
-
-    if (escolha.situacao === 'sem-permissao') {
-      Alert.alert(
-        'Sem acesso às fotos',
-        'Para escolher uma foto já tirada, permita o acesso às fotos nas configurações do aparelho.'
-      );
-    }
-  }
-
   return (
     <Modal visible={props.visivel} animationType="slide" onRequestClose={props.aoFechar}>
       <View style={styles.tela}>
@@ -108,9 +87,9 @@ export default function CameraFoto(props) {
           <View style={styles.tela}>
             <Image source={{ uri: foto }} style={styles.previa} resizeMode="cover" />
 
-            <View style={[styles.barraTopo, { paddingTop: areaSegura.top + 16 }]}>
-              <Text style={styles.aviso}>A foto ficou boa?</Text>
-            </View>
+            <Text style={[styles.aviso, { top: areaSegura.top + 20 }]}>
+              A foto ficou boa?
+            </Text>
 
             <View style={styles.barraBaixo}>
               <Pressable
@@ -143,20 +122,28 @@ export default function CameraFoto(props) {
               onCameraReady={() => setPronta(true)}
             />
 
-            <View style={[styles.barraTopo, { paddingTop: areaSegura.top + 16 }]}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Fechar a câmera"
-                style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
-                onPress={props.aoFechar}
-              >
-                <Ionicons name="close" size={26} color="#FFFFFF" />
-              </Pressable>
+            {/* Os controles flutuam por cima da imagem, sem faixa preta
+                por baixo. A faixa comia um pedaço grande da tela para
+                mostrar dois botões, e o que interessa aqui é ver o que
+                vai ser fotografado. */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Fechar a câmera"
+              style={({ pressed }) => [
+                styles.fechar,
+                { top: areaSegura.top + 12 },
+                pressed && styles.pressionado,
+              ]}
+              onPress={props.aoFechar}
+            >
+              <Ionicons name="close" size={24} color="#FFFFFF" />
+            </Pressable>
 
-              <Text style={styles.aviso}>{props.titulo || 'Fotografe o abrigo'}</Text>
-            </View>
+            <Text style={[styles.aviso, { top: areaSegura.top + 20 }]}>
+              {props.titulo || 'Fotografe o abrigo'}
+            </Text>
 
-            <View style={styles.barraBaixo}>
+            <View style={styles.baseCamera}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Tirar a foto"
@@ -165,16 +152,6 @@ export default function CameraFoto(props) {
                 disabled={!pronta}
               >
                 <View style={styles.disparo} />
-              </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Escolher uma foto do celular"
-                style={({ pressed }) => [styles.doCelular, pressed && styles.pressionado]}
-                onPress={trazerDoCelular}
-              >
-                <Ionicons name="images-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.doCelularTexto}>Escolher do celular</Text>
               </Pressable>
             </View>
           </View>
@@ -198,31 +175,40 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
 
-  barraTopo: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    left: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-
+  // Flutuando por cima da imagem, sem faixa por baixo: a foto ocupa a
+  // tela inteira, que é o que importa na hora de enquadrar.
   fechar: {
-    width: 40,
-    height: 40,
+    position: 'absolute',
+    left: 16,
+    zIndex: 2,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
 
   aviso: {
-    flex: 1,
-    fontSize: 15,
+    position: 'absolute',
+    right: 0,
+    left: 0,
+    textAlign: 'center',
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  baseCamera: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    paddingBottom: 34,
   },
 
   barraBaixo: {
@@ -233,37 +219,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexWrap: 'wrap',
     paddingHorizontal: 20,
-    paddingBottom: 40,
-    paddingTop: 20,
-  },
-
-  doCelular: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    marginLeft: 14,
-  },
-
-  doCelularTexto: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: 'bold',
-    marginLeft: 7,
+    paddingBottom: 34,
+    paddingTop: 16,
   },
 
   anel: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
     borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: 'rgba(255,255,255,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -273,9 +239,9 @@ const styles = StyleSheet.create({
   },
 
   disparo: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: '#FFFFFF',
   },
 

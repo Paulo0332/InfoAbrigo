@@ -243,6 +243,26 @@ export default function ScheduleScreen(props) {
 
   // ------------------------------------------------------------ câmera
 
+  // A escolha vem antes de abrir, e não como um botão dentro da câmera.
+  // Dentro dela o espaço é para enquadrar a foto; de onde vem a imagem é
+  // decisão anterior a isso.
+  function escolherOrigem(item) {
+    Alert.alert('Registro com foto', 'De onde vem a foto?', [
+      { text: 'Tirar uma foto', onPress: () => abrirCamera(item) },
+      { text: 'Escolher do celular', onPress: () => abrirComFotoDoCelular(item) },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
+
+  function prepararFormulario(item, uri) {
+    setRegistrandoEm(item);
+    setPhoto(uri);
+    setTitle(item && item.registro ? item.registro.titulo : '');
+    setDescription(item && item.registro ? item.registro.descricao : '');
+    setIsCameraReady(false);
+    setCameraVisivel(true);
+  }
+
   async function abrirCamera(item) {
     if (!cameraPermission?.granted) {
       const { granted } = await requestCameraPermission();
@@ -257,12 +277,25 @@ export default function ScheduleScreen(props) {
       }
     }
 
-    setRegistrandoEm(item);
-    setPhoto(item && item.registro ? item.registro.uri : null);
-    setTitle(item && item.registro ? item.registro.titulo : '');
-    setDescription(item && item.registro ? item.registro.descricao : '');
-    setIsCameraReady(false);
-    setCameraVisivel(true);
+    prepararFormulario(item, null);
+  }
+
+  async function abrirComFotoDoCelular(item) {
+    const escolha = await escolherDoCelular();
+
+    if (escolha.situacao === 'escolhida') {
+      toqueLeve();
+      prepararFormulario(item, escolha.uri);
+
+      return;
+    }
+
+    if (escolha.situacao === 'sem-permissao') {
+      Alert.alert(
+        'Sem acesso às fotos',
+        'Para escolher uma foto já tirada, permita o acesso às fotos nas configurações do aparelho.'
+      );
+    }
   }
 
   async function takePicture() {
@@ -280,10 +313,29 @@ export default function ScheduleScreen(props) {
     }
   }
 
+  // Trocar a foto pergunta de novo de onde ela vem — a mesma escolha da
+  // entrada, porque trocar é começar o registro da imagem outra vez.
+  function trocarFoto() {
+    Alert.alert('Trocar a foto', 'De onde vem a nova foto?', [
+      { text: 'Tirar uma foto', onPress: voltarParaCamera },
+      { text: 'Escolher do celular', onPress: trocarPorFotoDoCelular },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
+
+  async function trocarPorFotoDoCelular() {
+    const escolha = await escolherDoCelular();
+
+    if (escolha.situacao === 'escolhida') {
+      toqueLeve();
+      setPhoto(escolha.uri);
+    }
+  }
+
   // Voltar para a câmera não é só limpar a foto: a permissão pode ter
   // sido revogada, e o isCameraReady precisa voltar a false para o botão
   // de disparo só liberar quando a câmera estiver de pé outra vez.
-  async function refazerFoto() {
+  async function voltarParaCamera() {
     if (!cameraPermission?.granted) {
       const { granted } = await requestCameraPermission();
 
@@ -296,27 +348,6 @@ export default function ScheduleScreen(props) {
 
     setPhoto(null);
     setIsCameraReady(false);
-  }
-
-  // Trazer a foto da galeria: quem voltou do abrigo e só depois lembrou
-  // de registrar já tem a foto no celular, e fotografar de novo exigiria
-  // voltar lá.
-  async function trazerDoCelular() {
-    const escolha = await escolherDoCelular();
-
-    if (escolha.situacao === 'escolhida') {
-      toqueLeve();
-      setPhoto(escolha.uri);
-
-      return;
-    }
-
-    if (escolha.situacao === 'sem-permissao') {
-      Alert.alert(
-        'Sem acesso às fotos',
-        'Para escolher uma foto já tirada, permita o acesso às fotos nas configurações do aparelho.'
-      );
-    }
   }
 
   // Salva no celular uma foto que já está registrada. Foto tirada dentro
@@ -523,7 +554,7 @@ export default function ScheduleScreen(props) {
               accessibilityRole="button"
               accessibilityLabel="Editar o registro"
               style={({ pressed }) => [styles.editar, pressed && styles.pressionado]}
-              onPress={() => abrirCamera(item)}
+              onPress={() => escolherOrigem(item)}
             >
               <Ionicons name="create-outline" size={17} color={colors.primary} />
             </Pressable>
@@ -531,7 +562,7 @@ export default function ScheduleScreen(props) {
         ) : podeRegistrar(item) ? (
           <Pressable
             style={({ pressed }) => [styles.botaoRegistrar, pressed && styles.pressionado]}
-            onPress={() => abrirCamera(item)}
+            onPress={() => escolherOrigem(item)}
           >
             <Ionicons name="camera" size={17} color={colors.primary} />
 
@@ -899,16 +930,6 @@ export default function ScheduleScreen(props) {
                   >
                     <View style={styles.disparo} />
                   </Pressable>
-
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Escolher uma foto do celular"
-                    style={({ pressed }) => [styles.doCelular, pressed && styles.pressionado]}
-                    onPress={trazerDoCelular}
-                  >
-                    <Ionicons name="images-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.doCelularTexto}>Escolher do celular</Text>
-                  </Pressable>
                 </View>
               </View>
             </View>
@@ -922,19 +943,14 @@ export default function ScheduleScreen(props) {
                   style={styles.previaSombra}
                 >
                   <View style={[styles.barraPrevia, { paddingTop: areaSegura.top + 16 }]}>
-                    <Pressable onPress={refazerFoto} style={styles.botaoPrevia}>
+                    <Pressable onPress={trocarFoto} style={styles.botaoPrevia}>
                       <Ionicons name="camera-reverse" size={18} color="#FFFFFF" />
-                      <Text style={styles.textoPrevia}>Refazer foto</Text>
-                    </Pressable>
-
-                    <Pressable onPress={trazerDoCelular} style={styles.botaoPrevia}>
-                      <Ionicons name="images-outline" size={18} color="#FFFFFF" />
-                      <Text style={styles.textoPrevia}>Do celular</Text>
+                      <Text style={styles.textoPrevia}>Trocar a foto</Text>
                     </Pressable>
 
                     <Pressable onPress={() => setFotoAmpliada(photo)} style={styles.botaoPrevia}>
                       <Ionicons name="expand" size={18} color="#FFFFFF" />
-                      <Text style={styles.textoPrevia}>Ver</Text>
+                      <Text style={styles.textoPrevia}>Ver inteira</Text>
                     </Pressable>
                   </View>
                 </LinearGradient>
@@ -1548,7 +1564,7 @@ const styles = StyleSheet.create({
   },
 
   baseCamera: {
-    paddingBottom: 40,
+    paddingBottom: 34,
     alignItems: 'center',
   },
 
@@ -1595,25 +1611,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-  },
-
-  doCelular: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginTop: 18,
-  },
-
-  doCelularTexto: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: 'bold',
-    marginLeft: 7,
   },
 
   salvarFoto: {
