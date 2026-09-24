@@ -324,9 +324,10 @@ export default function ScheduleScreen(props) {
       return;
     }
 
-    const trocouFoto = registrandoEm == null
-      || registrandoEm.registro == null
-      || registrandoEm.registro.uri !== photo;
+    // Só vai para a galeria de novo quando a foto mudou: reeditar só o
+    // título não precisa salvar a mesma imagem outra vez.
+    const trocouFoto =
+      registrandoEm.registro == null || registrandoEm.registro.uri !== photo;
 
     const naGaleria = trocouFoto
       ? await guardarNaGaleria(photo)
@@ -339,29 +340,11 @@ export default function ScheduleScreen(props) {
       naGaleria: naGaleria,
     };
 
-    // Registrar sem compromisso escolhido cria um, datado de agora: é o
-    // caminho de quem fotografou primeiro e lembrou de marcar depois.
-    if (registrandoEm == null) {
-      gravar([
-        {
-          id: Date.now().toString(),
-          tipo: 'visita',
-          abrigoId: null,
-          abrigoNome: null,
-          quando: new Date().toISOString(),
-          observacao: '',
-          conta: conta ? conta.email : null,
-          registro: registro,
-        },
-        ...agenda,
-      ]);
-    } else {
-      gravar(
-        agenda.map((item) =>
-          item.id === registrandoEm.id ? { ...item, registro: registro } : item
-        )
-      );
-    }
+    gravar(
+      agenda.map((item) =>
+        item.id === registrandoEm.id ? { ...item, registro: registro } : item
+      )
+    );
 
     deuCerto();
     fecharCamera();
@@ -588,24 +571,23 @@ export default function ScheduleScreen(props) {
               <Text style={styles.textoVazio}>
                 {aba === 'proximos'
                   ? 'Marque uma visita, uma entrega ou um dia de voluntariado no botão abaixo.'
-                  : 'O que já aconteceu aparece aqui, com a foto que você registrar — inclusive uma visita que acabou de acontecer.'}
+                  : 'Passada a hora marcada, o compromisso vem para cá e ganha o botão de registrar com foto. Se a visita já aconteceu e você não tinha marcado, marque ela para hoje: ela cai aqui na hora.'}
               </Text>
             </View>
           }
         />
 
-        {/* Um botão só, e o que ele faz vem da aba. Agendar é sobre o
-            que vem; fotografar é sobre o que já passou — pôr os dois
-            lado a lado dizia que a tela tem duas caras, e ninguém
-            adivinhava qual era qual num ícone solto. Aqui o rótulo diz. */}
+        {/* A agenda tem um caminho só, e ele começa em marcar. A foto
+            entra depois, no compromisso que já aconteceu — foi para isso
+            que ela existe aqui. O botão de fotografar solto criava um
+            compromisso no passado sem abrigo e com o tipo chutado: era
+            sobra da tela antiga de álbum, e furava o modelo. */}
         <View style={styles.areaBotao}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={
-              aba === 'proximos' ? 'Marcar um compromisso' : 'Registrar com foto'
-            }
+            accessibilityLabel="Marcar um compromisso"
             style={({ pressed }) => [styles.botaoPrincipal, pressed && styles.pressionado]}
-            onPress={() => (aba === 'proximos' ? abrirNovo() : abrirCamera(null))}
+            onPress={abrirNovo}
           >
             <LinearGradient
               colors={[colors.primary, colors.primaryGradient]}
@@ -613,15 +595,8 @@ export default function ScheduleScreen(props) {
               end={{ x: 1, y: 0 }}
               style={styles.botaoGradiente}
             >
-              <Ionicons
-                name={aba === 'proximos' ? 'add' : 'camera'}
-                size={22}
-                color="#FFFFFF"
-              />
-
-              <Text style={styles.botaoTexto}>
-                {aba === 'proximos' ? 'Marcar compromisso' : 'Registrar com foto'}
-              </Text>
+              <Ionicons name="add" size={22} color="#FFFFFF" />
+              <Text style={styles.botaoTexto}>Marcar compromisso</Text>
             </LinearGradient>
           </Pressable>
         </View>
@@ -902,16 +877,10 @@ export default function ScheduleScreen(props) {
               <View style={styles.corpoFormulario}>
                 <Text style={styles.formTitulo}>O que aconteceu</Text>
 
-                {registrandoEm ? (
-                  <Text style={styles.formContexto}>
-                    {buscarTipo(registrandoEm.tipo).nome}
-                    {registrandoEm.abrigoNome ? ' — ' + registrandoEm.abrigoNome : ''}
-                  </Text>
-                ) : (
-                  <Text style={styles.formContexto}>
-                    Registro solto: vai entrar na agenda com a data de hoje.
-                  </Text>
-                )}
+                <Text style={styles.formContexto}>
+                  {buscarTipo(registrandoEm.tipo).nome}
+                  {registrandoEm.abrigoNome ? ' — ' + registrandoEm.abrigoNome : ''}
+                </Text>
 
                 <Text style={styles.rotuloForm}>Título</Text>
 
