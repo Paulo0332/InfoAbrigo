@@ -551,7 +551,7 @@ export default function ScheduleScreen(props) {
           renderItem={renderizarCompromisso}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
-            styles.listaConteudo,
+            aba === 'proximos' ? styles.listaConteudo : styles.listaConteudoSolta,
             lista.length === 0 && styles.listaVazia,
           ]}
           ListEmptyComponent={
@@ -577,29 +577,30 @@ export default function ScheduleScreen(props) {
           }
         />
 
-        {/* A agenda tem um caminho só, e ele começa em marcar. A foto
-            entra depois, no compromisso que já aconteceu — foi para isso
-            que ela existe aqui. O botão de fotografar solto criava um
-            compromisso no passado sem abrigo e com o tipo chutado: era
-            sobra da tela antiga de álbum, e furava o modelo. */}
-        <View style={styles.areaBotao}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Marcar um compromisso"
-            style={({ pressed }) => [styles.botaoPrincipal, pressed && styles.pressionado]}
-            onPress={abrirNovo}
-          >
-            <LinearGradient
-              colors={[colors.primary, colors.primaryGradient]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.botaoGradiente}
+        {/* Marcar é ação de quem olha para frente, então o botão vive
+            na aba dos próximos. Em "Já aconteceram" não há o que marcar:
+            ali o que se faz é registrar, e isso mora no cartão de cada
+            compromisso, onde já existe abrigo, tipo e data. */}
+        {aba === 'proximos' && (
+          <View style={styles.areaBotao}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Marcar um compromisso"
+              style={({ pressed }) => [styles.botaoPrincipal, pressed && styles.pressionado]}
+              onPress={abrirNovo}
             >
-              <Ionicons name="add" size={22} color="#FFFFFF" />
-              <Text style={styles.botaoTexto}>Marcar compromisso</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
+              <LinearGradient
+                colors={[colors.primary, colors.primaryGradient]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.botaoGradiente}
+              >
+                <Ionicons name="add" size={22} color="#FFFFFF" />
+                <Text style={styles.botaoTexto}>Marcar compromisso</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       {!cameraVisivel && !formVisivel && fotoEmTelaCheia()}
@@ -993,6 +994,10 @@ const styles = StyleSheet.create({
 
   listaConteudo: {
     paddingBottom: 100,
+  },
+
+  listaConteudoSolta: {
+    paddingBottom: 20,
   },
 
   listaVazia: {
