@@ -50,6 +50,12 @@
         }
       ],
       [
+        "expo-notifications",
+        {
+          "color": "#E07A1F"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",

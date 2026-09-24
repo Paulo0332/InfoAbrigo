@@ -36,6 +36,18 @@ import {
   salvarAgendaDaConta,
 } from '../services/agenda';
 import { carregarConta } from '../services/auth';
+import {
+  ITEM,
+  carregarDoacoes,
+  doacoesDaConta,
+  estaPendente,
+  tipoDaDoacao,
+} from '../services/donations';
+import {
+  agendarLembrete,
+  cancelarLembrete,
+  reagendarLembrete,
+} from '../services/lembretes';
 import { carregarAbrigos } from '../services/shelters';
 import { aviso, deuCerto, toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
@@ -53,6 +65,7 @@ export default function ScheduleScreen(props) {
   const [agenda, setAgenda] = useState([]);
   const [conta, setConta] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
+  const [promessas, setPromessas] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [aba, setAba] = useState('proximos');
 
@@ -90,10 +103,21 @@ export default function ScheduleScreen(props) {
       const contaSalva = await carregarConta();
       const lista = await carregarAgenda();
       const listaAbrigos = await carregarAbrigos();
+      const doacoes = await carregarDoacoes();
 
       setConta(contaSalva);
       setAbrigos(listaAbrigos);
       setAgenda(compromissosDaConta(lista, contaSalva));
+
+      // O que a pessoa prometeu levar e ainda não entregou. A entrega é
+      // justamente o tipo de compromisso que ela vem marcar aqui, e ter
+      // de redigitar o que já está registrado noutra tela é trabalho à
+      // toa — e é onde se erra o abrigo.
+      setPromessas(
+        doacoesDaConta(doacoes, contaSalva)
+          .filter((doacao) => tipoDaDoacao(doacao) === ITEM)
+          .filter(estaPendente)
+      );
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível ler a sua agenda.');
     } finally {
@@ -114,6 +138,20 @@ export default function ScheduleScreen(props) {
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível salvar a agenda.');
     }
+  }
+
+  // Preenche o formulário a partir de uma promessa de doação: o abrigo
+  // vem junto, e a observação já diz o que levar.
+  function usarPromessa(promessa) {
+    const abrigo = abrigos.find((item) => item.nome === promessa.abrigo);
+
+    setTipo('entrega');
+
+    if (abrigo) {
+      setAbrigoEscolhido(abrigo.id);
+    }
+
+    setObservacao('Levar: ' + promessa.item);
   }
 
   function abrirNovo() {
@@ -142,7 +180,7 @@ export default function ScheduleScreen(props) {
     setFormVisivel(true);
   }
 
-  function salvarCompromisso() {
+  async function salvarCompromisso() {
     const quando = montarQuando(data, hora);
 
     if (quando == null) {
@@ -156,39 +194,48 @@ export default function ScheduleScreen(props) {
 
     const abrigo = abrigos.find((item) => item.id === abrigoEscolhido) || null;
 
-    if (editando) {
-      gravar(
-        agenda.map((item) =>
-          item.id === editando.id
-            ? {
-                ...item,
-                tipo: tipo,
-                abrigoId: abrigo ? abrigo.id : null,
-                abrigoNome: abrigo ? abrigo.nome : null,
-                quando: quando,
-                observacao: observacao.trim(),
-              }
-            : item
-        )
-      );
-    } else {
-      gravar([
-        {
-          id: Date.now().toString(),
-          tipo: tipo,
-          abrigoId: abrigo ? abrigo.id : null,
-          abrigoNome: abrigo ? abrigo.nome : null,
-          quando: quando,
-          observacao: observacao.trim(),
-          conta: conta ? conta.email : null,
-          registro: null,
-        },
-        ...agenda,
-      ]);
-    }
+    const dados = {
+      tipo: tipo,
+      abrigoId: abrigo ? abrigo.id : null,
+      abrigoNome: abrigo ? abrigo.nome : null,
+      quando: quando,
+      observacao: observacao.trim(),
+    };
 
     deuCerto();
     setFormVisivel(false);
+
+    // O lembrete é agendado depois de a tela fechar: ele pode abrir a
+    // janela de permissão do sistema, e prender o formulário esperando
+    // por isso faria o salvar parecer travado.
+    if (editando) {
+      const lembreteId = await reagendarLembrete(
+        { ...editando, ...dados },
+        buscarTipo(tipo).nome,
+        editando.lembreteId
+      );
+
+      gravar(
+        agenda.map((item) =>
+          item.id === editando.id
+            ? { ...item, ...dados, lembreteId: lembreteId }
+            : item
+        )
+      );
+
+      return;
+    }
+
+    const novo = {
+      id: Date.now().toString(),
+      ...dados,
+      conta: conta ? conta.email : null,
+      registro: null,
+    };
+
+    novo.lembreteId = await agendarLembrete(novo, buscarTipo(tipo).nome);
+
+    gravar([novo, ...agenda]);
   }
 
   function confirmarExclusao(item) {
@@ -202,6 +249,11 @@ export default function ScheduleScreen(props) {
           style: 'destructive',
           onPress: () => {
             aviso();
+
+            // Sem cancelar, o aviso tocaria na hora marcada de um
+            // compromisso que não existe mais.
+            cancelarLembrete(item.lembreteId);
+
             gravar(agenda.filter((uma) => uma.id !== item.id));
           },
         },
@@ -400,16 +452,39 @@ export default function ScheduleScreen(props) {
                 {item.observacao}
               </Text>
             ) : null}
+
+            {/* Dizer que o aviso está de pé é o que faz a pessoa confiar
+                nele e parar de conferir a agenda de hora em hora. */}
+            {!passado && item.lembreteId ? (
+              <View style={styles.lembrete}>
+                <Ionicons name="notifications" size={11} color={colors.supportGreen} />
+                <Text style={styles.lembreteTexto}>Aviso uma hora antes</Text>
+              </View>
+            ) : null}
           </View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Excluir compromisso"
-            style={({ pressed }) => [styles.excluir, pressed && styles.pressionado]}
-            onPress={() => confirmarExclusao(item)}
-          >
-            <Ionicons name="trash-outline" size={18} color={colors.supportPink} />
-          </Pressable>
+          {/* O lápis vale para qualquer data. Antes só o compromisso
+              futuro podia ser corrigido, e quem anotasse a hora errada
+              numa visita que já passou ficava sem conserto. */}
+          <View style={styles.acoesCartao}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Mudar o compromisso"
+              style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+              onPress={() => abrirEdicao(item)}
+            >
+              <Ionicons name="create-outline" size={18} color={colors.primary} />
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Excluir compromisso"
+              style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+              onPress={() => confirmarExclusao(item)}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.supportPink} />
+            </Pressable>
+          </View>
         </View>
 
         {/* O registro com foto é o que o compromisso deixa depois de
@@ -463,15 +538,7 @@ export default function ScheduleScreen(props) {
             <Ionicons name="camera" size={17} color={colors.primary} />
             <Text style={styles.textoRegistrar}>Registrar o que aconteceu</Text>
           </Pressable>
-        ) : (
-          <Pressable
-            style={({ pressed }) => [styles.botaoRegistrar, pressed && styles.pressionado]}
-            onPress={() => abrirEdicao(item)}
-          >
-            <Ionicons name="create-outline" size={17} color={colors.primary} />
-            <Text style={styles.textoRegistrar}>Mudar data, hora ou observação</Text>
-          </Pressable>
-        )}
+        ) : null}
       </View>
     );
   }
@@ -635,6 +702,38 @@ export default function ScheduleScreen(props) {
                 </Pressable>
               ))}
 
+              {/* Escolhendo entrega, o que a pessoa já prometeu levar
+                  aparece pronto para virar compromisso. Sem isso ela
+                  redigitava o que já está registrado na outra tela — e
+                  era ali que trocava o abrigo. */}
+              {tipo === 'entrega' && promessas.length > 0 ? (
+                <View>
+                  <Text style={styles.rotulo}>O que você prometeu levar</Text>
+
+                  {promessas.map((promessa) => (
+                    <Pressable
+                      key={promessa.id}
+                      style={({ pressed }) => [styles.promessa, pressed && styles.pressionado]}
+                      onPress={() => usarPromessa(promessa)}
+                    >
+                      <Ionicons name="cube-outline" size={17} color={colors.primary} />
+
+                      <View style={styles.promessaTexto}>
+                        <Text style={styles.promessaItem} numberOfLines={1}>
+                          {promessa.item}
+                        </Text>
+
+                        <Text style={styles.promessaAbrigo} numberOfLines={1}>
+                          {promessa.abrigo}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.promessaUsar}>Usar</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+
               <Text style={styles.rotulo}>Com qual abrigo</Text>
 
               {abrigos.length === 0 ? (
@@ -720,6 +819,12 @@ export default function ScheduleScreen(props) {
                   maxLength={5}
                 />
               </View>
+
+              <Text style={styles.avisoLembrete}>
+                O aplicativo avisa uma hora antes, pelo próprio aparelho.
+                Marcando para daqui a menos de uma hora, não dá tempo de
+                avisar e o compromisso entra sem aviso.
+              </Text>
 
               <Text style={styles.rotulo}>Observação (opcional)</Text>
 
@@ -1061,7 +1166,31 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  excluir: {
+  lembrete: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+
+  lembreteTexto: {
+    fontSize: 11,
+    color: colors.supportGreen,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+
+  avisoLembrete: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginTop: 10,
+  },
+
+  acoesCartao: {
+    flexDirection: 'row',
+  },
+
+  acaoCartao: {
     padding: 4,
   },
 
@@ -1233,6 +1362,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9A8F7E',
     marginTop: 1,
+  },
+
+  promessa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+
+  promessaTexto: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  promessaItem: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  promessaAbrigo: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  promessaUsar: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
   },
 
   semAbrigo: {
