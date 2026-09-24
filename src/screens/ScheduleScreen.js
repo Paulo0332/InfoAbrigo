@@ -43,11 +43,6 @@ import {
   estaPendente,
   tipoDaDoacao,
 } from '../services/donations';
-import {
-  agendarLembrete,
-  cancelarLembrete,
-  reagendarLembrete,
-} from '../services/lembretes';
 import { carregarAbrigos } from '../services/shelters';
 import { aviso, deuCerto, toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
@@ -180,7 +175,7 @@ export default function ScheduleScreen(props) {
     setFormVisivel(true);
   }
 
-  async function salvarCompromisso() {
+  function salvarCompromisso() {
     const quando = montarQuando(data, hora);
 
     if (quando == null) {
@@ -205,37 +200,25 @@ export default function ScheduleScreen(props) {
     deuCerto();
     setFormVisivel(false);
 
-    // O lembrete é agendado depois de a tela fechar: ele pode abrir a
-    // janela de permissão do sistema, e prender o formulário esperando
-    // por isso faria o salvar parecer travado.
     if (editando) {
-      const lembreteId = await reagendarLembrete(
-        { ...editando, ...dados },
-        buscarTipo(tipo).nome,
-        editando.lembreteId
-      );
-
       gravar(
         agenda.map((item) =>
-          item.id === editando.id
-            ? { ...item, ...dados, lembreteId: lembreteId }
-            : item
+          item.id === editando.id ? { ...item, ...dados } : item
         )
       );
 
       return;
     }
 
-    const novo = {
-      id: Date.now().toString(),
-      ...dados,
-      conta: conta ? conta.email : null,
-      registro: null,
-    };
-
-    novo.lembreteId = await agendarLembrete(novo, buscarTipo(tipo).nome);
-
-    gravar([novo, ...agenda]);
+    gravar([
+      {
+        id: Date.now().toString(),
+        ...dados,
+        conta: conta ? conta.email : null,
+        registro: null,
+      },
+      ...agenda,
+    ]);
   }
 
   function confirmarExclusao(item) {
@@ -249,11 +232,6 @@ export default function ScheduleScreen(props) {
           style: 'destructive',
           onPress: () => {
             aviso();
-
-            // Sem cancelar, o aviso tocaria na hora marcada de um
-            // compromisso que não existe mais.
-            cancelarLembrete(item.lembreteId);
-
             gravar(agenda.filter((uma) => uma.id !== item.id));
           },
         },
@@ -453,14 +431,6 @@ export default function ScheduleScreen(props) {
               </Text>
             ) : null}
 
-            {/* Dizer que o aviso está de pé é o que faz a pessoa confiar
-                nele e parar de conferir a agenda de hora em hora. */}
-            {!passado && item.lembreteId ? (
-              <View style={styles.lembrete}>
-                <Ionicons name="notifications" size={11} color={colors.supportGreen} />
-                <Text style={styles.lembreteTexto}>Aviso uma hora antes</Text>
-              </View>
-            ) : null}
           </View>
 
           {/* O lápis vale para qualquer data. Antes só o compromisso
@@ -820,12 +790,6 @@ export default function ScheduleScreen(props) {
                 />
               </View>
 
-              <Text style={styles.avisoLembrete}>
-                O aplicativo avisa uma hora antes, pelo próprio aparelho.
-                Marcando para daqui a menos de uma hora, não dá tempo de
-                avisar e o compromisso entra sem aviso.
-              </Text>
-
               <Text style={styles.rotulo}>Observação (opcional)</Text>
 
               <TextInput
@@ -1164,26 +1128,6 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     lineHeight: 18,
     marginTop: 4,
-  },
-
-  lembrete: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-
-  lembreteTexto: {
-    fontSize: 11,
-    color: colors.supportGreen,
-    fontWeight: 'bold',
-    marginLeft: 4,
-  },
-
-  avisoLembrete: {
-    fontSize: 12,
-    color: '#9A8F7E',
-    lineHeight: 17,
-    marginTop: 10,
   },
 
   acoesCartao: {
