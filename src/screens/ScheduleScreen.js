@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as MediaLibrary from 'expo-media-library/legacy';
+
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -37,6 +37,7 @@ import {
   salvarAgendaDaConta,
 } from '../services/agenda';
 import { carregarConta } from '../services/auth';
+import { escolherDoCelular, salvarNoCelular } from '../services/galeria';
 import {
   ITEM,
   carregarDoacoes,
@@ -297,25 +298,51 @@ export default function ScheduleScreen(props) {
     setIsCameraReady(false);
   }
 
-  // Tenta guardar na galeria do aparelho, que é o que o módulo pede.
-  // Devolve se conseguiu, porque no Expo Go a permissão às vezes não vem
-  // e o registro continua valendo dentro do aplicativo.
-  async function guardarNaGaleria(uri) {
-    try {
-      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
+  // Trazer a foto da galeria: quem voltou do abrigo e só depois lembrou
+  // de registrar já tem a foto no celular, e fotografar de novo exigiria
+  // voltar lá.
+  async function trazerDoCelular() {
+    const escolha = await escolherDoCelular();
 
-      if (status !== 'granted') {
-        return false;
-      }
+    if (escolha.situacao === 'escolhida') {
+      toqueLeve();
+      setPhoto(escolha.uri);
 
-      await MediaLibrary.saveToLibraryAsync(uri);
-
-      return true;
-    } catch (error) {
-      console.log('Galeria nativa bloqueada ou inacessível no Expo Go:', error);
-
-      return false;
+      return;
     }
+
+    if (escolha.situacao === 'sem-permissao') {
+      Alert.alert(
+        'Sem acesso às fotos',
+        'Para escolher uma foto já tirada, permita o acesso às fotos nas configurações do aparelho.'
+      );
+    }
+  }
+
+  // Salva no celular uma foto que já está registrada. Foto tirada dentro
+  // do aplicativo mora só nele até ser salva, e some junto se o
+  // aplicativo for desinstalado.
+  async function salvarFotoDoRegistro(item) {
+    const guardou = await salvarNoCelular(item.registro.uri);
+
+    if (!guardou) {
+      Alert.alert(
+        'Não foi possível salvar',
+        'Permita o acesso às fotos nas configurações do aparelho para guardar a imagem na galeria.'
+      );
+
+      return;
+    }
+
+    deuCerto();
+
+    gravar(
+      agenda.map((uma) =>
+        uma.id === item.id
+          ? { ...uma, registro: { ...uma.registro, naGaleria: true } }
+          : uma
+      )
+    );
   }
 
   async function salvarRegistro() {
@@ -331,7 +358,7 @@ export default function ScheduleScreen(props) {
       registrandoEm.registro == null || registrandoEm.registro.uri !== photo;
 
     const naGaleria = trocouFoto
-      ? await guardarNaGaleria(photo)
+      ? await salvarNoCelular(photo)
       : registrandoEm.registro.naGaleria;
 
     const registro = {
@@ -470,17 +497,22 @@ export default function ScheduleScreen(props) {
                 </Text>
               ) : null}
 
-              <View style={styles.selo}>
-                <Ionicons
-                  name={item.registro.naGaleria ? 'checkmark-circle' : 'warning'}
-                  size={11}
-                  color={item.registro.naGaleria ? colors.supportGreen : colors.primary}
-                />
-
-                <Text style={styles.seloTexto}>
-                  {item.registro.naGaleria ? 'Salva na galeria' : 'Salva no aplicativo'}
-                </Text>
-              </View>
+              {item.registro.naGaleria ? (
+                <View style={styles.selo}>
+                  <Ionicons name="checkmark-circle" size={11} color={colors.supportGreen} />
+                  <Text style={styles.seloTexto}>Salva na galeria do celular</Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Salvar a foto na galeria do celular"
+                  style={({ pressed }) => [styles.salvarFoto, pressed && styles.pressionado]}
+                  onPress={() => salvarFotoDoRegistro(item)}
+                >
+                  <Ionicons name="download-outline" size={12} color={colors.primary} />
+                  <Text style={styles.salvarFotoTexto}>Salvar no celular</Text>
+                </Pressable>
+              )}
             </View>
 
             <Pressable
@@ -863,6 +895,16 @@ export default function ScheduleScreen(props) {
                   >
                     <View style={styles.disparo} />
                   </Pressable>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Escolher uma foto do celular"
+                    style={({ pressed }) => [styles.doCelular, pressed && styles.pressionado]}
+                    onPress={trazerDoCelular}
+                  >
+                    <Ionicons name="images-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.doCelularTexto}>Escolher do celular</Text>
+                  </Pressable>
                 </View>
               </View>
             </View>
@@ -881,9 +923,14 @@ export default function ScheduleScreen(props) {
                       <Text style={styles.textoPrevia}>Refazer foto</Text>
                     </Pressable>
 
+                    <Pressable onPress={trazerDoCelular} style={styles.botaoPrevia}>
+                      <Ionicons name="images-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.textoPrevia}>Do celular</Text>
+                    </Pressable>
+
                     <Pressable onPress={() => setFotoAmpliada(photo)} style={styles.botaoPrevia}>
                       <Ionicons name="expand" size={18} color="#FFFFFF" />
-                      <Text style={styles.textoPrevia}>Ver inteira</Text>
+                      <Text style={styles.textoPrevia}>Ver</Text>
                     </Pressable>
                   </View>
                 </LinearGradient>
@@ -1497,7 +1544,7 @@ const styles = StyleSheet.create({
   },
 
   baseCamera: {
-    paddingBottom: 50,
+    paddingBottom: 40,
     alignItems: 'center',
   },
 
@@ -1546,15 +1593,53 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
+  doCelular: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginTop: 18,
+  },
+
+  doCelularTexto: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginLeft: 7,
+  },
+
+  salvarFoto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 5,
+  },
+
+  salvarFotoTexto: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 4,
+  },
+
   botaoPrevia: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
     borderRadius: 20,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 9,
   },
 

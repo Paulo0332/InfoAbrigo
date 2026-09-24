@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+import { escolherDoCelular } from '../services/galeria';
 import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 
@@ -80,6 +81,26 @@ export default function CameraFoto(props) {
     setPronta(false);
   }
 
+  // Nem todo abrigo e fotografado na hora do cadastro: muita vez a foto
+  // ja existe no celular de quem administra.
+  async function trazerDoCelular() {
+    const escolha = await escolherDoCelular();
+
+    if (escolha.situacao === 'escolhida') {
+      toqueLeve();
+      setFoto(escolha.uri);
+
+      return;
+    }
+
+    if (escolha.situacao === 'sem-permissao') {
+      Alert.alert(
+        'Sem acesso às fotos',
+        'Para escolher uma foto já tirada, permita o acesso às fotos nas configurações do aparelho.'
+      );
+    }
+  }
+
   return (
     <Modal visible={props.visivel} animationType="slide" onRequestClose={props.aoFechar}>
       <View style={styles.tela}>
@@ -145,6 +166,16 @@ export default function CameraFoto(props) {
               >
                 <View style={styles.disparo} />
               </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Escolher uma foto do celular"
+                style={({ pressed }) => [styles.doCelular, pressed && styles.pressionado]}
+                onPress={trazerDoCelular}
+              >
+                <Ionicons name="images-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.doCelularTexto}>Escolher do celular</Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -202,9 +233,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    flexWrap: 'wrap',
     paddingHorizontal: 20,
-    paddingBottom: 44,
+    paddingBottom: 40,
     paddingTop: 20,
+  },
+
+  doCelular: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    marginLeft: 14,
+  },
+
+  doCelularTexto: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginLeft: 7,
   },
 
   anel: {
