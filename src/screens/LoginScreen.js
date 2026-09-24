@@ -23,6 +23,12 @@ export default function LoginScreen(props) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
 
+  // Quando o app abre, a janela da digital pode abrir sozinha. Quando a
+  // pessoa chega aqui por ter saído da conta, não pode: ela seria levada
+  // de volta para dentro do aplicativo sem ter pedido isso.
+  const parametros = props.route.params || {};
+  const abrirDigitalSozinha = parametros.semBiometria !== true;
+
   useEffect(() => {
     buscarConta();
   }, []);
@@ -162,7 +168,7 @@ export default function LoginScreen(props) {
                   rotulo="Entrar com biometria"
                   mensagem="Entre no InfoAbrigo com a sua biometria"
                   onSuccess={abrirApp}
-                  automatico
+                  automatico={abrirDigitalSozinha}
                 />
               </View>
             )}

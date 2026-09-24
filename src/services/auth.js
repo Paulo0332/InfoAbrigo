@@ -28,3 +28,13 @@ export async function carregarConta() {
     throw error;
   }
 }
+
+export async function apagarConta() {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch (error) {
+    console.log('Erro ao apagar a conta:', error);
+
+    throw error;
+  }
+}
