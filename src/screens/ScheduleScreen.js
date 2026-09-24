@@ -587,38 +587,41 @@ export default function ScheduleScreen(props) {
 
               <Text style={styles.textoVazio}>
                 {aba === 'proximos'
-                  ? 'Toque no + para marcar uma visita, uma entrega ou um dia de voluntariado.'
-                  : 'O que já aconteceu aparece aqui. Toque na câmera para registrar agora mesmo, com foto.'}
+                  ? 'Marque uma visita, uma entrega ou um dia de voluntariado no botão abaixo.'
+                  : 'O que já aconteceu aparece aqui, com a foto que você registrar — inclusive uma visita que acabou de acontecer.'}
               </Text>
             </View>
           }
         />
 
+        {/* Um botão só, e o que ele faz vem da aba. Agendar é sobre o
+            que vem; fotografar é sobre o que já passou — pôr os dois
+            lado a lado dizia que a tela tem duas caras, e ninguém
+            adivinhava qual era qual num ícone solto. Aqui o rótulo diz. */}
         <View style={styles.areaBotao}>
-          {/* Fotografar sem compromisso marcado é o caminho de quem já
-              está no abrigo e lembrou de registrar na hora. O código
-              aceitava isso desde o começo, mas nenhum botão chegava
-              nele — a câmera só abria por um compromisso passado. */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Registrar agora com foto"
-            style={({ pressed }) => [styles.botaoCamera, pressed && styles.pressionado]}
-            onPress={() => abrirCamera(null)}
-          >
-            <Ionicons name="camera" size={24} color={colors.primary} />
-          </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Marcar um compromisso"
-            style={({ pressed }) => [styles.botaoFlutuante, pressed && styles.pressionado]}
-            onPress={abrirNovo}
+            accessibilityLabel={
+              aba === 'proximos' ? 'Marcar um compromisso' : 'Registrar com foto'
+            }
+            style={({ pressed }) => [styles.botaoPrincipal, pressed && styles.pressionado]}
+            onPress={() => (aba === 'proximos' ? abrirNovo() : abrirCamera(null))}
           >
             <LinearGradient
               colors={[colors.primary, colors.primaryGradient]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
               style={styles.botaoGradiente}
             >
-              <Ionicons name="add" size={30} color="#FFFFFF" />
+              <Ionicons
+                name={aba === 'proximos' ? 'add' : 'camera'}
+                size={22}
+                color="#FFFFFF"
+              />
+
+              <Text style={styles.botaoTexto}>
+                {aba === 'proximos' ? 'Marcar compromisso' : 'Registrar com foto'}
+              </Text>
             </LinearGradient>
           </Pressable>
         </View>
@@ -1221,34 +1224,15 @@ const styles = StyleSheet.create({
 
   areaBotao: {
     position: 'absolute',
-    right: 0,
+    right: 16,
     bottom: 24,
-    left: 0,
-    flexDirection: 'row',
+    left: 16,
     alignItems: 'center',
-    justifyContent: 'center',
   },
 
-  botaoCamera: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-
-  botaoFlutuante: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+  botaoPrincipal: {
+    borderRadius: 28,
+    overflow: 'hidden',
 
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
@@ -1258,11 +1242,18 @@ const styles = StyleSheet.create({
   },
 
   botaoGradiente: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 31,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    height: 56,
+    paddingHorizontal: 26,
+  },
+
+  botaoTexto: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 9,
   },
 
   fundoModal: {
