@@ -105,15 +105,20 @@ export async function salvarAgenda(lista) {
   }
 }
 
-// A agenda é de quem marcou. Compromissos de antes deste campo não têm
-// dono e continuam aparecendo para todos, como o resto do que veio do
-// formato de uma conta só.
+// A agenda é de quem marcou.
+//
+// A regra já foi "sem dono, de todos". Com mais de uma conta no aparelho
+// isso virou vazamento: o compromisso de quem usou o celular antes
+// aparecia na conta seguinte. Quem adota o compromisso sem dono agora é
+// quem entra, uma vez só, e daqui a comparação é exata.
 function ehDaConta(item, conta) {
   if (conta == null) {
-    return true;
+    return false;
   }
 
-  return item.conta == null || item.conta === conta.email;
+  const email = (conta.email || '').trim().toLowerCase();
+
+  return (item.conta || '').trim().toLowerCase() === email;
 }
 
 export function compromissosDaConta(lista, conta) {

@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
 import { buscarPerfil } from '../data/perfis';
 import { carregarConta, carregarContas, entrarNaConta, salvarConta } from '../services/auth';
+import { adotarDadosSemDono } from '../services/limpeza';
 import { conferirResposta, conferirSenha, novoSal, resumir } from '../services/senha';
 import { deuErrado } from '../services/tato';
 import { colors } from '../theme/colors';
@@ -95,6 +96,11 @@ export default function LoginScreen(props) {
   async function abrirApp() {
     try {
       await entrarNaConta(selecionada);
+
+      // Registros gravados antes de existir o campo de dono ficam com a
+      // conta que entrar primeiro. Enquanto ninguém adotava, eles
+      // apareciam para todas as contas do aparelho.
+      await adotarDadosSemDono(selecionada);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível abrir a conta.');
 
@@ -154,12 +160,13 @@ export default function LoginScreen(props) {
   }
 
   function abrirRecuperacao() {
+    // Conta criada antes da pergunta de segurança existir cai aqui. Antes
+    // a mensagem encerrava o assunto; agora ela diz o caminho, porque a
+    // pergunta passou a poder ser definida depois, pelo perfil.
     if (!podeRecuperar()) {
       Alert.alert(
-        'Sem recuperação para esta conta',
-        selecionada && selecionada.biometriaAtiva
-          ? 'Esta conta foi criada antes da pergunta de segurança. Entre pela biometria e, se precisar, crie outra conta.'
-          : 'Esta conta foi criada antes da pergunta de segurança, e sem servidor não há como redefinir a senha. Será preciso criar outra conta.'
+        'Esta conta ainda não tem pergunta de segurança',
+        'Entre com a senha ou com a biometria e defina a pergunta em Perfil, na seção "Seus dados". A partir daí a recuperação funciona.'
       );
 
       return;

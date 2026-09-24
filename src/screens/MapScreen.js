@@ -486,14 +486,13 @@ export default function MapScreen(props) {
 
   // A busca filtra por nome, sem diferenciar maiúscula de minúscula. O
   // mapa recebe apenas os que passaram pelo filtro.
-  function filtrados() {
-    const termo = busca.trim().toLowerCase();
-
+  // O que o mapa desenha. A busca por nome não entra aqui de propósito:
+  // a página inteira é remontada quando esta lista muda, então filtrar
+  // por letra digitada fazia o mapa se redesenhar e voltar ao
+  // enquadramento inicial a cada tecla — parecia que a busca não fazia
+  // nada, quando na verdade ela desfazia o que a pessoa via.
+  function noMapa() {
     return abrigos.filter((abrigo) => {
-      if (termo && !abrigo.nome.toLowerCase().includes(termo)) {
-        return false;
-      }
-
       // Sem saber onde a pessoa está não dá para medir distância, e aí o
       // filtro por raio simplesmente não se aplica.
       if (raio == null || localizacao == null) {
@@ -502,6 +501,34 @@ export default function MapScreen(props) {
 
       return distanciaEmKm(abrigo) <= raio;
     });
+  }
+
+  // A busca agora se comporta como busca de aplicativo de mapa: em vez
+  // de esconder pinos, ela sugere os abrigos que casam com o nome, e
+  // tocar num deles leva o mapa até lá.
+  function resultadosDaBusca() {
+    const termo = busca.trim().toLowerCase();
+
+    if (!termo) {
+      return [];
+    }
+
+    return noMapa()
+      .filter((abrigo) => abrigo.nome.toLowerCase().includes(termo))
+      .slice(0, 6);
+  }
+
+  function filtrados() {
+    const termo = busca.trim().toLowerCase();
+
+    return noMapa().filter(
+      (abrigo) => !termo || abrigo.nome.toLowerCase().includes(termo)
+    );
+  }
+
+  function irParaResultado(abrigo) {
+    setBusca('');
+    selecionar(abrigo);
   }
 
   // A página manda dois tipos de recado: o id do abrigo tocado e o aviso
@@ -890,7 +917,7 @@ export default function MapScreen(props) {
     return km.toFixed(1).replace('.', ',') + ' km';
   }
 
-  const lista = localizacao ? filtrados() : [];
+  const lista = localizacao ? noMapa() : [];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -979,9 +1006,51 @@ export default function MapScreen(props) {
             {busca.length > 0 && (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Limpar a busca" onPress={() => setBusca('')}>
+                accessibilityLabel="Limpar a busca"
+                onPress={() => setBusca('')}
+              >
                 <Ionicons name="close-circle" size={18} color="#9A8F7E" />
               </Pressable>
+            )}
+          </View>
+        )}
+
+        {/* Os resultados aparecem logo abaixo do campo, e tocar num deles
+            leva o mapa até o abrigo. Antes a busca só apagava pinos, sem
+            mover o mapa: quem procurava um abrigo não era levado até ele. */}
+        {busca.trim().length > 0 && (
+          <View style={styles.resultados}>
+            {resultadosDaBusca().length === 0 ? (
+              <Text style={styles.semResultado}>
+                Nenhum abrigo com esse nome
+                {raio != null ? ' dentro de ' + raio + ' km' : ''}.
+              </Text>
+            ) : (
+              resultadosDaBusca().map((abrigo) => (
+                <Pressable
+                  key={abrigo.id}
+                  style={({ pressed }) => [styles.resultado, pressed && styles.pressionado]}
+                  onPress={() => irParaResultado(abrigo)}
+                >
+                  <Ionicons name="location" size={17} color={colors.primary} />
+
+                  <View style={styles.resultadoTexto}>
+                    <Text style={styles.resultadoNome} numberOfLines={1}>
+                      {abrigo.nome}
+                    </Text>
+
+                    {abrigo.endereco ? (
+                      <Text style={styles.resultadoEndereco} numberOfLines={1}>
+                        {abrigo.endereco}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  {localizacao ? (
+                    <Text style={styles.resultadoDistancia}>{distanciaAte(abrigo)}</Text>
+                  ) : null}
+                </Pressable>
+              ))
             )}
           </View>
         )}
@@ -1660,6 +1729,51 @@ const styles = StyleSheet.create({
 
   raioTextoAtivo: {
     color: colors.primary,
+  },
+
+  resultados: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+
+  resultado: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5EFE6',
+  },
+
+  resultadoTexto: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  resultadoNome: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  resultadoEndereco: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  resultadoDistancia: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  semResultado: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    padding: 14,
   },
 
   busca: {

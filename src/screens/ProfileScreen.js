@@ -26,9 +26,11 @@ import {
   salvarConta,
 } from '../services/auth';
 import CameraFoto from '../components/CameraFoto';
+import { apagarDadosDaConta } from '../services/limpeza';
 import { buscarPerfil } from '../data/perfis';
+import { PERGUNTAS } from '../data/perguntas';
 import { escolherDoCelular } from '../services/galeria';
-import { conferirSenha, resumir } from '../services/senha';
+import { conferirSenha, novoSal, resumir, resumirResposta } from '../services/senha';
 import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
 import { deuCerto, deuErrado } from '../services/tato';
 import { colors } from '../theme/colors';
@@ -54,6 +56,14 @@ export default function ProfileScreen(props) {
   const [senhaAtual, setSenhaAtual] = useState('');
   const [senhaNova, setSenhaNova] = useState('');
   const [verSenha, setVerSenha] = useState(false);
+
+  // Conta criada antes da pergunta de segurança existir não tinha como
+  // recuperar a senha: a tela de entrada avisava que não dava, e ficava
+  // nisso. Aqui a pergunta pode ser definida a qualquer momento.
+  const [editandoPergunta, setEditandoPergunta] = useState(false);
+  const [pergunta, setPergunta] = useState(PERGUNTAS[0]);
+  const [resposta, setResposta] = useState('');
+  const [senhaDaPergunta, setSenhaDaPergunta] = useState('');
 
   const [camera, setCamera] = useState(false);
   const [meusAbrigos, setMeusAbrigos] = useState([]);
@@ -182,7 +192,7 @@ export default function ProfileScreen(props) {
   function confirmarExclusao() {
     Alert.alert(
       'Apagar a conta deste aparelho',
-      'Isto remove o seu nome, e-mail e senha daqui. Não existe servidor guardando nada, então não há como recuperar: você teria de criar outra conta.',
+      'Some o seu nome, e-mail e senha, e também as suas doações, os seus compromissos e os itens que você prometeu levar. Não existe servidor guardando nada: não há como recuperar.',
       [
         {
           text: 'Cancelar',
@@ -199,6 +209,12 @@ export default function ProfileScreen(props) {
 
   async function apagar() {
     try {
+      // Os dados saem antes do cadastro: apagando a conta primeiro, o
+      // e-mail que identifica o que é dela já teria sumido.
+      if (conta) {
+        await apagarDadosDaConta(conta.email);
+      }
+
       await apagarConta();
 
       props.navigation.getParent().replace('Login');
@@ -283,6 +299,59 @@ export default function ProfileScreen(props) {
       setTrocandoSenha(false);
 
       Alert.alert('Senha alterada', 'Da próxima vez, entre com a senha nova.');
+    }
+  }
+
+  function abrirPergunta() {
+    setPergunta(conta.pergunta || PERGUNTAS[0]);
+    setResposta('');
+    setSenhaDaPergunta('');
+    setEditandoPergunta(true);
+  }
+
+  // A senha é pedida pelo mesmo motivo da troca de senha: sem ela, quem
+  // pegasse o aparelho desbloqueado definiria a própria pergunta e
+  // usaria a recuperação para tomar a conta.
+  async function salvarPergunta() {
+    const conferida = await conferirSenha(conta, senhaDaPergunta);
+
+    if (!conferida.confere) {
+      deuErrado();
+
+      Alert.alert('Senha incorreta', 'A sua senha não confere.');
+
+      return;
+    }
+
+    if (resposta.trim().length < 2) {
+      Alert.alert('Atenção', 'Escreva a resposta.');
+
+      return;
+    }
+
+    // Conta antiga pode não ter sal: sem ele não há como temperar o
+    // resumo, e é preciso criar um agora. Criando o sal, a senha também
+    // precisa ser regravada com ele, senão o login para de funcionar.
+    const sal = conta.sal || novoSal();
+
+    const atualizada = {
+      ...conta,
+      sal: sal,
+      senhaResumo: await resumir(senhaDaPergunta, sal),
+      pergunta: pergunta,
+      respostaResumo: await resumirResposta(resposta, sal),
+    };
+
+    delete atualizada.senha;
+
+    if (await gravarConta(atualizada)) {
+      deuCerto();
+      setEditandoPergunta(false);
+
+      Alert.alert(
+        'Pergunta salva',
+        'Esquecendo a senha, é por ela que você volta a entrar.'
+      );
     }
   }
 
@@ -472,6 +541,33 @@ export default function ProfileScreen(props) {
                 </View>
 
                 <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+              </Pressable>
+
+              <View style={styles.divisoria} />
+
+              <Pressable
+                style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
+                onPress={abrirPergunta}
+              >
+                <View style={styles.icone}>
+                  <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
+                </View>
+
+                <View style={styles.linhaTexto}>
+                  <Text style={styles.linhaTitulo}>Pergunta de segurança</Text>
+
+                  <Text style={styles.linhaDescricao}>
+                    {conta.respostaResumo
+                      ? conta.pergunta
+                      : 'Não definida — sem ela não dá para recuperar a senha'}
+                  </Text>
+                </View>
+
+                {conta.respostaResumo ? (
+                  <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+                ) : (
+                  <Ionicons name="alert-circle" size={20} color={colors.supportPink} />
+                )}
               </Pressable>
 
               <View style={styles.divisoria} />
@@ -793,6 +889,84 @@ export default function ProfileScreen(props) {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ----------------------------------- pergunta de segurança */}
+      <Modal
+        visible={editandoPergunta}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setEditandoPergunta(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.fundoModal}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.painel}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.painelTitulo}>Pergunta de segurança</Text>
+
+              <Text style={styles.painelTexto}>
+                Sem servidor não existe "enviar link por e-mail". Esta
+                resposta é o que devolve o acesso se você esquecer a senha.
+              </Text>
+
+              {PERGUNTAS.map((opcao) => (
+                <Pressable
+                  key={opcao}
+                  style={({ pressed }) => [
+                    styles.opcaoPergunta,
+                    pergunta === opcao && styles.opcaoPerguntaAtiva,
+                    pressed && styles.pressionado,
+                  ]}
+                  onPress={() => setPergunta(opcao)}
+                >
+                  <Ionicons
+                    name={pergunta === opcao ? 'radio-button-on' : 'radio-button-off'}
+                    size={18}
+                    color={pergunta === opcao ? colors.primary : '#9A8F7E'}
+                  />
+
+                  <Text style={styles.textoPergunta}>{opcao}</Text>
+                </Pressable>
+              ))}
+
+              <TextInput
+                style={styles.campo}
+                placeholder="Sua resposta"
+                placeholderTextColor="#9A8F7E"
+                value={resposta}
+                onChangeText={setResposta}
+                autoCapitalize="none"
+                maxLength={60}
+              />
+
+              <TextInput
+                style={styles.campo}
+                placeholder="Confirme com a sua senha"
+                placeholderTextColor="#9A8F7E"
+                value={senhaDaPergunta}
+                onChangeText={setSenhaDaPergunta}
+                secureTextEntry
+                maxLength={40}
+              />
+
+              <Pressable
+                style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
+                onPress={salvarPergunta}
+              >
+                <Text style={styles.textoBotao}>Salvar</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+                onPress={() => setEditandoPergunta(false)}
+              >
+                <Text style={styles.textoLink}>Cancelar</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <CameraFoto
         visivel={camera}
         titulo="Sua foto de perfil"
@@ -890,6 +1064,29 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     lineHeight: 17,
     marginBottom: 10,
+  },
+
+  opcaoPergunta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 12,
+    marginTop: 8,
+  },
+
+  opcaoPerguntaAtiva: {
+    borderColor: colors.primary,
+  },
+
+  textoPergunta: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMain,
+    lineHeight: 18,
+    marginLeft: 8,
   },
 
   campo: {

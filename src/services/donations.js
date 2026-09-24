@@ -83,6 +83,16 @@ export async function carregarDoacoes() {
   }
 }
 
+export async function salvarDoacoes(lista) {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+  } catch (error) {
+    console.log('Erro ao salvar as doações:', error);
+
+    throw error;
+  }
+}
+
 // Acrescenta uma doação ao histórico. Lê a lista atual, põe a nova na
 // frente e grava de volta: é o mesmo spread do Módulo 1, com a diferença
 // de que aqui a lista vem do disco em vez do estado da tela.
@@ -181,21 +191,23 @@ export async function desfazerPagamento(id) {
   }
 }
 
-// O histórico é de quem doou, não do aparelho. Agora que o aparelho
-// guarda mais de uma conta, sem esta separação o gestor entraria e veria
-// as doações de quem usou o celular antes dele.
+// O histórico é de quem doou, não do aparelho.
 //
-// Registros de antes deste campo não têm dono, e continuam aparecendo
-// para todos: eles foram feitos quando existia uma conta só, então
-// esconder seria perder o histórico de quem já usava.
+// A regra já foi "sem dono, de todos", para ninguém perder histórico na
+// atualização. Isso virou vazamento assim que passou a existir mais de
+// uma conta: a doação de quem usou o celular antes aparecia na conta
+// seguinte. Quem adota o registro sem dono agora é quem entra, uma vez
+// só, no adotarDadosSemDono — e daqui a comparação é exata.
 export function doacoesDaConta(lista, conta) {
   if (conta == null) {
-    return lista;
+    return [];
   }
 
-  return lista.filter((doacao) => {
-    return doacao.conta == null || doacao.conta === conta.email;
-  });
+  const email = (conta.email || '').trim().toLowerCase();
+
+  return lista.filter(
+    (doacao) => (doacao.conta || '').trim().toLowerCase() === email
+  );
 }
 
 export function totalEmDinheiro(lista) {
