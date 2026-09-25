@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,13 +16,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
 import { carregarConta } from '../services/auth';
+import { registrarDoacao } from '../services/donations';
 import { colors } from '../theme/colors';
-
-const ABRIGO = 'Lar Esperança';
 
 const VALORES = [20, 50, 100];
 
 export default function DonateScreen(props) {
+
+  // O abrigo vem por parâmetro quando a doação começa pelo mapa. Chegando
+  // pela ação rápida da Home não há abrigo escolhido, e a tela diz isso em
+  // vez de inventar um nome.
+  const parametros = props.route.params || {};
+  const abrigo = parametros.abrigo || null;
 
   const [valor, setValor] = useState(50);
   const [confirmada, setConfirmada] = useState(false);
@@ -48,8 +55,38 @@ export default function DonateScreen(props) {
   }
 
   // O BiometricButton avisa por aqui que a identidade foi confirmada.
-  // Só depois disso a doação é dada como registrada.
-  function registrarDoacao() {
+  // Só depois disso a doação é gravada no histórico e a tela troca para
+  // o selo de confirmada.
+  async function confirmarDoacao() {
+    // Sem abrigo escolhido não há para quem doar, e gravar abrigo null
+    // faria a tela de sucesso dizer "para o null".
+    if (!abrigo) {
+      Alert.alert(
+        'Atenção',
+        'Escolha um abrigo no mapa antes de confirmar a doação.'
+      );
+
+      return;
+    }
+
+    const doacao = {
+      id: Date.now().toString(),
+      valor: valor,
+      abrigo: abrigo,
+      data: new Date().toISOString(),
+    };
+
+    try {
+      await registrarDoacao(doacao);
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        'Não foi possível registrar a doação.'
+      );
+
+      return;
+    }
+
     setConfirmada(true);
   }
 
@@ -83,7 +120,7 @@ export default function DonateScreen(props) {
 
     Keyboard.dismiss();
 
-    registrarDoacao();
+    confirmarDoacao();
   }
 
   function voltar() {
@@ -122,7 +159,7 @@ export default function DonateScreen(props) {
           <Text style={styles.tituloSucesso}>Doação confirmada</Text>
 
           <Text style={styles.textoSucesso}>
-            R$ {valor},00 para o {ABRIGO}.{'\n'}
+            R$ {valor},00 para o {abrigo}.{'\n'}
             Obrigado por ajudar!
           </Text>
 
@@ -134,16 +171,36 @@ export default function DonateScreen(props) {
           </Pressable>
         </View>
       ) : (
+        // Sem isto o teclado sobe por cima do campo de senha. No iOS o
+        // KeyboardAvoidingView empurra o conteúdo; no Android o sistema
+        // redimensiona a janela, e a folga no fim da rolagem dá espaço.
+        <KeyboardAvoidingView
+          style={styles.corpo}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <ScrollView
           style={styles.corpo}
           contentContainerStyle={styles.corpoConteudo}
           showsVerticalScrollIndicator={false}
         >
 
-          <View style={styles.cartao}>
-            <Text style={styles.rotulo}>Abrigo</Text>
-            <Text style={styles.valorRotulo}>{ABRIGO}</Text>
-          </View>
+          {abrigo ? (
+            <View style={styles.cartao}>
+              <Text style={styles.rotulo}>Abrigo</Text>
+              <Text style={styles.valorRotulo}>{abrigo}</Text>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.cartao, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('Tabs', { screen: 'Mapa' })}
+            >
+              <Text style={styles.rotulo}>Abrigo</Text>
+
+              <Text style={styles.valorRotulo}>
+                Escolha um abrigo no mapa
+              </Text>
+            </Pressable>
+          )}
 
           <Text style={styles.secao}>Escolha o valor</Text>
 
@@ -177,7 +234,7 @@ export default function DonateScreen(props) {
           <BiometricButton
             rotulo="Confirmar com biometria"
             mensagem={'Confirme a doação de R$ ' + valor + ',00'}
-            onSuccess={registrarDoacao}
+            onSuccess={confirmarDoacao}
             onVerificado={setTemBiometria}
           />
 
@@ -216,6 +273,7 @@ export default function DonateScreen(props) {
           </Text>
 
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
     </SafeAreaView>
@@ -262,6 +320,7 @@ const styles = StyleSheet.create({
 
   corpoConteudo: {
     padding: 16,
+    paddingBottom: 140,
   },
 
   cartao: {

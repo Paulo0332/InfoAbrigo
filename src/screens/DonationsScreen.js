@@ -6,12 +6,17 @@ import NeedForm from '../components/NeedForm';
 import NeedItem from '../components/NeedItem';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
+import { ehGestor, podeGerenciarNecessidades } from '../data/perfis';
+import { carregarConta } from '../services/auth';
+import { carregarAbrigos } from '../services/shelters';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
 export default function DonationsScreen(props) {
 
   const [needs, setNeeds] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [conta, setConta] = useState(null);
+  const [meuAbrigo, setMeuAbrigo] = useState(null);
 
   useEffect(() => {
     async function fetchNeeds() {
@@ -27,7 +32,36 @@ export default function DonationsScreen(props) {
       }
     }
     fetchNeeds();
+    buscarMeuAbrigo();
+
+    // Ao voltar do cadastro de abrigo, o vínculo pode ter mudado.
+    const inscricao = props.navigation.addListener('focus', buscarMeuAbrigo);
+
+    return inscricao;
   }, []);
+
+  // O gestor cadastra necessidades em nome do abrigo dele. Procuramos o
+  // primeiro abrigo cujo dono seja a conta atual.
+  async function buscarMeuAbrigo() {
+    try {
+      const contaSalva = await carregarConta();
+
+      setConta(contaSalva);
+
+      if (!ehGestor(contaSalva)) {
+        setMeuAbrigo(null);
+
+        return;
+      }
+
+      const abrigos = await carregarAbrigos();
+      const meu = abrigos.find((abrigo) => abrigo.dono === contaSalva.email);
+
+      setMeuAbrigo(meu || null);
+    } catch (error) {
+      console.log('Erro ao buscar o abrigo do gestor:', error);
+    }
+  }
 
   async function addNeed(title) {
     const cleanTitle = title.trim();
@@ -45,6 +79,10 @@ export default function DonationsScreen(props) {
       id: Date.now().toString(),
       title: cleanTitle,
       done: false,
+      // Quem cadastra em nome de um abrigo deixa o vínculo gravado. Sem
+      // abrigo, a necessidade fica geral, como eram todas antes.
+      abrigoId: meuAbrigo ? meuAbrigo.id : null,
+      abrigoNome: meuAbrigo ? meuAbrigo.nome : null,
     };
 
     const newList = [newNeed, ...needs];
@@ -108,12 +146,17 @@ export default function DonationsScreen(props) {
     }
   }
 
+  // Quem administra o abrigo mantém a lista; os outros perfis veem o que
+  // os abrigos precisam, que é justamente o propósito do aplicativo.
+  const gerencia = podeGerenciarNecessidades(conta);
+
   function renderNeed({ item }) {
     return (
       <NeedItem
         need={item}
         onToggle={toggleNeed}
         onDelete={confirmDelete}
+        somenteLeitura={!gerencia}
       />
     );
   }
@@ -137,7 +180,42 @@ export default function DonationsScreen(props) {
           {needs.length} necessidade(s) • {doneCount} atendida(s)
         </Text>
 
-        <NeedForm onAdd={addNeed} />
+        {gerencia && meuAbrigo && (
+          <View style={styles.vinculo}>
+            <Ionicons name="business" size={14} color={colors.primary} />
+
+            <Text style={styles.vinculoTexto}>
+              Cadastrando para {meuAbrigo.nome}
+            </Text>
+          </View>
+        )}
+
+        {gerencia && ehGestor(conta) && !meuAbrigo && (
+          <Pressable
+            style={({ pressed }) => [styles.vinculoAviso, pressed && styles.doarPressionado]}
+            onPress={() => props.navigation.navigate('RegisterShelter')}
+          >
+            <Ionicons name="alert-circle-outline" size={16} color={colors.supportPink} />
+
+            <Text style={styles.vinculoAvisoTexto}>
+              Cadastre o seu abrigo no mapa para as necessidades ficarem
+              ligadas a ele
+            </Text>
+          </Pressable>
+        )}
+
+        {gerencia ? (
+          <NeedForm onAdd={addNeed} />
+        ) : (
+          <View style={styles.leitura}>
+            <Ionicons name="eye-outline" size={16} color="#9A8F7E" />
+
+            <Text style={styles.leituraTexto}>
+              Esta é a lista que os abrigos publicaram. Quem mantém a lista é
+              quem administra o abrigo.
+            </Text>
+          </View>
+        )}
 
         {/* Porta de entrada da doação em dinheiro (Módulo 3). A lista
             acima é o que o abrigo precisa; aqui a pessoa contribui. */}
@@ -180,7 +258,9 @@ export default function DonationsScreen(props) {
               </Text>
 
               <Text style={styles.emptyText}>
-                Cadastre acima o que o abrigo está precisando.
+                {gerencia
+                  ? 'Cadastre acima o que o abrigo está precisando.'
+                  : 'Nenhum abrigo publicou necessidades ainda.'}
               </Text>
             </View>
           }
@@ -219,6 +299,53 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     marginTop: 4,
     marginBottom: 16,
+  },
+
+  vinculo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  vinculoTexto: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+
+  vinculoAviso: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  vinculoAvisoTexto: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textMain,
+    lineHeight: 17,
+    marginLeft: 8,
+  },
+
+  leitura: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+
+  leituraTexto: {
+    flex: 1,
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginLeft: 8,
   },
 
   doar: {

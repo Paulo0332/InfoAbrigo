@@ -1,31 +1,63 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Linking,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { montarAbrigos } from '../data/shelters';
+import { ehGestor } from '../data/perfis';
+import { carregarConta } from '../services/auth';
+import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
-// Nível de aproximação do mapa. 14 mostra pouco mais de 3 km, o suficiente
-// para ver a vizinhança de quem abriu o aplicativo.
+// Nível de aproximação inicial. 14 mostra pouco mais de 3 km.
 const ZOOM = 14;
 
-// Monta a página do mapa que roda dentro do WebView. O Leaflet desenha e os
-// blocos vêm do OpenStreetMap, sem precisar de chave de API.
+// Cores dos pinos, aplicadas em ordem para os abrigos se distinguirem.
+const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
+
+// Monta a página do mapa que roda dentro do WebView.
+//
+// Os blocos preferidos são o World Street Map da Esri: colorido, com
+// ruas claras, parques verdes e água azul, no espírito do Google Maps, e
+// com os rótulos de bairro e rua já embutidos. Não pede chave e vai até
+// o zoom 19.
+//
+// O Light Gray Canvas, tentado antes, era bonito mas vinha sem nomes: na
+// Esri os rótulos moram num serviço separado, e um mapa sem bairro nem
+// rua não serve para encontrar abrigo.
+//
+// Mas provedor de bloco é traiçoeiro: o CARTO respondia HTTP 200 com uma
+// imagem escrita "API KEY REQUIRED", porque recusa requisição de HTML
+// embutido, que não tem domínio de origem. Por isso existe uma troca
+// automática: se os blocos da Esri falharem, a página cai para o
+// OpenStreetMap, que sempre funciona, com filtro preto e branco para
+// manter o visual minimalista.
 function montarHtml(localizacao, abrigos) {
   const marcadores = abrigos
     .map(
-      (abrigo) => `
-        L.circleMarker([${abrigo.latitude}, ${abrigo.longitude}], {
-          radius: 11,
-          color: '#FFFFFF',
-          weight: 3,
-          fillColor: '${abrigo.cor}',
-          fillOpacity: 1
+      (abrigo, indice) => `
+        L.marker([${abrigo.latitude}, ${abrigo.longitude}], {
+          icon: L.divIcon({
+            className: 'vazio',
+            html: '<div class="pino" style="background:${CORES[indice % CORES.length]}">'
+              + '<div class="pinoDentro"></div></div>',
+            iconSize: [30, 42],
+            iconAnchor: [15, 42]
+          })
         })
           .addTo(mapa)
-          .bindTooltip('${abrigo.nome}')
           .on('click', function () {
             window.ReactNativeWebView.postMessage('${abrigo.id}');
           });
@@ -48,6 +80,62 @@ function montarHtml(localizacao, abrigos) {
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
+      body { background: ${colors.backgroundLight}; }
+
+      /* O mapa colorido não leva filtro: mexer na cor faria ele parecer
+         defeituoso em vez de intencional. */
+
+      /* Aplicado quando a página cai para o OpenStreetMap: aí o filtro
+         precisa ser forte, porque o estilo original é carregado. */
+      body.reserva .leaflet-tile-pane {
+        filter: grayscale(1) sepia(0.18) brightness(1.12) contrast(0.85);
+      }
+
+      /* Pino em gota, na cor da paleta, com furo branco no meio. */
+      .pino {
+        width: 30px;
+        height: 30px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        border: 2px solid #FFFFFF;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .pinoDentro {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #FFFFFF;
+      }
+
+      /* Ponto de "você está aqui", com halo suave. */
+      .eu {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: ${colors.supportBlue};
+        border: 3px solid #FFFFFF;
+        box-shadow: 0 0 0 6px rgba(79,143,209,0.25);
+      }
+
+      /* A atribuição é obrigatória pela licença, mas pode ser discreta. */
+      .leaflet-control-attribution {
+        font-size: 9px;
+        background: rgba(255,255,255,0.7);
+      }
+
+      .leaflet-control-zoom {
+        border: none !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      }
+
+      .leaflet-control-zoom a {
+        color: ${colors.textMain};
+        border-radius: 10px !important;
+      }
     </style>
   </head>
 
@@ -55,25 +143,47 @@ function montarHtml(localizacao, abrigos) {
     <div id="mapa"></div>
 
     <script>
-      var mapa = L.map('mapa').setView(
-        [${localizacao.latitude}, ${localizacao.longitude}],
-        ${ZOOM}
+      var mapa = L.map('mapa', { zoomControl: true, attributionControl: true })
+        .setView([${localizacao.latitude}, ${localizacao.longitude}], ${ZOOM});
+
+      // Atenção à ordem: a Esri usa {z}/{y}/{x}, e não {z}/{x}/{y}.
+      var blocosEsri = L.tileLayer(
+        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 19, attribution: 'Esri, HERE, Garmin, &copy; OpenStreetMap' }
       );
 
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      var blocosOsm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap'
-      }).addTo(mapa);
+      });
 
-      L.circleMarker([${localizacao.latitude}, ${localizacao.longitude}], {
-        radius: 9,
-        color: '#FFFFFF',
-        weight: 3,
-        fillColor: '${colors.supportPink}',
-        fillOpacity: 1
-      })
-        .addTo(mapa)
-        .bindTooltip('Você está aqui');
+      var falhas = 0;
+      var trocou = false;
+
+      // Bloco perdido acontece em qualquer mapa; a troca só vale a pena
+      // quando o provedor está realmente recusando.
+      blocosEsri.on('tileerror', function () {
+        falhas = falhas + 1;
+
+        if (falhas >= 4 && !trocou) {
+          trocou = true;
+
+          mapa.removeLayer(blocosEsri);
+          blocosOsm.addTo(mapa);
+          document.body.className = 'reserva';
+        }
+      });
+
+      blocosEsri.addTo(mapa);
+
+      L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
+        icon: L.divIcon({
+          className: 'vazio',
+          html: '<div class="eu"></div>',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8]
+        })
+      }).addTo(mapa);
 
       ${marcadores}
     </script>
@@ -81,18 +191,30 @@ function montarHtml(localizacao, abrigos) {
 </html>`;
 }
 
-export default function MapScreen() {
+export default function MapScreen(props) {
 
   const [localizacao, setLocalizacao] = useState(null);
   const [erro, setErro] = useState(null);
+  const [abrigos, setAbrigos] = useState([]);
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
+  const [busca, setBusca] = useState('');
+  const [conta, setConta] = useState(null);
+  const [modoLista, setModoLista] = useState(false);
+  const [carregandoMapa, setCarregandoMapa] = useState(true);
 
-  // Os abrigos só existem depois da coordenada, porque é a partir dela que
-  // cada um recebe a sua posição e a distância até o usuário.
-  const abrigos = localizacao ? montarAbrigos(localizacao) : [];
+  // A referência serve para mandar comandos para dentro da página, como
+  // recentralizar o mapa num abrigo.
+  const mapaRef = useRef(null);
 
   useEffect(() => {
     buscarLocalizacao();
+    buscarAbrigos();
+    buscarConta().then(setConta).catch(() => setConta(null));
+
+    // Ao voltar do cadastro, a lista precisa ser lida de novo.
+    const inscricao = props.navigation.addListener('focus', buscarAbrigos);
+
+    return inscricao;
   }, []);
 
   // Primeiro pede a permissão, depois pergunta a posição. A ordem importa:
@@ -117,88 +239,514 @@ export default function MapScreen() {
     }
   }
 
-  // A página avisa qual abrigo foi tocado mandando o id por postMessage.
-  // Quem decide mostrar o cartão é a tela, do mesmo jeito que o NeedItem
-  // avisa a lista no Módulo 1.
-  function aoTocarNoMapa(evento) {
-    const id = evento.nativeEvent.data;
-    const abrigo = abrigos.find((item) => item.id === id);
+  async function buscarConta() {
+    return carregarConta();
+  }
 
-    if (abrigo) {
-      setAbrigoSelecionado(abrigo);
+  async function buscarAbrigos() {
+    try {
+      const lista = await carregarAbrigos();
+
+      setAbrigos(lista);
+      setAbrigoSelecionado(null);
+    } catch (error) {
+      console.log('Erro ao carregar os abrigos:', error);
     }
   }
 
-  function fecharCartao() {
-    setAbrigoSelecionado(null);
+  // A busca filtra por nome, sem diferenciar maiúscula de minúscula. O
+  // mapa recebe apenas os que passaram pelo filtro.
+  function filtrados() {
+    const termo = busca.trim().toLowerCase();
+
+    if (!termo) {
+      return abrigos;
+    }
+
+    return abrigos.filter((abrigo) => abrigo.nome.toLowerCase().includes(termo));
   }
 
-  function formatarDistancia(distancia) {
-    return distancia.toFixed(1).replace('.', ',');
+  function aoTocarNoMapa(evento) {
+    const id = evento.nativeEvent.data;
+    const abrigo = filtrados().find((item) => item.id === id);
+
+    if (abrigo) {
+      selecionar(abrigo);
+    }
   }
 
-  if (erro) {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.centralizado}>
-          <Text style={styles.erro}>{erro}</Text>
-        </View>
-      </SafeAreaView>
+  // Manda a página recentralizar e aproximar no abrigo escolhido. É o que
+  // qualquer app de mapa faz ao selecionar um ponto.
+  function centralizarEm(abrigo) {
+    const comando =
+      'mapa.setView([' + abrigo.latitude + ',' + abrigo.longitude + '], 17); true;';
+
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(comando);
+    }
+  }
+
+  // Abre o aplicativo de mapas do celular com a rota até o abrigo. Não
+  // precisa de chave: é um link que o sistema entrega a quem souber abrir.
+  async function tracarRota(abrigo) {
+    const url =
+      'https://www.google.com/maps/dir/?api=1&destination=' +
+      abrigo.latitude + ',' + abrigo.longitude;
+
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.log('Erro ao abrir a rota:', error);
+
+      Alert.alert('Erro', 'Não foi possível abrir o aplicativo de mapas.');
+    }
+  }
+
+  // Só oferecemos ligar quando o contato tem cara de telefone.
+  function telefoneDoContato(contato) {
+    const digitos = (contato || '').replace(/[^0-9]/g, '');
+
+    return digitos.length >= 8 ? digitos : null;
+  }
+
+  async function ligar(abrigo) {
+    const telefone = telefoneDoContato(abrigo.contato);
+
+    try {
+      await Linking.openURL('tel:' + telefone);
+    } catch (error) {
+      console.log('Erro ao ligar:', error);
+
+      Alert.alert('Erro', 'Não foi possível iniciar a chamada.');
+    }
+  }
+
+  async function compartilhar(abrigo) {
+    const link =
+      'https://www.google.com/maps/search/?api=1&query=' +
+      abrigo.latitude + ',' + abrigo.longitude;
+
+    try {
+      await Share.share({
+        message:
+          abrigo.nome + ' acolhe ' + abrigo.criancas +
+          ' crianças e está aceitando doações.\n' + link,
+      });
+    } catch (error) {
+      console.log('Erro ao compartilhar:', error);
+    }
+  }
+
+  function selecionar(abrigo) {
+    setAbrigoSelecionado(abrigo);
+    centralizarEm(abrigo);
+  }
+
+  // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
+  // interface, não de segurança: sem servidor ninguém valida nada.
+  function souDono(abrigo) {
+    return conta != null && abrigo.dono === conta.email;
+  }
+
+  function centralizarEmMim() {
+    const comando =
+      'mapa.setView([' + localizacao.latitude + ',' + localizacao.longitude +
+      '], 15); true;';
+
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(comando);
+    }
+  }
+
+  // A lista mostra do mais perto para o mais longe, que é a ordem útil
+  // para quem quer doar: o abrigo do lado vem primeiro.
+  function ordenadosPorDistancia() {
+    const lista = filtrados().slice();
+
+    if (!localizacao) {
+      return lista;
+    }
+
+    return lista.sort((a, b) => distanciaEmKm(a) - distanciaEmKm(b));
+  }
+
+  function distanciaEmKm(abrigo) {
+    return calcularDistancia(
+      localizacao.latitude,
+      localizacao.longitude,
+      abrigo.latitude,
+      abrigo.longitude
     );
   }
 
-  if (!localizacao) {
+  // Quem negou a permissão sem querer ficava sem a aba para sempre. Estas
+  // duas saídas resolvem: tentar de novo, ou abrir as configurações do
+  // aparelho, onde a decisão pode ser mudada.
+  function tentarNovamente() {
+    setErro(null);
+    buscarLocalizacao();
+  }
+
+  async function abrirConfiguracoes() {
+    try {
+      await Linking.openSettings();
+    } catch (error) {
+      console.log('Erro ao abrir as configurações:', error);
+    }
+  }
+
+  function escolherDaLista(abrigo) {
+    setModoLista(false);
+    selecionar(abrigo);
+  }
+
+  function renderizarDaLista({ item }) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.centralizado}>
-          <Text style={styles.texto}>Aguarde...</Text>
+      <Pressable
+        style={({ pressed }) => [styles.itemLista, pressed && styles.pressionado]}
+        onPress={() => escolherDaLista(item)}
+      >
+        <View style={styles.itemIcone}>
+          <Ionicons name="business" size={18} color={colors.primary} />
         </View>
-      </SafeAreaView>
+
+        <View style={styles.itemTexto}>
+          <Text style={styles.itemNome}>{item.nome}</Text>
+
+          {item.endereco ? (
+            <Text style={styles.itemEndereco} numberOfLines={1}>
+              {item.endereco}
+            </Text>
+          ) : null}
+
+          <Text style={styles.itemDados}>
+            {distanciaAte(item)} • {item.criancas} crianças
+          </Text>
+        </View>
+
+        <Ionicons name="chevron-forward" size={18} color="#9A8F7E" />
+      </Pressable>
     );
   }
+
+  function distanciaAte(abrigo) {
+    const km = calcularDistancia(
+      localizacao.latitude,
+      localizacao.longitude,
+      abrigo.latitude,
+      abrigo.longitude
+    );
+
+    if (km < 1) {
+      return Math.round(km * 1000) + ' m';
+    }
+
+    return km.toFixed(1).replace('.', ',') + ' km';
+  }
+
+  const lista = localizacao ? filtrados() : [];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
 
-      <WebView
-        style={styles.mapa}
-        originWhitelist={['*']}
-        source={{ html: montarHtml(localizacao, abrigos) }}
-        onMessage={aoTocarNoMapa}
-      />
+      <LinearGradient
+        colors={[colors.primary, colors.primaryGradient]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
+        <View style={styles.headerTopo}>
+          <View>
+            <Text style={styles.headerTitulo}>Abrigos</Text>
 
-      {abrigoSelecionado && (
-        <View style={styles.cartao}>
-          <View style={styles.cartaoTopo}>
-            <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
-
-            <Pressable
-              style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
-              onPress={fecharCartao}
-            >
-              <Ionicons name="close" size={20} color="#9A8F7E" />
-            </Pressable>
+            <Text style={styles.headerSubtitulo}>
+              {abrigos.length === 0
+                ? 'Nenhum abrigo cadastrado ainda'
+                : abrigos.length === 1
+                ? '1 abrigo cadastrado'
+                : abrigos.length + ' abrigos cadastrados'}
+            </Text>
           </View>
 
-          <View style={styles.dados}>
-            <View style={styles.dado}>
-              <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+          <View style={styles.acoesTopo}>
+            {abrigos.length > 0 && (
+              <Pressable
+                style={({ pressed }) => [styles.botaoTopo, pressed && styles.pressionado]}
+                onPress={() => setModoLista(!modoLista)}
+              >
+                <Ionicons
+                  name={modoLista ? 'map' : 'list'}
+                  size={22}
+                  color={colors.primary}
+                />
+              </Pressable>
+            )}
 
-              <Text style={styles.textoDado}>
-                a {formatarDistancia(abrigoSelecionado.distancia)} km
-              </Text>
-            </View>
-
-            <View style={styles.dado}>
-              <Ionicons name="people-outline" size={16} color={colors.primary} />
-
-              <Text style={styles.textoDado}>
-                {abrigoSelecionado.criancas} crianças acolhidas
-              </Text>
-            </View>
+            {ehGestor(conta) && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.botaoTopo,
+                  styles.botaoTopoEspaco,
+                  pressed && styles.pressionado,
+                ]}
+                onPress={() => props.navigation.navigate('RegisterShelter')}
+              >
+                <Ionicons name="add" size={26} color={colors.primary} />
+              </Pressable>
+            )}
           </View>
         </View>
-      )}
+
+        {abrigos.length > 0 && (
+          <View style={styles.busca}>
+            <Ionicons name="search" size={18} color="#9A8F7E" />
+
+            <TextInput
+              style={styles.buscaInput}
+              placeholder="Buscar abrigo pelo nome"
+              placeholderTextColor="#9A8F7E"
+              value={busca}
+              onChangeText={setBusca}
+            />
+
+            {busca.length > 0 && (
+              <Pressable onPress={() => setBusca('')}>
+                <Ionicons name="close-circle" size={18} color="#9A8F7E" />
+              </Pressable>
+            )}
+          </View>
+        )}
+      </LinearGradient>
+
+      <View style={styles.corpo}>
+
+        {erro && (
+          <View style={styles.centralizado}>
+            <Ionicons name="location-outline" size={44} color={colors.supportPink} />
+
+            <Text style={styles.erro}>{erro}</Text>
+
+            <Text style={styles.erroAjuda}>
+              O mapa precisa saber onde você está para mostrar os abrigos por
+              perto e calcular a distância.
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.botaoErro, pressed && styles.pressionado]}
+              onPress={tentarNovamente}
+            >
+              <Ionicons name="refresh" size={18} color="#FFFFFF" />
+              <Text style={styles.textoBotaoErro}>Tentar de novo</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.linkErro, pressed && styles.pressionado]}
+              onPress={abrirConfiguracoes}
+            >
+              <Text style={styles.textoLinkErro}>
+                Abrir as configurações do aparelho
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {!erro && !localizacao && (
+          <View style={styles.centralizado}>
+            <Text style={styles.texto}>Aguarde...</Text>
+          </View>
+        )}
+
+        {!erro && localizacao && !modoLista && (
+          <View style={styles.mapa}>
+            <WebView
+              ref={mapaRef}
+              style={styles.mapa}
+              originWhitelist={['*']}
+              source={{ html: montarHtml(localizacao, lista) }}
+              onMessage={aoTocarNoMapa}
+              onLoadEnd={() => setCarregandoMapa(false)}
+            />
+
+            {carregandoMapa && (
+              <View style={styles.carregandoMapa}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.textoCarregando}>Desenhando o mapa...</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {!erro && localizacao && modoLista && (
+          <FlatList
+            style={styles.mapa}
+            data={ordenadosPorDistancia()}
+            keyExtractor={(item) => item.id}
+            renderItem={renderizarDaLista}
+            contentContainerStyle={styles.lista}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.centralizado}>
+                <Text style={styles.texto}>
+                  {busca
+                    ? 'Nenhum abrigo com esse nome.'
+                    : 'Nenhum abrigo cadastrado ainda.'}
+                </Text>
+              </View>
+            }
+          />
+        )}
+
+        {!erro && localizacao && abrigos.length === 0 && (
+          <View style={styles.convite}>
+            <Text style={styles.conviteTitulo}>Nenhum abrigo por aqui</Text>
+
+            <Text style={styles.conviteTexto}>
+              Os abrigos aparecem no mapa depois de serem cadastrados no
+              aplicativo, pela própria instituição.
+            </Text>
+
+            {ehGestor(conta) && (
+              <Pressable
+                style={({ pressed }) => [styles.conviteBotao, pressed && styles.pressionado]}
+                onPress={() => props.navigation.navigate('RegisterShelter')}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+                <Text style={styles.conviteBotaoTexto}>Cadastrar um abrigo</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {!erro && localizacao && !modoLista && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.botaoMim,
+              abrigoSelecionado && styles.botaoMimAcima,
+              pressed && styles.pressionado,
+            ]}
+            onPress={centralizarEmMim}
+          >
+            <Ionicons name="locate" size={22} color={colors.primary} />
+          </Pressable>
+        )}
+
+        {abrigoSelecionado && (
+          <View style={styles.cartao}>
+            <View style={styles.cartaoTopo}>
+              <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
+
+              <Pressable
+                style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
+                onPress={() => setAbrigoSelecionado(null)}
+              >
+                <Ionicons name="close" size={20} color="#9A8F7E" />
+              </Pressable>
+            </View>
+
+            {abrigoSelecionado.endereco ? (
+              <Text style={styles.endereco}>{abrigoSelecionado.endereco}</Text>
+            ) : null}
+
+            {abrigoSelecionado.enderecoDados &&
+            abrigoSelecionado.enderecoDados.referencia ? (
+              <Text style={styles.referencia}>
+                Referência: {abrigoSelecionado.enderecoDados.referencia}
+              </Text>
+            ) : null}
+
+            <View style={styles.dados}>
+              <View style={styles.dado}>
+                <Ionicons name="navigate-outline" size={15} color={colors.primary} />
+                <Text style={styles.textoDado}>{distanciaAte(abrigoSelecionado)}</Text>
+              </View>
+
+              <View style={styles.dado}>
+                <Ionicons name="people-outline" size={15} color={colors.primary} />
+
+                <Text style={styles.textoDado}>
+                  {abrigoSelecionado.criancas} crianças
+                </Text>
+              </View>
+
+              {abrigoSelecionado.contato ? (
+                <View style={styles.dado}>
+                  <Ionicons name="call-outline" size={15} color={colors.primary} />
+                  <Text style={styles.textoDado}>{abrigoSelecionado.contato}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.acoes}>
+              <Pressable
+                style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                onPress={() => tracarRota(abrigoSelecionado)}
+              >
+                <Ionicons name="navigate" size={20} color={colors.primary} />
+                <Text style={styles.textoAcao}>Rota</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                onPress={() => centralizarEm(abrigoSelecionado)}
+              >
+                <Ionicons name="locate" size={20} color={colors.primary} />
+                <Text style={styles.textoAcao}>Centralizar</Text>
+              </Pressable>
+
+              {telefoneDoContato(abrigoSelecionado.contato) ? (
+                <Pressable
+                  style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                  onPress={() => ligar(abrigoSelecionado)}
+                >
+                  <Ionicons name="call" size={20} color={colors.primary} />
+                  <Text style={styles.textoAcao}>Ligar</Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                onPress={() => compartilhar(abrigoSelecionado)}
+              >
+                <Ionicons name="share-social" size={20} color={colors.primary} />
+                <Text style={styles.textoAcao}>Enviar</Text>
+              </Pressable>
+
+              {souDono(abrigoSelecionado) && (
+                <Pressable
+                  style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
+                  onPress={() =>
+                    props.navigation.navigate('RegisterShelter', {
+                      abrigo: abrigoSelecionado,
+                    })
+                  }
+                >
+                  <Ionicons name="create-outline" size={20} color={colors.primary} />
+                  <Text style={styles.textoAcao}>Editar</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
+              onPress={() => props.navigation.navigate('Doações')}
+            >
+              <Ionicons name="list-outline" size={17} color={colors.primary} />
+              <Text style={styles.textoVer}>Ver o que o abrigo precisa</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
+              onPress={() =>
+                props.navigation.navigate('Donate', { abrigo: abrigoSelecionado.nome })
+              }
+            >
+              <Ionicons name="heart" size={18} color="#FFFFFF" />
+              <Text style={styles.textoDoar}>Doar para este abrigo</Text>
+            </Pressable>
+          </View>
+        )}
+
+      </View>
 
     </SafeAreaView>
   );
@@ -206,6 +754,176 @@ export default function MapScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
+    flex: 1,
+    backgroundColor: colors.primary,
+  },
+
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+
+  headerTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  headerTitulo: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+
+  headerSubtitulo: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+  },
+
+  acoesTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  botaoTopo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  botaoTopoEspaco: {
+    marginLeft: 8,
+  },
+
+  carregandoMapa: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.backgroundLight,
+  },
+
+  textoCarregando: {
+    fontSize: 14,
+    color: '#9A8F7E',
+    marginTop: 10,
+  },
+
+  lista: {
+    padding: 16,
+  },
+
+  itemLista: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  itemIcone: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.backgroundLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  itemTexto: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  itemNome: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  itemEndereco: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 2,
+  },
+
+  itemDados: {
+    fontSize: 12,
+    color: colors.primary,
+    marginTop: 3,
+  },
+
+  erroAjuda: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 8,
+  },
+
+  botaoErro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    paddingHorizontal: 22,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 20,
+  },
+
+  textoBotaoErro: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  linkErro: {
+    paddingVertical: 14,
+  },
+
+  textoLinkErro: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  busca: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginTop: 14,
+  },
+
+  buscaInput: {
+    flex: 1,
+    height: 44,
+    fontSize: 15,
+    color: colors.textMain,
+    marginLeft: 8,
+  },
+
+  corpo: {
     flex: 1,
     backgroundColor: colors.backgroundLight,
   },
@@ -224,13 +942,81 @@ const styles = StyleSheet.create({
   texto: {
     fontSize: 15,
     color: colors.textMain,
-    textAlign: 'center',
   },
 
   erro: {
     fontSize: 15,
     color: colors.supportPink,
     textAlign: 'center',
+    marginTop: 10,
+  },
+
+  convite: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    left: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+
+  conviteTitulo: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  conviteTexto: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    lineHeight: 19,
+    marginTop: 6,
+  },
+
+  conviteBotao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 14,
+  },
+
+  conviteBotaoTexto: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  botaoMim: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+
+  botaoMimAcima: {
+    bottom: 210,
   },
 
   cartao: {
@@ -269,26 +1055,95 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  endereco: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    marginTop: 4,
+  },
+
+  referencia: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+
   dados: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 8,
+    marginTop: 6,
   },
 
   dado: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 14,
     marginTop: 4,
   },
 
   textoDado: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#9A8F7E',
     marginLeft: 5,
   },
 
+  acoes: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    borderTopWidth: 1,
+    borderTopColor: '#F0E9DC',
+    marginTop: 12,
+    paddingTop: 10,
+  },
+
+  acao: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
+  textoAcao: {
+    fontSize: 11,
+    color: colors.textMain,
+    marginTop: 3,
+  },
+
+  botaoVer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    marginTop: 12,
+  },
+
+  textoVer: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 7,
+  },
+
+  botaoDoar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 14,
+  },
+
+  textoDoar: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
   pressionado: {
-    opacity: 0.5,
+    opacity: 0.6,
   },
 });

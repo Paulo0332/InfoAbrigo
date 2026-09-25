@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -97,6 +99,14 @@ export default function LoginScreen(props) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      {/* Sem isto o teclado sobe por cima do campo que está sendo
+          digitado. No iOS o KeyboardAvoidingView empurra o conteúdo; no
+          Android o próprio sistema redimensiona a janela, e a folga no fim
+          da rolagem garante espaço para o campo subir. */}
+      <KeyboardAvoidingView
+        style={styles.safeArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView
         contentContainerStyle={styles.conteudo}
         keyboardShouldPersistTaps="handled"
@@ -194,6 +204,7 @@ export default function LoginScreen(props) {
         </Text>
 
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -206,6 +217,7 @@ const styles = StyleSheet.create({
 
   conteudo: {
     flexGrow: 1,
+    paddingBottom: 140,
     justifyContent: 'center',
     paddingHorizontal: 32,
     paddingVertical: 24,
