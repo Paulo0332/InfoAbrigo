@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,8 +19,23 @@ import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 import { ehGestor, podeGerenciarNecessidades } from '../data/perfis';
 import { carregarConta } from '../services/auth';
-import { ITEM, apagarDoacao, registrarDoacao } from '../services/donations';
-import { carregarAbrigos } from '../services/shelters';
+import {
+  CONFIRMADA,
+  ITEM,
+  PENDENTE,
+  apagarDoacao,
+  atualizarSituacao,
+  registrarDoacao,
+} from '../services/donations';
+import {
+  contribuicoesDaNecessidade,
+  faltam,
+  quantidadeValida,
+  recebido,
+  temMeta,
+} from '../services/necessidades';
+import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
+import { aviso, deuCerto, toqueLeve } from '../services/tato';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
 // Os dois filtros que não são um abrigo específico.
@@ -33,9 +49,26 @@ export default function DonationsScreen(props) {
   const [atualizando, setAtualizando] = useState(false);
   const [conta, setConta] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
-  const [meuAbrigo, setMeuAbrigo] = useState(null);
+  const [meusAbrigos, setMeusAbrigos] = useState([]);
   const [filtro, setFiltro] = useState(TODOS);
   const [busca, setBusca] = useState('');
+
+  // Quem toca em "Vou doar" numa necessidade com meta precisa dizer
+  // quanto vai levar: é isso que faz o que falta diminuir de verdade.
+  const [oferecendo, setOferecendo] = useState(null);
+  const [quantoVouLevar, setQuantoVouLevar] = useState('');
+
+  // O cartão do mapa manda o abrigo junto quando alguém toca em "Ver o
+  // que o abrigo precisa". Sem ler isto aqui, aquele botão abria a lista
+  // inteira, de todos os abrigos: dizia uma coisa e entregava outra.
+  const pedido = props.route.params || {};
+
+  useEffect(() => {
+    if (pedido.abrigoId) {
+      setFiltro(pedido.abrigoId);
+      setBusca('');
+    }
+  }, [pedido.momento]);
 
   useEffect(() => {
     carregarTudo(true);
@@ -61,18 +94,20 @@ export default function DonationsScreen(props) {
       setAbrigos(listaAbrigos);
       setNeeds(listaNecessidades || []);
 
-      // O gestor cadastra necessidades em nome do abrigo dele. É o
-      // primeiro abrigo cujo dono seja a conta atual.
-      const meu = ehGestor(contaSalva)
-        ? listaAbrigos.find((abrigo) => abrigo.dono === contaSalva.email)
-        : null;
+      // Quem administra pode administrar mais de um abrigo. Guardar só o
+      // primeiro fazia toda necessidade cair nele, qualquer que fosse o
+      // filtro escolhido — e o segundo abrigo nunca recebia nada.
+      const meus = ehGestor(contaSalva)
+        ? abrigosDaConta(listaAbrigos, contaSalva)
+        : [];
 
-      setMeuAbrigo(meu || null);
+      setMeusAbrigos(meus);
 
       // Quem administra um abrigo abre a tela já na lista dele. Depois
-      // troca o filtro à vontade, e por isso só na primeira vez.
-      if (primeiraVez && meu) {
-        setFiltro(meu.id);
+      // troca o filtro à vontade, e por isso só na primeira vez. Chegando
+      // pelo mapa, quem manda é o abrigo que a pessoa tocou.
+      if (primeiraVez && meus.length > 0 && !pedido.abrigoId) {
+        setFiltro(meus[0].id);
       }
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível carregar a lista de necessidades.');
@@ -101,7 +136,46 @@ export default function DonationsScreen(props) {
     }
   }
 
-  function addNeed(title) {
+  function abrigoDoFiltro() {
+    return abrigos.find((abrigo) => abrigo.id === filtro) || null;
+  }
+
+  // Para qual abrigo a necessidade vai. Quem manda é o filtro: estando
+  // num abrigo específico, é para ele — e se ele não for meu, eu não
+  // cadastro nele, ponto.
+  //
+  // O atalho de "um abrigo só, então é esse" vale apenas com o filtro em
+  // Todos. Deixar esse atalho valer sempre foi o erro da correção
+  // anterior: com o filtro num abrigo de outro dono, ele silenciosamente
+  // mandava a necessidade para o meu primeiro abrigo, e por fora parecia
+  // que o filtro estava sendo ignorado.
+  function abrigoDoCadastro() {
+    if (filtro !== TODOS && filtro !== SEM_ABRIGO) {
+      const doFiltro = abrigoDoFiltro();
+
+      // Abrigo sem dono gravado foi cadastrado sem conta aberta. Deixá-lo
+      // sem ninguém que possa mexer seria condenar a lista dele a nunca
+      // mudar, e qualquer gestor consegue arrumar isso.
+      if (doFiltro != null && !doFiltro.dono) {
+        return doFiltro;
+      }
+
+      return meusAbrigos.find((abrigo) => abrigo.id === filtro) || null;
+    }
+
+    return meusAbrigos.length === 1 ? meusAbrigos[0] : null;
+  }
+
+  // O filtro está num abrigo que existe, mas que não é meu. Nesse caso a
+  // tela não oferece o formulário: publicar necessidade em nome de um
+  // abrigo alheio não é coisa que deva acontecer calada.
+  function abrigoDeOutro() {
+    const doFiltro = abrigoDoFiltro();
+
+    return doFiltro != null && abrigoDoCadastro() == null;
+  }
+
+  function addNeed(title, detalhes) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle) {
@@ -110,32 +184,94 @@ export default function DonationsScreen(props) {
       return;
     }
 
+    const destino = abrigoDoCadastro();
+
+    if (destino == null && meusAbrigos.length > 1) {
+      Alert.alert(
+        'Para qual abrigo?',
+        'Você administra mais de um abrigo. Escolha acima em qual deles cadastrar esta necessidade.'
+      );
+
+      return;
+    }
+
     const newNeed = {
       id: Date.now().toString(),
       title: cleanTitle,
       done: false,
+      // A meta em número e a unidade, separadas: é o que permite somar as
+      // contribuições e dizer quanto ainda falta.
+      alvo: detalhes ? detalhes.alvo : null,
+      unidade: detalhes ? detalhes.unidade : '',
+      urgente: detalhes ? detalhes.urgente === true : false,
+      contribuicoes: [],
       // Quem cadastra em nome de um abrigo deixa o vínculo gravado. Sem
       // abrigo, a necessidade fica geral, como eram todas antes.
-      abrigoId: meuAbrigo ? meuAbrigo.id : null,
-      abrigoNome: meuAbrigo ? meuAbrigo.nome : null,
+      abrigoId: destino ? destino.id : null,
+      abrigoNome: destino ? destino.nome : null,
     };
+
+    toqueLeve();
 
     gravarLista([newNeed, ...needs], 'Falha ao salvar a necessidade.');
   }
 
-  function toggleNeed(id) {
+  // Marcar atendida é o abrigo dizendo que o item chegou. Quando alguém
+  // tinha se oferecido para levar, isso fecha o ciclo: a promessa daquela
+  // pessoa deixa de ficar "a caminho" no histórico dela e passa a
+  // entregue. Desmarcar desfaz as duas coisas.
+  async function toggleNeed(id) {
+    const alvo = needs.find((need) => need.id === id);
+
+    if (alvo == null) {
+      return;
+    }
+
+    const recebendo = !alvo.done;
+
     const newList = needs.map((need) => {
-      if (need.id === id) {
-        return {
-          ...need,
-          done: !need.done,
-        };
+      if (need.id !== id) {
+        return need;
       }
 
-      return need;
+      const atualizada = { ...need, done: recebendo };
+
+      // Marcar a necessidade inteira vale por todas as entregas que
+      // estavam pendentes nela: é o atalho de quem recebeu tudo de uma vez.
+      atualizada.contribuicoes = contribuicoesDaNecessidade(need).map((uma) => ({
+        ...uma,
+        entregue: recebendo,
+      }));
+
+      if (recebendo) {
+        atualizada.recebidoEm = new Date().toISOString();
+      } else {
+        delete atualizada.recebidoEm;
+      }
+
+      return atualizada;
     });
 
+    if (recebendo) {
+      deuCerto();
+    }
+
     gravarLista(newList, 'Falha ao atualizar a necessidade.');
+
+    for (const contribuicao of contribuicoesDaNecessidade(alvo)) {
+      if (!contribuicao.doacaoId) {
+        continue;
+      }
+
+      try {
+        await atualizarSituacao(
+          contribuicao.doacaoId,
+          recebendo ? CONFIRMADA : PENDENTE
+        );
+      } catch (error) {
+        console.log('Erro ao fechar o ciclo da doação:', error);
+      }
+    }
   }
 
   function confirmDelete(id) {
@@ -157,6 +293,8 @@ export default function DonationsScreen(props) {
   }
 
   function deleteNeed(id) {
+    aviso();
+
     gravarLista(
       needs.filter((need) => need.id !== id),
       'Falha ao excluir a necessidade.'
@@ -181,7 +319,15 @@ export default function DonationsScreen(props) {
       return true;
     }
 
-    return meuAbrigo != null && need.abrigoId === meuAbrigo.id;
+    if (meusAbrigos.some((abrigo) => abrigo.id === need.abrigoId)) {
+      return true;
+    }
+
+    // Necessidade de abrigo sem dono gravado: pela mesma razão do
+    // cadastro, qualquer gestor pode arrumar.
+    const dela = abrigos.find((abrigo) => abrigo.id === need.abrigoId);
+
+    return dela != null && !dela.dono;
   }
 
   function combinaComFiltro(need) {
@@ -196,28 +342,45 @@ export default function DonationsScreen(props) {
     return need.abrigoId === filtro;
   }
 
+  // A ordem é a da utilidade: o que falta vem antes do que já chegou, e
+  // dentro do que falta o urgente vem primeiro. Com a lista em ordem de
+  // cadastro, uma necessidade urgente entrava no fim e ficava invisível.
+  function pesoNaLista(need) {
+    if (need.done) {
+      return 2;
+    }
+
+    return need.urgente ? 0 : 1;
+  }
+
   function visiveis() {
     const texto = busca.trim().toLowerCase();
 
-    return needs.filter((need) => {
-      if (!combinaComFiltro(need)) {
-        return false;
-      }
+    return needs
+      .filter((need) => {
+        if (!combinaComFiltro(need)) {
+          return false;
+        }
 
-      return !texto || need.title.toLowerCase().indexOf(texto) >= 0;
-    });
+        return !texto || need.title.toLowerCase().indexOf(texto) >= 0;
+      })
+      .sort((a, b) => pesoNaLista(a) - pesoNaLista(b));
   }
 
-  function minhaReserva(need) {
-    return (
-      conta != null && need.reserva != null && need.reserva.por === conta.email
-    );
+  // Troca a necessidade na lista e grava, sem repetir o map em cada
+  // função que mexe numa só.
+  function trocarNecessidade(id, mudar, aviso) {
+    const nova = needs.map((need) => (need.id === id ? mudar(need) : need));
+
+    gravarLista(nova, aviso);
+
+    return nova;
   }
 
-  // "Vou doar isto" não marca a necessidade como atendida: quem confirma
-  // que o item chegou é o abrigo. O que fica registrado é a reserva, para
-  // dois doadores não levarem a mesma coisa e o abrigo saber que alguém
-  // está a caminho.
+  // "Vou doar" não marca a necessidade como atendida: quem confirma que o
+  // item chegou é o abrigo. O que fica registrado é a promessa — e com
+  // quanto, para o que falta diminuir de verdade e dois doadores não
+  // levarem a mesma coisa.
   function confirmarReserva(need) {
     if (conta == null) {
       Alert.alert('Erro', 'Não foi possível ler a sua conta.');
@@ -225,102 +388,159 @@ export default function DonationsScreen(props) {
       return;
     }
 
-    Alert.alert(
-      'Vou doar este item',
-      'O abrigo vai ver que você se ofereceu para levar ' + need.title +
-        '. Combine a entrega pelo contato do abrigo, na aba do mapa.',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Confirmar',
-          onPress: () => reservar(need),
-        },
-      ]
-    );
+    // Sem meta não há quanto perguntar: a necessidade é o item inteiro.
+    if (!temMeta(need)) {
+      Alert.alert(
+        'Vou doar este item',
+        'O abrigo vai ver que você se ofereceu para levar ' + need.title +
+          '. Combine a entrega pelo contato do abrigo, na aba do mapa.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Confirmar', onPress: () => contribuir(need, 1) },
+        ]
+      );
+
+      return;
+    }
+
+    setQuantoVouLevar(String(faltam(need)));
+    setOferecendo(need);
   }
 
-  async function reservar(need) {
+  function confirmarQuantidade() {
+    const need = oferecendo;
+
+    if (!quantidadeValida(quantoVouLevar, need)) {
+      Alert.alert(
+        'Quantidade inválida',
+        'Digite um número entre 1 e ' + faltam(need) + '.'
+      );
+
+      return;
+    }
+
+    const quanto = Number(quantoVouLevar.replace(/[^0-9]/g, ''));
+
+    setOferecendo(null);
+    setQuantoVouLevar('');
+
+    contribuir(need, quanto);
+  }
+
+  async function contribuir(need, quanto) {
+    const agora = new Date().toISOString();
+
+    const descricao = temMeta(need)
+      ? quanto + ' ' + (need.unidade || 'un') + ' de ' + need.title
+      : need.title;
+
     const doacao = {
       id: Date.now().toString(),
       tipo: ITEM,
-      item: need.title,
+      item: descricao,
       abrigo: need.abrigoNome || 'Abrigo não informado',
       valor: 0,
-      data: new Date().toISOString(),
+      conta: conta.email,
+      data: agora,
     };
 
-    const novaLista = needs.map((item) => {
-      if (item.id !== need.id) {
-        return item;
-      }
+    const contribuicao = {
+      id: doacao.id,
+      por: conta.email,
+      nome: conta.nome || conta.email,
+      quantidade: quanto,
+      em: agora,
+      doacaoId: doacao.id,
+      entregue: false,
+    };
 
-      return {
+    deuCerto();
+
+    trocarNecessidade(
+      need.id,
+      (item) => ({
         ...item,
-        reserva: {
-          por: conta.email,
-          nome: conta.nome || conta.email,
-          em: doacao.data,
-          doacaoId: doacao.id,
-        },
-      };
-    });
-
-    setNeeds(novaLista);
+        contribuicoes: [...contribuicoesDaNecessidade(item), contribuicao],
+      }),
+      'Não foi possível registrar a doação.'
+    );
 
     try {
-      await saveNeeds(novaLista);
       await registrarDoacao(doacao);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível registrar a doação.');
     }
   }
 
-  function confirmarDesistencia(need) {
+  function confirmarDesistencia(need, contribuicao) {
     Alert.alert(
       'Desistir da doação',
-      'O item volta a aparecer como disponível para outra pessoa levar.',
+      'O que você prometeu volta a aparecer como faltando, para outra pessoa levar.',
       [
-        {
-          text: 'Voltar',
-          style: 'cancel',
-        },
+        { text: 'Voltar', style: 'cancel' },
         {
           text: 'Desistir',
           style: 'destructive',
-          onPress: () => soltar(need),
+          onPress: () => soltar(need, contribuicao),
         },
       ]
     );
   }
 
-  async function soltar(need) {
-    const doacaoId = need.reserva ? need.reserva.doacaoId : null;
-
-    const novaLista = needs.map((item) => {
-      if (item.id !== need.id) {
-        return item;
-      }
-
-      const semReserva = { ...item };
-
-      delete semReserva.reserva;
-
-      return semReserva;
-    });
-
-    setNeeds(novaLista);
+  async function soltar(need, contribuicao) {
+    trocarNecessidade(
+      need.id,
+      (item) => ({
+        ...item,
+        contribuicoes: contribuicoesDaNecessidade(item).filter(
+          (uma) => uma.id !== contribuicao.id
+        ),
+      }),
+      'Não foi possível cancelar a doação.'
+    );
 
     try {
-      await saveNeeds(novaLista);
-
-      if (doacaoId) {
-        await apagarDoacao(doacaoId);
+      if (contribuicao.doacaoId) {
+        await apagarDoacao(contribuicao.doacaoId);
       }
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível cancelar a doação.');
+    }
+  }
+
+  // O abrigo confirmando que aquela entrega chegou. É por aqui que o
+  // recebido cresce — e ele é diferente do prometido, que já tinha
+  // crescido quando a pessoa se ofereceu.
+  async function receberContribuicao(need, contribuicao) {
+    deuCerto();
+
+    trocarNecessidade(
+      need.id,
+      (item) => {
+        const atualizadas = contribuicoesDaNecessidade(item).map((uma) =>
+          uma.id === contribuicao.id ? { ...uma, entregue: true } : uma
+        );
+
+        const comAsNovas = { ...item, contribuicoes: atualizadas };
+
+        // Chegando tudo que foi pedido, a necessidade se dá por atendida
+        // sozinha: exigir mais um toque do abrigo seria burocracia.
+        if (temMeta(comAsNovas) && recebido(comAsNovas) >= comAsNovas.alvo) {
+          comAsNovas.done = true;
+          comAsNovas.recebidoEm = new Date().toISOString();
+        }
+
+        return comAsNovas;
+      },
+      'Não foi possível confirmar o recebimento.'
+    );
+
+    try {
+      if (contribuicao.doacaoId) {
+        await atualizarSituacao(contribuicao.doacaoId, CONFIRMADA);
+      }
+    } catch (error) {
+      console.log('Erro ao fechar o ciclo da doação:', error);
     }
   }
 
@@ -357,6 +577,12 @@ export default function DonationsScreen(props) {
       return 'Nenhuma necessidade com esse nome nesta lista.';
     }
 
+    // Sem o formulário na tela, mandar cadastrar acima seria apontar para
+    // um campo que não existe.
+    if (abrigoDeOutro()) {
+      return 'Este abrigo ainda não publicou o que está precisando.';
+    }
+
     if (gerencia) {
       return 'Cadastre acima o que o abrigo está precisando.';
     }
@@ -368,11 +594,12 @@ export default function DonationsScreen(props) {
     return (
       <NeedItem
         need={item}
+        email={conta ? conta.email : null}
         onToggle={toggleNeed}
         onDelete={confirmDelete}
         onReservar={confirmarReserva}
         onCancelarReserva={confirmarDesistencia}
-        minhaReserva={minhaReserva(item)}
+        onReceber={receberContribuicao}
         somenteLeitura={!podeMexer(item)}
       />
     );
@@ -380,7 +607,9 @@ export default function DonationsScreen(props) {
 
   const lista = visiveis();
   const atendidas = lista.filter((need) => need.done).length;
-  const reservadas = lista.filter((need) => need.reserva && !need.done).length;
+  const reservadas = lista.filter(
+    (need) => !need.done && contribuicoesDaNecessidade(need).length > 0
+  ).length;
 
   if (carregando) {
     return (
@@ -448,24 +677,54 @@ export default function DonationsScreen(props) {
             />
 
             {busca ? (
-              <Pressable onPress={() => setBusca('')}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Limpar a busca" onPress={() => setBusca('')}>
                 <Ionicons name="close-circle" size={17} color="#9A8F7E" />
               </Pressable>
             ) : null}
           </View>
         )}
 
-        {gerencia && meuAbrigo && (
+        {gerencia && abrigoDoCadastro() && (
           <View style={styles.vinculo}>
             <Ionicons name="business" size={14} color={colors.primary} />
 
             <Text style={styles.vinculoTexto}>
-              Cadastrando para {meuAbrigo.nome}
+              Cadastrando para {abrigoDoCadastro().nome}
             </Text>
           </View>
         )}
 
-        {gerencia && ehGestor(conta) && !meuAbrigo && (
+        {/* Com mais de um abrigo e o filtro em "Todos", não há como
+            adivinhar o destino — e mandar para o primeiro da lista era
+            exatamente o que fazia o segundo abrigo nunca receber nada. */}
+        {gerencia && !abrigoDoCadastro() && !abrigoDeOutro() && meusAbrigos.length > 1 && (
+          <View style={styles.vinculo}>
+            <Ionicons name="alert-circle" size={14} color={colors.supportPink} />
+
+            <Text style={styles.vinculoEscolha}>
+              Escolha acima para qual dos seus abrigos cadastrar
+            </Text>
+          </View>
+        )}
+
+        {/* Sem esta explicação, a pessoa trocava o filtro, cadastrava e a
+            necessidade aparecia noutro abrigo sem nenhum aviso. */}
+        {gerencia && abrigoDeOutro() && (
+          <View style={styles.alheio}>
+            <Ionicons name="lock-closed-outline" size={16} color={colors.supportPink} />
+
+            <Text style={styles.alheioTexto}>
+              A lista do {abrigoDoFiltro().nome} é mantida por quem
+              administra aquele abrigo
+              {abrigoDoFiltro().dono ? ' (' + abrigoDoFiltro().dono + ')' : ''}.
+              Você está nesta conta como {conta ? conta.email : 'visitante'}.
+            </Text>
+          </View>
+        )}
+
+        {gerencia && ehGestor(conta) && meusAbrigos.length === 0 && (
           <Pressable
             style={({ pressed }) => [styles.vinculoAviso, pressed && styles.doarPressionado]}
             onPress={() => props.navigation.navigate('RegisterShelter')}
@@ -479,9 +738,9 @@ export default function DonationsScreen(props) {
           </Pressable>
         )}
 
-        {gerencia ? (
+        {gerencia && !abrigoDeOutro() ? (
           <NeedForm onAdd={addNeed} />
-        ) : (
+        ) : gerencia ? null : (
           <View style={styles.leitura}>
             <Ionicons name="hand-left-outline" size={16} color="#9A8F7E" />
 
@@ -504,11 +763,33 @@ export default function DonationsScreen(props) {
 
           <View style={styles.doarConteudo}>
             <Text style={styles.doarTitulo}>Fazer uma doação em dinheiro</Text>
-            <Text style={styles.doarTexto}>Pix, confirmado por biometria</Text>
+
+            <Text style={styles.doarTexto}>
+              Pix, transferência ou a página do abrigo
+            </Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
         </Pressable>
+
+        {/* Dinheiro e itens não são as únicas formas: existe apadrinhamento
+            e existe a destinação do imposto de renda ao fundo da infância,
+            que não custa nada a quem doa. Tudo isso mora na tela do abrigo
+            escolhido, que só faz sentido quando há um escolhido. */}
+        {abrigoEscolhido() && (
+          <Pressable
+            style={({ pressed }) => [styles.ajudar, pressed && styles.doarPressionado]}
+            onPress={() => props.navigation.navigate('Help', { abrigoId: filtro })}
+          >
+            <Ionicons name="hand-left-outline" size={17} color={colors.primary} />
+
+            <Text style={styles.ajudarTexto}>
+              Todas as formas de ajudar este abrigo
+            </Text>
+
+            <Ionicons name="chevron-forward" size={17} color="#9A8F7E" />
+          </Pressable>
+        )}
 
         <FlatList
           data={lista}
@@ -542,6 +823,53 @@ export default function DonationsScreen(props) {
         />
 
       </View>
+
+      {/* Perguntar quanto é o que faz o "falta" diminuir de verdade. Sem
+          isso, uma pessoa oferecendo um pacote zerava uma necessidade de
+          dez. O campo já vem com o que falta, porque é o palpite mais
+          provável de quem tocou. */}
+      <Modal
+        visible={oferecendo != null}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setOferecendo(null)}
+      >
+        <View style={styles.fundoModal}>
+          <View style={styles.painel}>
+            <Text style={styles.painelTitulo}>Quanto você vai levar?</Text>
+
+            {oferecendo ? (
+              <Text style={styles.painelTexto}>
+                {oferecendo.title} — faltam {faltam(oferecendo)}
+                {oferecendo.unidade ? ' ' + oferecendo.unidade : ''}
+              </Text>
+            ) : null}
+
+            <TextInput
+              style={styles.painelInput}
+              value={quantoVouLevar}
+              onChangeText={setQuantoVouLevar}
+              keyboardType="number-pad"
+              selectTextOnFocus
+              maxLength={5}
+            />
+
+            <Pressable
+              style={({ pressed }) => [styles.painelBotao, pressed && styles.doarPressionado]}
+              onPress={confirmarQuantidade}
+            >
+              <Text style={styles.painelBotaoTexto}>Confirmar</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.painelLink, pressed && styles.doarPressionado]}
+              onPress={() => setOferecendo(null)}
+            >
+              <Text style={styles.painelLinkTexto}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -643,6 +971,31 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
+  alheio: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+
+  alheioTexto: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textMain,
+    lineHeight: 17,
+    marginLeft: 8,
+  },
+
+  vinculoEscolha: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.supportPink,
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+
   vinculoAviso: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -719,6 +1072,91 @@ const styles = StyleSheet.create({
 
   doarPressionado: {
     opacity: 0.6,
+  },
+
+  ajudar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginTop: -6,
+    marginBottom: 16,
+  },
+
+  ajudarTexto: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginHorizontal: 8,
+  },
+
+  fundoModal: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+
+  painel: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+  },
+
+  painelTitulo: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  painelTexto: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    lineHeight: 19,
+    marginTop: 4,
+  },
+
+  painelInput: {
+    height: 64,
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    textAlign: 'center',
+    marginTop: 14,
+  },
+
+  painelBotao: {
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+
+  painelBotaoTexto: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+
+  painelLink: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+
+  painelLinkTexto: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#9A8F7E',
   },
 
   list: {

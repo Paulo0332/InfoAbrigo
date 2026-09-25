@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Keyboard,
+  Linking,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,10 +18,28 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import BiometricButton from '../components/BiometricButton';
+import { contatosDoAbrigo, linkEmail, linkWhatsapp } from '../services/contato';
 import PixQrCode from '../components/PixQrCode';
 import { carregarConta } from '../services/auth';
-import { DINHEIRO, formatarReais, registrarDoacao } from '../services/donations';
+import {
+  DINHEIRO,
+  PENDENTE,
+  confirmarPagamento,
+  formatarReais,
+  registrarDoacao,
+} from '../services/donations';
+import {
+  PIX,
+  SITE,
+  TRANSFERENCIA,
+  formasDeDinheiro,
+  formasQueFaltam,
+  juntarComE,
+  textoDaTransferencia,
+} from '../services/doacao';
 import { montarCodigoPix } from '../services/pix';
+import { deuCerto, deuErrado, toqueLeve } from '../services/tato';
+import { conferirSenha } from '../services/senha';
 import { carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
@@ -48,6 +67,16 @@ export default function DonateScreen(props) {
   const [abrigoCompleto, setAbrigoCompleto] = useState(null);
   const [codigoPix, setCodigoPix] = useState('');
   const [copiado, setCopiado] = useState(false);
+
+  // A forma escolhida para doar. Começa na primeira que o abrigo
+  // oferece, porque ficar sem nenhuma marcada faria o botão de confirmar
+  // não saber o que fazer.
+  const [forma, setForma] = useState(PIX);
+
+  // O registro fica pendente ate a pessoa dizer que pagou. Guardamos o
+  // identificador dele para poder marcar como pago sem sair da tela.
+  const [doacaoId, setDoacaoId] = useState(null);
+  const [paga, setPaga] = useState(false);
 
   useEffect(() => {
     buscarConta();
@@ -84,6 +113,12 @@ export default function DonateScreen(props) {
       });
 
       setAbrigoCompleto(achado || null);
+
+      const formas = formasDeDinheiro(achado);
+
+      if (formas.length > 0) {
+        setForma(formas[0].id);
+      }
     } catch (error) {
       console.log('Erro ao ler o abrigo da doação:', error);
     }
@@ -143,6 +178,12 @@ export default function DonateScreen(props) {
       valor: emReais(),
       abrigo: abrigo,
       abrigoId: abrigoCompleto ? abrigoCompleto.id : null,
+      forma: forma,
+      // O histórico é de quem doou, e o aparelho guarda mais de uma conta.
+      conta: conta ? conta.email : null,
+      // Confirmar a identidade não é pagar. A biometria diz que foi você
+      // quem pediu o código; quem cobra é o banco, no passo seguinte.
+      situacao: PENDENTE,
       data: new Date().toISOString(),
     };
 
@@ -154,11 +195,18 @@ export default function DonateScreen(props) {
       return;
     }
 
-    setCodigoPix(gerarCodigoPix());
+    // O código só é montado quando a forma escolhida é Pix. Nas outras a
+    // tela seguinte mostra os dados da conta ou abre a página do abrigo.
+    deuCerto();
+
+    setDoacaoId(doacao.id);
+    setCodigoPix(forma === PIX ? gerarCodigoPix() : '');
     setConfirmada(true);
   }
 
-  function confirmarComSenha() {
+  // A senha deixou de ser guardada como texto: agora fica só o resumo
+  // dela, e quem compara é o mesmo serviço que a tela de entrada usa.
+  async function confirmarComSenha() {
     if (!conta) {
       Alert.alert('Erro', 'Não foi possível ler a sua conta.');
 
@@ -171,7 +219,11 @@ export default function DonateScreen(props) {
       return;
     }
 
-    if (senha !== conta.senha) {
+    const conferida = await conferirSenha(conta, senha);
+
+    if (!conferida.confere) {
+      deuErrado();
+
       Alert.alert('Não confirmado', 'Senha incorreta.');
 
       return;
@@ -182,15 +234,29 @@ export default function DonateScreen(props) {
     confirmarDoacao();
   }
 
-  async function copiarCodigo() {
+  async function copiar(texto) {
     try {
-      await Clipboard.setStringAsync(codigoPix);
+      await Clipboard.setStringAsync(texto);
 
+      toqueLeve();
       setCopiado(true);
     } catch (error) {
-      console.log('Erro ao copiar o código:', error);
+      console.log('Erro ao copiar:', error);
 
-      Alert.alert('Erro', 'Não foi possível copiar o código.');
+      Alert.alert('Erro', 'Não foi possível copiar.');
+    }
+  }
+
+  // Cartão, boleto e doação mensal dependem de uma instituição de
+  // pagamento, e o aplicativo não emite nenhum dos três. O que ele faz é
+  // levar até a página que o abrigo cadastrou para isso.
+  async function abrirPagina() {
+    try {
+      await Linking.openURL(abrigoCompleto.linkDoacao);
+    } catch (error) {
+      console.log('Erro ao abrir a página de doação:', error);
+
+      Alert.alert('Erro', 'Não foi possível abrir a página do abrigo.');
     }
   }
 
@@ -203,6 +269,55 @@ export default function DonateScreen(props) {
       });
     } catch (error) {
       console.log('Erro ao enviar o código:', error);
+    }
+  }
+
+  // O aplicativo não tem como saber se o pagamento aconteceu: não há
+  // servidor nem aviso do banco chegando aqui. Quem sabe é a pessoa, e é
+  // ela quem marca — só então a doação entra na soma do histórico.
+  async function marcarComoPaga() {
+    try {
+      await confirmarPagamento(doacaoId);
+
+      deuCerto();
+      setPaga(true);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível registrar o pagamento.');
+    }
+  }
+
+  // Marcar como paga é anotação pessoal: o aplicativo não confere nada, e
+  // o abrigo não fica sabendo por causa dela. Quem faz o abrigo saber é o
+  // comprovante do banco, e é assim que acontece fora daqui — a pessoa
+  // manda o comprovante no WhatsApp da instituição. A tela oferece esse
+  // caminho no lugar de fingir que a marcação vale como aviso.
+  function podeAvisar() {
+    if (abrigoCompleto == null) {
+      return false;
+    }
+
+    const contatos = contatosDoAbrigo(abrigoCompleto);
+
+    return Boolean(contatos.celular || contatos.email);
+  }
+
+  async function avisarAbrigo() {
+    const contatos = contatosDoAbrigo(abrigoCompleto);
+
+    const mensagem =
+      'Olá! Fiz uma doação de R$ ' + formatarReais(emReais()) + ' para o ' +
+      abrigoCompleto.nome + '. Envio o comprovante do banco em seguida.';
+
+    const url = contatos.celular
+      ? linkWhatsapp(contatos.celular, mensagem)
+      : linkEmail(contatos.email, 'Doação para o ' + abrigoCompleto.nome);
+
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.log('Erro ao avisar o abrigo:', error);
+
+      Alert.alert('Erro', 'Não foi possível abrir o contato do abrigo.');
     }
   }
 
@@ -221,6 +336,8 @@ export default function DonateScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={voltar}
           >
@@ -241,14 +358,23 @@ export default function DonateScreen(props) {
           contentContainerStyle={styles.sucessoConteudo}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.selo}>
-            <Ionicons name="checkmark" size={40} color="#FFFFFF" />
+          <View style={[styles.selo, !paga && styles.seloPendente]}>
+            <Ionicons
+              name={paga ? 'checkmark' : 'time-outline'}
+              size={40}
+              color="#FFFFFF"
+            />
           </View>
 
-          <Text style={styles.tituloSucesso}>Doação registrada</Text>
+          <Text style={styles.tituloSucesso}>
+            {paga ? 'Doação concluída' : 'Falta pagar'}
+          </Text>
 
           <Text style={styles.textoSucesso}>
             R$ {formatarReais(emReais())} para o {abrigo}.
+            {paga
+              ? ' Obrigado por ajudar!'
+              : ' A biometria confirmou que foi você quem pediu o código — quem cobra é o seu banco, no passo abaixo.'}
           </Text>
 
           {codigoPix ? (
@@ -272,7 +398,7 @@ export default function DonateScreen(props) {
 
               <Pressable
                 style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
-                onPress={copiarCodigo}
+                onPress={() => copiar(codigoPix)}
               >
                 <Ionicons
                   name={copiado ? 'checkmark' : 'copy-outline'}
@@ -304,24 +430,125 @@ export default function DonateScreen(props) {
                 confira o nome que aparecer no seu banco antes de pagar.
               </Text>
             </View>
+          ) : forma === TRANSFERENCIA ? (
+            <View style={styles.pagamento}>
+              <Text style={styles.secaoPagamento}>
+                Dados para a transferência
+              </Text>
+
+              <Text style={styles.explicacaoPagamento}>
+                Copie e cole no aplicativo do seu banco. Confira o nome do
+                favorecido antes de confirmar.
+              </Text>
+
+              <Text style={styles.codigo} selectable>
+                {textoDaTransferencia(abrigoCompleto)}
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
+                onPress={() => copiar(textoDaTransferencia(abrigoCompleto))}
+              >
+                <Ionicons
+                  name={copiado ? 'checkmark' : 'copy-outline'}
+                  size={19}
+                  color="#FFFFFF"
+                />
+
+                <Text style={styles.textoBotaoCopiar}>
+                  {copiado ? 'Dados copiados' : 'Copiar os dados'}
+                </Text>
+              </Pressable>
+
+              <Text style={styles.avisoPagamento}>
+                A transferência acontece no aplicativo do seu banco. O
+                InfoAbrigo não recebe nem processa dinheiro, e os dados são
+                os que o abrigo cadastrou.
+              </Text>
+            </View>
+          ) : forma === SITE ? (
+            <View style={styles.pagamento}>
+              <Text style={styles.secaoPagamento}>Continue na página do abrigo</Text>
+
+              <Text style={styles.explicacaoPagamento}>
+                Cartão, boleto e doação mensal precisam de uma instituição de
+                pagamento por trás, e o aplicativo não emite nenhum dos três.
+                Quem cuida disso é a página do próprio abrigo.
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
+                onPress={abrirPagina}
+              >
+                <Ionicons name="open-outline" size={19} color="#FFFFFF" />
+                <Text style={styles.textoBotaoCopiar}>Abrir a página de doação</Text>
+              </Pressable>
+
+              <Text style={styles.avisoPagamento}>
+                O endereço é o que o abrigo cadastrou. Confira de quem é a
+                página antes de informar dados do seu cartão.
+              </Text>
+            </View>
           ) : (
             <View style={styles.semChave}>
               <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
 
               <Text style={styles.semChaveTexto}>
-                Este abrigo ainda não cadastrou uma chave Pix. A doação ficou
-                registrada no seu histórico; combine a entrega pelo contato
-                do abrigo, na aba do mapa.
+                Este abrigo ainda não cadastrou nenhuma forma de receber
+                dinheiro. A doação ficou registrada no seu histórico; combine
+                a entrega pelo contato do abrigo, na aba do mapa.
               </Text>
             </View>
           )}
+
+          {/* O aplicativo não tem como saber se o dinheiro saiu: não há
+              servidor nem aviso do banco chegando aqui. Quem sabe é a
+              pessoa, e é ela quem marca — só então a doação entra na soma
+              do histórico. Dar como feita na hora enchia o histórico de
+              dinheiro que talvez nunca tivesse saído. */}
+          {!paga && doacaoId ? (
+            <Pressable
+              style={({ pressed }) => [styles.botaoPaguei, pressed && styles.pressionado]}
+              onPress={marcarComoPaga}
+            >
+              <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.textoBotaoPaguei}>Já fiz o pagamento</Text>
+            </Pressable>
+          ) : null}
+
+          {paga && podeAvisar() ? (
+            <Pressable
+              style={({ pressed }) => [styles.botaoEnviar, styles.botaoAvisar, pressed && styles.pressionado]}
+              onPress={avisarAbrigo}
+            >
+              <Ionicons name="paper-plane-outline" size={18} color={colors.primary} />
+              <Text style={styles.textoBotaoEnviar}>Enviar o comprovante ao abrigo</Text>
+            </Pressable>
+          ) : null}
+
+          {paga ? (
+            <Text style={styles.avisoPendente}>
+              Esta marcação é a sua anotação: o aplicativo não confere
+              pagamento, e o abrigo não fica sabendo por ela. Quem avisa o
+              abrigo é o comprovante do seu banco.
+            </Text>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [styles.botaoVoltar, pressed && styles.pressionado]}
             onPress={voltar}
           >
-            <Text style={styles.textoBotaoVoltar}>Concluir</Text>
+            <Text style={styles.textoBotaoVoltar}>
+              {paga ? 'Concluir' : 'Pagar depois'}
+            </Text>
           </Pressable>
+
+          {!paga ? (
+            <Text style={styles.avisoPendente}>
+              Se sair agora, a doação fica aguardando no seu histórico, e
+              você marca como paga por lá quando quiser.
+            </Text>
+          ) : null}
         </ScrollView>
       ) : (
         // Sem isto o teclado sobe por cima do campo de senha. No iOS o
@@ -361,6 +588,60 @@ export default function DonateScreen(props) {
                 Escolha um abrigo no mapa
               </Text>
             </Pressable>
+          )}
+
+          {/* As formas que aquele abrigo realmente oferece. Nada de botão
+              para caminho que não existe: quem não cadastrou Pix não
+              mostra Pix. A seção aparece mesmo com uma forma só, porque
+              escondê-la fazia parecer que o aplicativo só sabe fazer Pix. */}
+          {formasDeDinheiro(abrigoCompleto).length > 0 && (
+            <View>
+              <Text style={styles.secao}>Como você quer doar</Text>
+
+              {formasDeDinheiro(abrigoCompleto).map((opcao) => (
+                <Pressable
+                  key={opcao.id}
+                  style={({ pressed }) => [
+                    styles.forma,
+                    forma === opcao.id && styles.formaAtiva,
+                    pressed && styles.pressionado,
+                  ]}
+                  onPress={() => setForma(opcao.id)}
+                >
+                  <View
+                    style={[
+                      styles.formaIcone,
+                      forma === opcao.id && styles.formaIconeAtivo,
+                    ]}
+                  >
+                    <Ionicons
+                      name={opcao.icone}
+                      size={19}
+                      color={forma === opcao.id ? '#FFFFFF' : colors.primary}
+                    />
+                  </View>
+
+                  <View style={styles.formaTexto}>
+                    <Text style={styles.formaNome}>{opcao.nome}</Text>
+                    <Text style={styles.formaDescricao}>{opcao.descricao}</Text>
+                  </View>
+
+                  <Ionicons
+                    name={forma === opcao.id ? 'radio-button-on' : 'radio-button-off'}
+                    size={19}
+                    color={forma === opcao.id ? colors.primary : '#C9BFB1'}
+                  />
+                </Pressable>
+              ))}
+
+              {formasQueFaltam(abrigoCompleto).length > 0 ? (
+                <Text style={styles.faltam}>
+                  Este abrigo ainda não cadastrou{' '}
+                  {juntarComE(formasQueFaltam(abrigoCompleto))}. Quem
+                  administra o abrigo acrescenta no cadastro dele.
+                </Text>
+              ) : null}
+            </View>
           )}
 
           <Text style={styles.secao}>Quanto você quer doar</Text>
@@ -538,6 +819,60 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
+  forma: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 12,
+    marginBottom: 8,
+  },
+
+  formaAtiva: {
+    borderColor: colors.primary,
+  },
+
+  formaIcone: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.backgroundLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  formaIconeAtivo: {
+    backgroundColor: colors.primary,
+  },
+
+  formaTexto: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  formaNome: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  formaDescricao: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginTop: 1,
+  },
+
+  faltam: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+
   campoValor: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -645,6 +980,36 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
   },
 
+  botaoPaguei: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: colors.supportGreen,
+    marginTop: 24,
+  },
+
+  textoBotaoPaguei: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  avisoPendente: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 12,
+  },
+
+  seloPendente: {
+    backgroundColor: colors.primary,
+  },
+
   selo: {
     width: 76,
     height: 76,
@@ -729,6 +1094,10 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
+  botaoAvisar: {
+    marginTop: 24,
+  },
+
   botaoEnviar: {
     alignSelf: 'stretch',
     flexDirection: 'row',
@@ -780,7 +1149,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 28,
+    marginTop: 12,
   },
 
   textoBotaoVoltar: {

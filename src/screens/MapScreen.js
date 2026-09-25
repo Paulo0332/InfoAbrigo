@@ -32,7 +32,8 @@ import {
   formatarDistancia,
   formatarDuracao,
 } from '../services/rota';
-import { calcularDistancia, carregarAbrigos } from '../services/shelters';
+import { calcularDistancia, carregarAbrigos, ehDono } from '../services/shelters';
+import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 
 // Nível de aproximação inicial. 14 mostra pouco mais de 3 km.
@@ -49,6 +50,10 @@ const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
 //
 // O contorno branco por baixo é o que separa a linha da rua: sem ele a
 // rota encosta no traçado da via e as duas viram uma coisa só.
+// Distâncias do filtro, em quilômetros. Quem vai levar uma doação
+// escolhe pelo que dá para ir, e um abrigo a 40 km não é candidato.
+const RAIOS = [5, 10, 25];
+
 const COR_ROTA = '#1A73E8';
 const COR_CONTORNO_ROTA = '#FFFFFF';
 const PESO_ROTA = 6;
@@ -72,22 +77,18 @@ const PESO_CONTORNO_ROTA = 11;
 // OpenStreetMap, que sempre funciona, com filtro preto e branco para
 // manter o visual minimalista.
 function montarHtml(localizacao, abrigos) {
+  // Cada pino fica guardado pelo id do abrigo. Sem isso não dava para
+  // destacar o escolhido depois: os marcadores nasciam soltos e a página
+  // esquecia deles no instante seguinte.
   const marcadores = abrigos
     .map(
       (abrigo, indice) => `
-        L.marker([${abrigo.latitude}, ${abrigo.longitude}], {
-          icon: L.divIcon({
-            className: 'vazio',
-            html: '<div class="pino" style="background:${CORES[indice % CORES.length]}">'
-              + '<div class="pinoDentro"></div></div>',
-            iconSize: [30, 42],
-            iconAnchor: [15, 42]
-          })
-        })
-          .addTo(mapa)
-          .on('click', function () {
-            window.ReactNativeWebView.postMessage('${abrigo.id}');
-          });
+        criarPino(
+          '${abrigo.id}',
+          ${abrigo.latitude},
+          ${abrigo.longitude},
+          '${CORES[indice % CORES.length]}'
+        );
       `
     )
     .join('\n');
@@ -105,6 +106,19 @@ function montarHtml(localizacao, abrigos) {
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Agrupa pinos que caem quase no mesmo ponto. Se o arquivo não
+         carregar, a página segue sem ele e os pinos entram soltos no
+         mapa: agrupar é conforto, não é requisito. -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    />
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
       body { background: ${colors.backgroundLight}; }
@@ -136,6 +150,38 @@ function montarHtml(localizacao, abrigos) {
         height: 9px;
         border-radius: 50%;
         background: #FFFFFF;
+      }
+
+      /* O pino escolhido cresce e ganha um anel. Antes o cartão abria e o
+         mapa não mudava em nada: não dava para saber qual daqueles pinos
+         era o abrigo que estava sendo lido. */
+      .pino.escolhido {
+        width: 38px;
+        height: 38px;
+        border-width: 3px;
+        box-shadow: 0 0 0 5px rgba(224,122,31,0.28), 0 3px 7px rgba(0,0,0,0.35);
+      }
+
+      .pino.escolhido .pinoDentro {
+        width: 12px;
+        height: 12px;
+      }
+
+      /* Bolha do agrupamento, no lugar do visual padrão do plugin. */
+      .grupo {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: ${colors.primary};
+        border: 3px solid #FFFFFF;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #FFFFFF;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        font-weight: bold;
       }
 
       /* Ponto de "você está aqui", com halo suave. */
@@ -201,6 +247,23 @@ function montarHtml(localizacao, abrigos) {
         }
       });
 
+      // Os dois provedores falhando seguido quer dizer que não é o
+      // provedor: é a internet. Sem este aviso o mapa ficava em branco
+      // sem explicar nada, e parecia defeito do aplicativo.
+      var falhasReserva = 0;
+
+      blocosOsm.on('tileerror', function () {
+        falhasReserva = falhasReserva + 1;
+
+        if (falhasReserva === 4) {
+          window.ReactNativeWebView.postMessage('sem-rede');
+        }
+      });
+
+      blocosOsm.on('tileload', function () {
+        falhasReserva = 0;
+      });
+
       blocosEsri.addTo(mapa);
 
       L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
@@ -211,6 +274,77 @@ function montarHtml(localizacao, abrigos) {
           iconAnchor: [8, 8]
         })
       }).addTo(mapa);
+
+      // Os pinos moram num grupo que junta os que caem quase no mesmo
+      // ponto. Sem o plugin carregado o grupo é o próprio mapa, e tudo
+      // funciona igual, só sem agrupar.
+      var grupo = typeof L.markerClusterGroup === 'function'
+        ? L.markerClusterGroup({
+            maxClusterRadius: 45,
+            showCoverageOnHover: false,
+            iconCreateFunction: function (agrupado) {
+              return L.divIcon({
+                className: 'vazio',
+                html: '<div class="grupo">' + agrupado.getChildCount() + '</div>',
+                iconSize: [38, 38]
+              });
+            }
+          })
+        : null;
+
+      if (grupo) {
+        mapa.addLayer(grupo);
+      }
+
+      var pinos = {};
+      var escolhido = null;
+
+      function corpoDoPino(cor, destacado) {
+        return '<div class="pino' + (destacado ? ' escolhido' : '') + '"'
+          + ' style="background:' + cor + '">'
+          + '<div class="pinoDentro"></div></div>';
+      }
+
+      function iconeDoPino(cor, destacado) {
+        var lado = destacado ? 38 : 30;
+
+        return L.divIcon({
+          className: 'vazio',
+          html: corpoDoPino(cor, destacado),
+          iconSize: [lado, lado + 12],
+          iconAnchor: [lado / 2, lado + 12]
+        });
+      }
+
+      function criarPino(id, latitude, longitude, cor) {
+        var marcador = L.marker([latitude, longitude], {
+          icon: iconeDoPino(cor, false)
+        }).on('click', function () {
+          window.ReactNativeWebView.postMessage(id);
+        });
+
+        marcador.corDoPino = cor;
+        pinos[id] = marcador;
+
+        if (grupo) {
+          grupo.addLayer(marcador);
+        } else {
+          marcador.addTo(mapa);
+        }
+      }
+
+      // Chamada de fora ao abrir o cartão de um abrigo.
+      function destacarPino(id) {
+        if (escolhido && pinos[escolhido]) {
+          pinos[escolhido].setIcon(iconeDoPino(pinos[escolhido].corDoPino, false));
+        }
+
+        escolhido = id;
+
+        if (id && pinos[id]) {
+          pinos[id].setIcon(iconeDoPino(pinos[id].corDoPino, true));
+        }
+      }
 
       var contornoRota = null;
       var linhaRota = null;
@@ -273,10 +407,33 @@ export default function MapScreen(props) {
   const [modoRota, setModoRota] = useState('auto');
   const [buscandoRota, setBuscandoRota] = useState(false);
   const [verPassos, setVerPassos] = useState(false);
+  const [raio, setRaio] = useState(null);
+  const [semRede, setSemRede] = useState(false);
 
   // A referência serve para mandar comandos para dentro da página, como
   // recentralizar o mapa num abrigo.
   const mapaRef = useRef(null);
+
+  // A Home manda o abrigo junto quando alguém toca no cartão do mais
+  // próximo. Guardamos o instante do último pedido atendido: sem isso, a
+  // aba reabriria o cartão daquele abrigo a cada vez que voltasse ao
+  // foco, mesmo depois de a pessoa ter fechado.
+  const pedido = props.route.params || {};
+  const ultimoPedido = useRef(null);
+
+  useEffect(() => {
+    if (!pedido.abrigoId || pedido.momento === ultimoPedido.current) {
+      return;
+    }
+
+    const abrigo = abrigos.find((item) => item.id === pedido.abrigoId);
+
+    if (abrigo) {
+      ultimoPedido.current = pedido.momento;
+
+      selecionar(abrigo);
+    }
+  }, [pedido.momento, abrigos]);
 
   useEffect(() => {
     buscarLocalizacao();
@@ -331,19 +488,57 @@ export default function MapScreen(props) {
   function filtrados() {
     const termo = busca.trim().toLowerCase();
 
-    if (!termo) {
-      return abrigos;
-    }
+    return abrigos.filter((abrigo) => {
+      if (termo && !abrigo.nome.toLowerCase().includes(termo)) {
+        return false;
+      }
 
-    return abrigos.filter((abrigo) => abrigo.nome.toLowerCase().includes(termo));
+      // Sem saber onde a pessoa está não dá para medir distância, e aí o
+      // filtro por raio simplesmente não se aplica.
+      if (raio == null || localizacao == null) {
+        return true;
+      }
+
+      return distanciaEmKm(abrigo) <= raio;
+    });
   }
 
+  // A página manda dois tipos de recado: o id do abrigo tocado e o aviso
+  // de que os blocos pararam de chegar.
   function aoTocarNoMapa(evento) {
-    const id = evento.nativeEvent.data;
-    const abrigo = filtrados().find((item) => item.id === id);
+    const recado = evento.nativeEvent.data;
+
+    if (recado === 'sem-rede') {
+      setSemRede(true);
+
+      return;
+    }
+
+    const abrigo = filtrados().find((item) => item.id === recado);
 
     if (abrigo) {
       selecionar(abrigo);
+    }
+  }
+
+  // Manda a página engordar o pino do abrigo escolhido. Antes o cartão
+  // abria e o mapa não mudava em nada: não dava para saber qual daqueles
+  // pinos era o abrigo que estava sendo lido.
+  function destacar(id) {
+    if (!mapaRef.current) {
+      return;
+    }
+
+    const alvo = id ? JSON.stringify(id) : 'null';
+
+    mapaRef.current.injectJavaScript('destacarPino(' + alvo + '); true;');
+  }
+
+  function recarregarMapa() {
+    setSemRede(false);
+
+    if (mapaRef.current) {
+      mapaRef.current.reload();
     }
   }
 
@@ -395,6 +590,8 @@ export default function MapScreen(props) {
         return;
       }
 
+      toqueLeve();
+
       setRota({ ...achada, abrigoId: abrigo.id, modo: modo });
       setVerPassos(false);
 
@@ -429,6 +626,10 @@ export default function MapScreen(props) {
 
     if (rota) {
       desenharNoMapa(rota.linha);
+    }
+
+    if (abrigoSelecionado) {
+      destacar(abrigoSelecionado.id);
     }
   }
 
@@ -544,6 +745,7 @@ export default function MapScreen(props) {
     }
 
     setAbrigoSelecionado(abrigo);
+    destacar(abrigo.id);
     centralizarEm(abrigo);
   }
 
@@ -553,6 +755,7 @@ export default function MapScreen(props) {
   // toca no fechar do painel dela, ou quando outro abrigo é escolhido.
   function fecharCartao() {
     setAbrigoSelecionado(null);
+    destacar(null);
   }
 
   // Com o cartão fechado e a rota no mapa, a faixa de baixo é o que
@@ -583,7 +786,7 @@ export default function MapScreen(props) {
   // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
   // interface, não de segurança: sem servidor ninguém valida nada.
   function souDono(abrigo) {
-    return conta != null && abrigo.dono === conta.email;
+    return ehDono(abrigo, conta);
   }
 
   function centralizarEmMim() {
@@ -709,6 +912,8 @@ export default function MapScreen(props) {
           <View style={styles.acoesTopo}>
             {abrigos.length > 0 && (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Alternar entre mapa e lista"
                 style={({ pressed }) => [styles.botaoTopo, pressed && styles.pressionado]}
                 onPress={() => setModoLista(!modoLista)}
               >
@@ -722,6 +927,8 @@ export default function MapScreen(props) {
 
             {ehGestor(conta) && (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cadastrar um abrigo"
                 style={({ pressed }) => [
                   styles.botaoTopo,
                   styles.botaoTopoEspaco,
@@ -734,6 +941,23 @@ export default function MapScreen(props) {
             )}
           </View>
         </View>
+
+        {semRede && (
+          <View style={styles.semRede}>
+            <Ionicons name="cloud-offline-outline" size={17} color={colors.primary} />
+
+            <Text style={styles.semRedeTexto}>
+              O mapa parou de carregar. Confira a internet.
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.semRedeBotao, pressed && styles.pressionado]}
+              onPress={recarregarMapa}
+            >
+              <Text style={styles.semRedeBotaoTexto}>Tentar</Text>
+            </Pressable>
+          </View>
+        )}
 
         {abrigos.length > 0 && (
           <View style={styles.busca}>
@@ -748,10 +972,48 @@ export default function MapScreen(props) {
             />
 
             {busca.length > 0 && (
-              <Pressable onPress={() => setBusca('')}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Limpar a busca" onPress={() => setBusca('')}>
                 <Ionicons name="close-circle" size={18} color="#9A8F7E" />
               </Pressable>
             )}
+          </View>
+        )}
+
+        {/* Quem vai levar uma doação escolhe pelo que dá para ir, e um
+            abrigo a quarenta quilômetros não é candidato. Sem saber onde a
+            pessoa está não há distância para filtrar, e a linha some. */}
+        {localizacao && abrigos.length > 1 && (
+          <View style={styles.raios}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.raio,
+                raio == null && styles.raioAtivo,
+                pressed && styles.pressionado,
+              ]}
+              onPress={() => setRaio(null)}
+            >
+              <Text style={[styles.raioTexto, raio == null && styles.raioTextoAtivo]}>
+                Todos
+              </Text>
+            </Pressable>
+
+            {RAIOS.map((opcao) => (
+              <Pressable
+                key={opcao}
+                style={({ pressed }) => [
+                  styles.raio,
+                  raio === opcao && styles.raioAtivo,
+                  pressed && styles.pressionado,
+                ]}
+                onPress={() => setRaio(opcao)}
+              >
+                <Text style={[styles.raioTexto, raio === opcao && styles.raioTextoAtivo]}>
+                  {opcao} km
+                </Text>
+              </Pressable>
+            ))}
           </View>
         )}
       </LinearGradient>
@@ -857,6 +1119,8 @@ export default function MapScreen(props) {
 
         {!erro && localizacao && !modoLista && (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Centralizar onde você está"
             style={({ pressed }) => [
               styles.botaoMim,
               rota && !abrigoSelecionado && styles.botaoMimSobreFaixa,
@@ -891,6 +1155,8 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Apagar a rota do mapa"
               style={({ pressed }) => [styles.faixaFechar, pressed && styles.pressionado]}
               onPress={limparRota}
             >
@@ -910,6 +1176,8 @@ export default function MapScreen(props) {
               <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
 
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Fechar o cartão do abrigo"
                 style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
                 onPress={fecharCartao}
               >
@@ -1021,6 +1289,8 @@ export default function MapScreen(props) {
                   </Text>
 
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Apagar a rota do mapa"
                     style={({ pressed }) => [styles.rotaFechar, pressed && styles.pressionado]}
                     onPress={limparRota}
                   >
@@ -1106,10 +1376,28 @@ export default function MapScreen(props) {
 
             <Pressable
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
-              onPress={() => props.navigation.navigate('Doações')}
+              onPress={() =>
+                props.navigation.navigate('Doações', {
+                  abrigoId: abrigoSelecionado.id,
+                  // O instante faz o pedido ser sempre novo. Sem ele, tocar
+                  // duas vezes no mesmo abrigo não mexeria no filtro, porque
+                  // os parâmetros seriam iguais aos da vez anterior.
+                  momento: Date.now(),
+                })
+              }
             >
               <Ionicons name="list-outline" size={17} color={colors.primary} />
               <Text style={styles.textoVer}>Ver o que o abrigo precisa</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
+              onPress={() =>
+                props.navigation.navigate('Help', { abrigoId: abrigoSelecionado.id })
+              }
+            >
+              <Ionicons name="hand-left-outline" size={17} color={colors.primary} />
+              <Text style={styles.textoVer}>Todas as formas de ajudar</Text>
             </Pressable>
 
             <Pressable
@@ -1285,6 +1573,63 @@ const styles = StyleSheet.create({
   textoLinkErro: {
     fontSize: 14,
     fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  semRede: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+    marginTop: 12,
+  },
+
+  semRedeTexto: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textMain,
+    lineHeight: 17,
+    marginLeft: 8,
+  },
+
+  semRedeBotao: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  semRedeBotaoTexto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  raios: {
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+
+  raio: {
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 7,
+  },
+
+  raioAtivo: {
+    backgroundColor: '#FFFFFF',
+  },
+
+  raioTexto: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+
+  raioTextoAtivo: {
     color: colors.primary,
   },
 

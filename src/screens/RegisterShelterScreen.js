@@ -32,6 +32,7 @@ import {
   formatarCep,
   montarEndereco,
 } from '../services/endereco';
+import { linkValido, normalizarLink } from '../services/doacao';
 import { chaveValida, nomeDoTipo, tipoDaChave } from '../services/pix';
 import {
   apagarAbrigo,
@@ -72,6 +73,37 @@ export default function RegisterShelterScreen(props) {
   const [chavePix, setChavePix] = useState(
     abrigoEditado ? abrigoEditado.chavePix || '' : ''
   );
+
+  // As outras formas pelas quais as instituições recebem doação. Pix é a
+  // principal, mas quase toda instituição publica também os dados da
+  // conta, e as maiores têm uma página própria para cartão e mensal.
+  const dadosDoBanco = (abrigoEditado && abrigoEditado.banco) || {};
+
+  const [bancoNome, setBancoNome] = useState(dadosDoBanco.instituicao || '');
+  const [agencia, setAgencia] = useState(dadosDoBanco.agencia || '');
+  const [contaBanco, setContaBanco] = useState(dadosDoBanco.conta || '');
+  const [titular, setTitular] = useState(dadosDoBanco.titular || '');
+  const [cnpjBanco, setCnpjBanco] = useState(dadosDoBanco.cnpj || '');
+
+  const [linkDoacao, setLinkDoacao] = useState(
+    abrigoEditado ? abrigoEditado.linkDoacao || '' : ''
+  );
+  const [apadrinhamento, setApadrinhamento] = useState(
+    abrigoEditado ? abrigoEditado.apadrinhamento || '' : ''
+  );
+  const [cmdca, setCmdca] = useState(
+    abrigoEditado ? abrigoEditado.cmdca || '' : ''
+  );
+
+  function bancoAtual() {
+    return {
+      instituicao: bancoNome.trim(),
+      agencia: agencia.trim(),
+      conta: contaBanco.trim(),
+      titular: titular.trim(),
+      cnpj: cnpjBanco.trim(),
+    };
+  }
   const [localizacao, setLocalizacao] = useState(
     abrigoEditado
       ? { latitude: abrigoEditado.latitude, longitude: abrigoEditado.longitude }
@@ -382,6 +414,15 @@ export default function RegisterShelterScreen(props) {
       return;
     }
 
+    if (linkDoacao.trim() && !linkValido(linkDoacao)) {
+      Alert.alert(
+        'Endereço inválido',
+        'Confira o endereço da página de doação. Ele precisa ser um site, como doare.org/seu-abrigo.'
+      );
+
+      return;
+    }
+
     if (chavePix.trim() && !chaveValida(chavePix)) {
       Alert.alert(
         'Chave Pix inválida',
@@ -411,6 +452,10 @@ export default function RegisterShelterScreen(props) {
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
           chavePix: chavePix.trim(),
+          banco: bancoAtual(),
+          linkDoacao: normalizarLink(linkDoacao),
+          apadrinhamento: apadrinhamento.trim(),
+          cmdca: cmdca.trim(),
           endereco: montarEndereco(enderecoAtual()),
           enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
@@ -428,6 +473,10 @@ export default function RegisterShelterScreen(props) {
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
           chavePix: chavePix.trim(),
+          banco: bancoAtual(),
+          linkDoacao: normalizarLink(linkDoacao),
+          apadrinhamento: apadrinhamento.trim(),
+          cmdca: cmdca.trim(),
           endereco: montarEndereco(enderecoAtual()),
           enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
@@ -486,6 +535,8 @@ export default function RegisterShelterScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={() => props.navigation.goBack()}
           >
@@ -630,6 +681,122 @@ export default function RegisterShelterScreen(props) {
           </Text>
         ) : null}
 
+        <Text style={styles.rotulo}>Dados para transferência</Text>
+
+        <Text style={styles.ajuda}>
+          Quase toda instituição publica a conta ao lado do Pix. Quem doa
+          de outro banco, ou prefere depositar, usa estes dados.
+        </Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Banco"
+          placeholderTextColor="#9A8F7E"
+          value={bancoNome}
+          onChangeText={setBancoNome}
+          maxLength={40}
+        />
+
+        <View style={styles.linha}>
+          <View style={styles.colunaMenor}>
+            <Text style={styles.rotulo}>Agência</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="0000"
+              placeholderTextColor="#9A8F7E"
+              value={agencia}
+              onChangeText={setAgencia}
+              maxLength={10}
+            />
+          </View>
+
+          <View style={styles.colunaMaior}>
+            <Text style={styles.rotulo}>Conta</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="00000-0"
+              placeholderTextColor="#9A8F7E"
+              value={contaBanco}
+              onChangeText={setContaBanco}
+              maxLength={20}
+            />
+          </View>
+        </View>
+
+        <Text style={styles.rotulo}>Favorecido</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Nome que aparece na conta"
+          placeholderTextColor="#9A8F7E"
+          value={titular}
+          onChangeText={setTitular}
+          maxLength={60}
+        />
+
+        <Text style={styles.rotulo}>CNPJ da instituição</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="00.000.000/0000-00"
+          placeholderTextColor="#9A8F7E"
+          value={cnpjBanco}
+          onChangeText={setCnpjBanco}
+          maxLength={18}
+        />
+
+        <Text style={styles.rotulo}>Página de doação (opcional)</Text>
+
+        <Text style={styles.ajuda}>
+          Cartão, boleto e doação mensal precisam de uma instituição de
+          pagamento por trás — o aplicativo não emite nenhum dos três. Se o
+          abrigo já tem uma página que faz isso, cole o endereço aqui e o
+          aplicativo leva quem quer doar até ela.
+        </Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="doare.org/seu-abrigo"
+          placeholderTextColor="#9A8F7E"
+          value={linkDoacao}
+          onChangeText={setLinkDoacao}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          maxLength={120}
+        />
+
+        <Text style={styles.rotulo}>Apadrinhamento (opcional)</Text>
+
+        <Text style={styles.ajuda}>
+          Endereço da página ou o contato de quem explica o programa.
+        </Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Site ou telefone do apadrinhamento"
+          placeholderTextColor="#9A8F7E"
+          value={apadrinhamento}
+          onChangeText={setApadrinhamento}
+          autoCapitalize="none"
+          maxLength={80}
+        />
+
+        <Text style={styles.rotulo}>Registro no CMDCA (opcional)</Text>
+
+        <Text style={styles.ajuda}>
+          Com o registro no conselho municipal, quem doa pode destinar
+          parte do imposto de renda ao fundo da infância em nome do abrigo
+          — sem custo nenhum para quem doa. Informe o número do registro.
+        </Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Número do registro no conselho"
+          placeholderTextColor="#9A8F7E"
+          value={cmdca}
+          onChangeText={setCmdca}
+          maxLength={40}
+        />
+
         <Text style={styles.titulo}>Endereço</Text>
 
         <Text style={styles.ajuda}>
@@ -651,6 +818,8 @@ export default function RegisterShelterScreen(props) {
           />
 
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Buscar o endereço pelo CEP"
             style={({ pressed }) => [styles.botaoBuscar, pressed && styles.pressionado]}
             onPress={procurarPeloCep}
             disabled={buscandoCep}

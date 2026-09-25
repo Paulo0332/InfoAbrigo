@@ -250,7 +250,9 @@ export default function ScheduleScreen() {
   function renderActivityItem({ item }) {
     return (
       <View style={styles.activityCard}>
-        <Pressable onPress={() => setFotoAmpliada(item.uri)}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Ver a foto inteira" onPress={() => setFotoAmpliada(item.uri)}>
           <Image source={{ uri: item.uri }} style={styles.activityImage} />
 
           <View style={styles.lupa}>
@@ -262,11 +264,15 @@ export default function ScheduleScreen() {
           <View style={styles.activityHeader}>
             <Text style={styles.activityTitle} numberOfLines={1}>{item.title}</Text>
 
-            <Pressable onPress={() => editarAtividade(item)} style={styles.deleteButton}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Editar o registro" onPress={() => editarAtividade(item)} style={styles.deleteButton}>
               <Ionicons name="create-outline" size={18} color={colors.primary} />
             </Pressable>
 
-            <Pressable onPress={() => deleteActivity(item.id)} style={styles.deleteButton}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Excluir o registro" onPress={() => deleteActivity(item.id)} style={styles.deleteButton}>
               <Ionicons name="trash-outline" size={18} color="#FF5252" />
             </Pressable>
           </View>
@@ -316,7 +322,9 @@ export default function ScheduleScreen() {
         />
 
         <View style={styles.fabContainer}>
-          <Pressable style={styles.fab} onPress={openCamera}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Registrar uma atividade" style={styles.fab} onPress={openCamera}>
             <LinearGradient
               colors={[colors.primary, colors.primaryGradient]}
               style={styles.fabGradient}
@@ -342,7 +350,9 @@ export default function ScheduleScreen() {
               />
               <View style={styles.cameraOverlay}>
                 <View style={[styles.cameraHeader, { paddingTop: areaSegura.top + 20 }]}>
-                  <Pressable onPress={closeModal} style={styles.glassButton}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Fechar a câmera" onPress={closeModal} style={styles.glassButton}>
                     <Ionicons name="close" size={28} color="#FFF" />
                   </Pressable>
                 </View>

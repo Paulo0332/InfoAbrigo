@@ -6,16 +6,23 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   ITEM,
   carregarDoacoes,
+  confirmarPagamento,
+  desfazerPagamento,
+  doacoesDaConta,
+  estaPendente,
   formatarReais,
   tipoDaDoacao,
   totalDeItens,
   totalEmDinheiro,
+  totalPendente,
 } from '../services/donations';
+import { carregarConta } from '../services/auth';
 import { colors } from '../theme/colors';
 
 export default function HistoryScreen(props) {
 
   const [doacoes, setDoacoes] = useState([]);
+  const [conta, setConta] = useState(null);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
@@ -30,9 +37,14 @@ export default function HistoryScreen(props) {
 
   async function buscarDoacoes() {
     try {
+      const contaSalva = await carregarConta();
       const lista = await carregarDoacoes();
 
-      setDoacoes(lista);
+      setConta(contaSalva);
+
+      // O histórico é de quem doou, não do aparelho. Sem isto o gestor
+      // entraria e veria as doações de quem usou o celular antes dele.
+      setDoacoes(doacoesDaConta(lista, contaSalva));
     } catch (error) {
       Alert.alert(
         'Erro',
@@ -53,6 +65,52 @@ export default function HistoryScreen(props) {
     return totalDeItens(doacoes);
   }
 
+  function pendentes() {
+    return totalPendente(doacoes);
+  }
+
+  // Quem sabe se o dinheiro saiu é quem pagou: não há servidor nem aviso
+  // do banco chegando aqui. Marcar por aqui é a saída de quem fechou a
+  // tela do pagamento antes de confirmar.
+  async function marcarComoPaga(doacao) {
+    try {
+      const nova = await confirmarPagamento(doacao.id);
+
+      setDoacoes(doacoesDaConta(nova, conta));
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível registrar o pagamento.');
+    }
+  }
+
+  // Marcar por engano é comum, e desfazer precisa ser tão fácil quanto
+  // marcar. Sem isto a anotação errada ficava para sempre.
+  function confirmarDesfazer(doacao) {
+    Alert.alert(
+      'Desmarcar o pagamento',
+      'A doação volta a aparecer como aguardando, e sai da soma do total.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Desmarcar',
+          onPress: () => desmarcar(doacao),
+        },
+      ]
+    );
+  }
+
+  async function desmarcar(doacao) {
+    try {
+      const nova = await desfazerPagamento(doacao.id);
+
+      setDoacoes(doacoesDaConta(nova, conta));
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível desmarcar.');
+    }
+  }
+
   // A data é gravada em ISO, que é bom para ordenar e ruim para ler. Aqui
   // ela vira o formato brasileiro, com a hora.
   function formatarData(iso) {
@@ -69,14 +127,15 @@ export default function HistoryScreen(props) {
   // valor, o outro mostra o que foi prometido levar.
   function renderizarDoacao({ item }) {
     const ehItem = tipoDaDoacao(item) === ITEM;
+    const aguardando = estaPendente(item);
 
     return (
       <View style={styles.item}>
         <View style={styles.itemIcone}>
           <Ionicons
-            name={ehItem ? 'cube' : 'heart'}
+            name={aguardando ? 'time-outline' : ehItem ? 'cube' : 'heart'}
             size={20}
-            color={ehItem ? colors.primary : colors.supportGreen}
+            color={aguardando ? colors.primary : ehItem ? colors.primary : colors.supportGreen}
           />
         </View>
 
@@ -87,6 +146,46 @@ export default function HistoryScreen(props) {
 
           <Text style={styles.itemAbrigo}>{item.abrigo}</Text>
           <Text style={styles.itemData}>{formatarData(item.data)}</Text>
+
+          {aguardando && !ehItem ? (
+            <Pressable
+              style={({ pressed }) => [styles.pagar, pressed && styles.pressionado]}
+              onPress={() => marcarComoPaga(item)}
+            >
+              <Ionicons name="checkmark-circle-outline" size={15} color={colors.supportGreen} />
+              <Text style={styles.pagarTexto}>Marcar como paga</Text>
+            </Pressable>
+          ) : null}
+
+          {/* "Você marcou", e não "confirmada": o aplicativo não confere
+              pagamento nenhum, e escrever confirmada daria a entender que
+              alguém conferiu. */}
+          {!aguardando && !ehItem && item.pagaEm ? (
+            <Pressable
+              style={({ pressed }) => [styles.marcada, pressed && styles.pressionado]}
+              onPress={() => confirmarDesfazer(item)}
+            >
+              <Text style={styles.marcadaTexto}>
+                Você marcou como paga em {formatarData(item.pagaEm)}
+              </Text>
+
+              <Text style={styles.desmarcar}>Desmarcar</Text>
+            </Pressable>
+          ) : null}
+
+          {aguardando && ehItem ? (
+            <Text style={styles.aguardando}>Combinado, aguardando a entrega</Text>
+          ) : null}
+
+          {/* Quem confirma que o item chegou é o abrigo, marcando a
+              necessidade como atendida. É o fim do ciclo que começou no
+              "vou doar". */}
+          {!aguardando && ehItem ? (
+            <Text style={styles.entregue}>
+              Entregue
+              {item.recebidaEm ? ' em ' + formatarData(item.recebidaEm) : ''}
+            </Text>
+          ) : null}
         </View>
       </View>
     );
@@ -103,6 +202,8 @@ export default function HistoryScreen(props) {
       >
         <View style={styles.headerTopo}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
             style={({ pressed }) => [styles.voltar, pressed && styles.pressionado]}
             onPress={() => props.navigation.goBack()}
           >
@@ -116,7 +217,7 @@ export default function HistoryScreen(props) {
 
         {doacoes.length > 0 && (
           <View style={styles.resumo}>
-            <Text style={styles.resumoRotulo}>Total doado em dinheiro</Text>
+            <Text style={styles.resumoRotulo}>Total já pago</Text>
             <Text style={styles.resumoValor}>R$ {formatarReais(total())}</Text>
 
             <Text style={styles.resumoRotulo}>
@@ -127,6 +228,14 @@ export default function HistoryScreen(props) {
                 ? ', sendo ' + (itens() === 1 ? '1 item' : itens() + ' itens')
                 : ''}
             </Text>
+
+            {pendentes() > 0 && (
+              <Text style={styles.resumoPendente}>
+                {pendentes() === 1
+                  ? '1 aguardando pagamento ou entrega'
+                  : pendentes() + ' aguardando pagamento ou entrega'}
+              </Text>
+            )}
           </View>
         )}
       </LinearGradient>
@@ -142,6 +251,16 @@ export default function HistoryScreen(props) {
             keyExtractor={(item) => item.id}
             renderItem={renderizarDoacao}
             showsVerticalScrollIndicator={false}
+            ListFooterComponent={
+              doacoes.length > 0 ? (
+                <Text style={styles.rodape}>
+                  Este histórico é a sua anotação neste aparelho. O
+                  aplicativo não confere pagamento e não emite recibo —
+                  quem emite recibo, inclusive para deduzir no imposto, é a
+                  própria instituição.
+                </Text>
+              ) : null
+            }
             contentContainerStyle={[
               styles.lista,
               doacoes.length === 0 && styles.listaVazia,
@@ -217,6 +336,75 @@ const styles = StyleSheet.create({
   resumoRotulo: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.85)',
+  },
+
+  resumoPendente: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: 'bold',
+    marginTop: 6,
+  },
+
+  pagar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.supportGreen,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+  },
+
+  pagarTexto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.supportGreen,
+    marginLeft: 5,
+  },
+
+  rodape: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 18,
+    paddingHorizontal: 8,
+  },
+
+  marcada: {
+    marginTop: 6,
+  },
+
+  marcadaTexto: {
+    fontSize: 12,
+    color: '#9A8F7E',
+  },
+
+  desmarcar: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginTop: 2,
+  },
+
+  pressionado: {
+    opacity: 0.6,
+  },
+
+  entregue: {
+    fontSize: 12,
+    color: colors.supportGreen,
+    fontWeight: 'bold',
+    marginTop: 6,
+  },
+
+  aguardando: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: 'bold',
+    marginTop: 6,
   },
 
   resumoValor: {
