@@ -14,7 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { carregarConta } from '../services/auth';
 import { loadNeeds } from '../services/storage';
 import { carregarAtividades } from '../services/activities';
-import { carregarDoacoes } from '../services/donations';
+import {
+  ITEM,
+  carregarDoacoes,
+  formatarReais,
+  tipoDaDoacao,
+  totalEmDinheiro,
+} from '../services/donations';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
 
@@ -82,8 +88,10 @@ export default function HomeScreen(props) {
     return nome.trim().split(' ')[0];
   }
 
+  // Só o dinheiro entra na soma: item doado não tem valor em reais, e
+  // somar os dois daria um número que não quer dizer nada.
   function totalDoado() {
-    return doacoes.reduce((soma, doacao) => soma + doacao.valor, 0);
+    return totalEmDinheiro(doacoes);
   }
 
   // Os avisos não são inventados: cada um é uma leitura do que está
@@ -116,9 +124,11 @@ export default function HomeScreen(props) {
     if (doacoes.length > 0) {
       avisos.push({
         id: 'd' + doacoes[0].id,
-        icone: 'heart',
-        cor: colors.supportGreen,
-        titulo: 'Você doou R$ ' + doacoes[0].valor + ',00',
+        icone: tipoDaDoacao(doacoes[0]) === ITEM ? 'cube' : 'heart',
+        cor: tipoDaDoacao(doacoes[0]) === ITEM ? colors.primary : colors.supportGreen,
+        titulo: tipoDaDoacao(doacoes[0]) === ITEM
+          ? 'Você vai levar ' + doacoes[0].item
+          : 'Você doou R$ ' + formatarReais(doacoes[0].valor),
         texto: 'Para o ' + doacoes[0].abrigo,
         destino: 'Doações',
       });
@@ -223,7 +233,7 @@ export default function HomeScreen(props) {
               style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('History')}
             >
-              <Text style={styles.statValue}>R$ {totalDoado()}</Text>
+              <Text style={styles.statValue}>R$ {formatarReais(totalDoado())}</Text>
               <Text style={styles.statLabel}>doado</Text>
             </Pressable>
           </View>

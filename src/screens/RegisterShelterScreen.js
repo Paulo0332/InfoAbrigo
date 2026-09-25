@@ -17,18 +17,36 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { carregarConta } from '../services/auth';
 import {
+  celularValido,
+  contatosDoAbrigo,
+  emailValido,
+  fixoValido,
+  formatarInstagram,
+  formatarTelefone,
+  resumirContatos,
+} from '../services/contato';
+import {
   buscarCep,
   buscarCoordenadas,
   cepValido,
   formatarCep,
   montarEndereco,
 } from '../services/endereco';
+import { chaveValida, nomeDoTipo, tipoDaChave } from '../services/pix';
 import {
   apagarAbrigo,
   atualizarAbrigo,
   cadastrarAbrigo,
 } from '../services/shelters';
 import { colors } from '../theme/colors';
+
+// De onde veio o ponto marcado no mapa. A pessoa precisa saber: o ponto
+// do CEP costuma cair no meio da via, e às vezes no centro da cidade.
+const TEXTO_DA_ORIGEM = {
+  endereco: 'Ponto do endereço digitado.',
+  cep: 'Ponto aproximado, vindo do CEP. Confira se caiu no lugar certo.',
+  gps: 'Ponto do aparelho, onde você está agora.',
+};
 
 export default function RegisterShelterScreen(props) {
 
@@ -41,8 +59,18 @@ export default function RegisterShelterScreen(props) {
   const [criancas, setCriancas] = useState(
     abrigoEditado ? String(abrigoEditado.criancas) : ''
   );
-  const [contato, setContato] = useState(
-    abrigoEditado ? abrigoEditado.contato : ''
+  // Um contato só não dava conta: quem doa um móvel liga, quem pergunta
+  // do horário manda mensagem, a empresa escreve e-mail e quem quer
+  // conhecer o trabalho procura o Instagram. O contatosDoAbrigo ainda lê
+  // os abrigos antigos, que guardavam tudo num campo de texto livre.
+  const contatos = contatosDoAbrigo(abrigoEditado);
+
+  const [celular, setCelular] = useState(contatos.celular);
+  const [fixo, setFixo] = useState(contatos.fixo);
+  const [email, setEmail] = useState(contatos.email);
+  const [instagram, setInstagram] = useState(contatos.instagram);
+  const [chavePix, setChavePix] = useState(
+    abrigoEditado ? abrigoEditado.chavePix || '' : ''
   );
   const [localizacao, setLocalizacao] = useState(
     abrigoEditado
@@ -66,6 +94,7 @@ export default function RegisterShelterScreen(props) {
   const [referencia, setReferencia] = useState(detalhes.referencia || '');
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [localizando, setLocalizando] = useState(false);
+  const [origemPonto, setOrigemPonto] = useState(abrigoEditado ? 'endereco' : null);
 
   // A localização do abrigo é a do aparelho no momento do cadastro. É o
   // mesmo par de chamadas do mapa: pede a permissão, depois a posição.
@@ -87,6 +116,7 @@ export default function RegisterShelterScreen(props) {
       const posicao = await Location.getCurrentPositionAsync({});
 
       setLocalizacao(posicao.coords);
+      setOrigemPonto('gps');
     } catch (error) {
       console.log('Erro ao obter a localização:', error);
 
@@ -101,6 +131,26 @@ export default function RegisterShelterScreen(props) {
 
   function digitarCep(texto) {
     setCep(formatarCep(texto));
+  }
+
+  // A máscara roda a cada tecla e corta no décimo primeiro dígito, que é
+  // o tamanho do maior telefone brasileiro. Antes dava para digitar um
+  // número de quinze dígitos e salvar assim.
+  function digitarCelular(texto) {
+    setCelular(formatarTelefone(texto));
+  }
+
+  function digitarFixo(texto) {
+    setFixo(formatarTelefone(texto));
+  }
+
+  function contatosAtuais() {
+    return {
+      celular: celular.trim(),
+      fixo: fixo.trim(),
+      email: email.trim(),
+      instagram: formatarInstagram(instagram),
+    };
   }
 
   function enderecoAtual() {
@@ -151,10 +201,34 @@ export default function RegisterShelterScreen(props) {
       setCidade(dados.cidade);
       setUf(dados.uf);
 
+      // A coordenada que vem junto com o CEP é grosseira: às vezes ela
+      // aponta para o meio da via, às vezes para o centro da cidade
+      // inteira. Tendo o nome da rua em mãos, vale perguntar ao
+      // geocodificador, que responde a via certa — e só aceitamos a
+      // resposta quando o nome dela bate com o que o CEP trouxe.
+      const refinado = await buscarCoordenadas({
+        logradouro: dados.logradouro,
+        numero: numero.trim(),
+        bairro: dados.bairro,
+        cidade: dados.cidade,
+        uf: dados.uf,
+      });
+
+      if (refinado.situacao === 'encontrado' && refinado.confere) {
+        setLocalizacao({
+          latitude: refinado.latitude,
+          longitude: refinado.longitude,
+        });
+
+        setOrigemPonto('endereco');
+
+        return;
+      }
+
       if (dados.situacao === 'sem-coordenada') {
         Alert.alert(
           'Endereço preenchido',
-          'Este CEP não tem coordenada cadastrada. Complete o endereço e toque em "Localizar no mapa".'
+          'Este CEP não tem ponto no mapa. Complete o número e toque em "Localizar pelo endereço".'
         );
 
         return;
@@ -164,6 +238,8 @@ export default function RegisterShelterScreen(props) {
         latitude: dados.latitude,
         longitude: dados.longitude,
       });
+
+      setOrigemPonto('cep');
     } finally {
       setBuscandoCep(false);
     }
@@ -189,12 +265,7 @@ export default function RegisterShelterScreen(props) {
       const ponto = await buscarCoordenadas(dados);
 
       if (ponto.situacao === 'encontrado') {
-        setLocalizacao({
-          latitude: ponto.latitude,
-          longitude: ponto.longitude,
-        });
-
-        Alert.alert('Pronto', 'Endereço localizado no mapa.');
+        confirmarPonto(ponto);
 
         return;
       }
@@ -202,7 +273,7 @@ export default function RegisterShelterScreen(props) {
       if (ponto.situacao === 'nao-encontrado') {
         Alert.alert(
           'Endereço não encontrado',
-          'Confira a rua e a cidade. Se o endereço for novo, use a localização atual estando no abrigo.'
+          'Confira a rua, o número e a cidade. Se o endereço for novo demais para o mapa, use a localização atual estando no abrigo.'
         );
 
         return;
@@ -214,6 +285,58 @@ export default function RegisterShelterScreen(props) {
       );
     } finally {
       setLocalizando(false);
+    }
+  }
+
+  // O geocodificador responde o endereço mais parecido que encontrar, e
+  // parecido não é igual: pedindo "Rua das Flores, Curitiba" ele devolve
+  // "Rua XV de Novembro", que é a mesma via com o nome oficial. Só que
+  // ele responde do mesmo jeito quando a rua não existe na cidade, e aí
+  // o abrigo ia parar no lugar errado sem ninguém perceber. Por isso o
+  // ponto só é marcado depois de a pessoa ler o que foi achado.
+  function confirmarPonto(ponto) {
+    const titulo = ponto.confere
+      ? 'Confira o endereço'
+      : 'O mapa achou outra rua';
+
+    const mensagem = ponto.confere
+      ? 'O mapa entendeu assim:\n\n' + ponto.descricao
+      : 'A rua digitada não bate com a que o mapa encontrou:\n\n' +
+        ponto.descricao +
+        '\n\nIsso acontece quando a rua mudou de nome, mas também quando ela não existe nessa cidade.';
+
+    Alert.alert(titulo, mensagem, [
+      {
+        text: 'Corrigir',
+        style: 'cancel',
+      },
+      {
+        text: 'Marcar aqui',
+        onPress: () => aplicarPonto(ponto),
+      },
+    ]);
+  }
+
+  // O mapa costuma saber o bairro melhor do que quem digita de memória,
+  // mas quem manda é quem cadastra: só preenchemos o que ficou em branco.
+  function aplicarPonto(ponto) {
+    setLocalizacao({
+      latitude: ponto.latitude,
+      longitude: ponto.longitude,
+    });
+
+    setOrigemPonto('endereco');
+
+    if (!bairro && ponto.bairro) {
+      setBairro(ponto.bairro);
+    }
+
+    if (!cidade && ponto.cidade) {
+      setCidade(ponto.cidade);
+    }
+
+    if (!uf && ponto.uf) {
+      setUf(ponto.uf);
     }
   }
 
@@ -235,10 +358,43 @@ export default function RegisterShelterScreen(props) {
       return;
     }
 
+    if (celular.trim() && !celularValido(celular)) {
+      Alert.alert(
+        'Atenção',
+        'O celular precisa ter DDD e nove dígitos. Exemplo: (11) 98765-4321.'
+      );
+
+      return;
+    }
+
+    if (fixo.trim() && !fixoValido(fixo)) {
+      Alert.alert(
+        'Atenção',
+        'O telefone fixo precisa ter DDD e oito dígitos. Exemplo: (11) 3333-4444.'
+      );
+
+      return;
+    }
+
+    if (email.trim() && !emailValido(email)) {
+      Alert.alert('Atenção', 'Confira o e-mail digitado.');
+
+      return;
+    }
+
+    if (chavePix.trim() && !chaveValida(chavePix)) {
+      Alert.alert(
+        'Chave Pix inválida',
+        'A chave precisa ser um CPF, um CNPJ, um e-mail, um telefone com +55 ou a chave aleatória do banco.'
+      );
+
+      return;
+    }
+
     if (!localizacao) {
       Alert.alert(
         'Atenção',
-        'Toque em "Usar a localização atual" para marcar o abrigo no mapa.'
+        'Marque o abrigo no mapa pelo endereço ou pela localização atual.'
       );
 
       return;
@@ -252,7 +408,9 @@ export default function RegisterShelterScreen(props) {
           ...abrigoEditado,
           nome: nomeLimpo,
           criancas: quantidade,
-          contato: contato.trim(),
+          contatos: contatosAtuais(),
+          contato: resumirContatos(contatosAtuais()),
+          chavePix: chavePix.trim(),
           endereco: montarEndereco(enderecoAtual()),
           enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
@@ -267,7 +425,9 @@ export default function RegisterShelterScreen(props) {
           id: Date.now().toString(),
           nome: nomeLimpo,
           criancas: quantidade,
-          contato: contato.trim(),
+          contatos: contatosAtuais(),
+          contato: resumirContatos(contatosAtuais()),
+          chavePix: chavePix.trim(),
           endereco: montarEndereco(enderecoAtual()),
           enderecoDados: enderecoAtual(),
           latitude: localizacao.latitude,
@@ -383,22 +543,101 @@ export default function RegisterShelterScreen(props) {
           maxLength={4}
         />
 
-        <Text style={styles.rotulo}>Contato (opcional)</Text>
+        <Text style={styles.titulo}>Contatos</Text>
+
+        <Text style={styles.ajuda}>
+          Quanto mais formas de falar com o abrigo, melhor. Preencha as que
+          existirem — nenhuma é obrigatória.
+        </Text>
+
+        <Text style={styles.rotulo}>Celular / WhatsApp</Text>
         <TextInput
           style={styles.input}
-          placeholder="Telefone ou e-mail para doações"
+          placeholder="(11) 98765-4321"
           placeholderTextColor="#9A8F7E"
-          value={contato}
-          onChangeText={setContato}
+          value={celular}
+          onChangeText={digitarCelular}
+          keyboardType="phone-pad"
+          maxLength={15}
+        />
+
+        <Text style={styles.rotulo}>Telefone fixo</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="(11) 3333-4444"
+          placeholderTextColor="#9A8F7E"
+          value={fixo}
+          onChangeText={digitarFixo}
+          keyboardType="phone-pad"
+          maxLength={15}
+        />
+
+        <Text style={styles.rotulo}>E-mail</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="contato@abrigo.org.br"
+          placeholderTextColor="#9A8F7E"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
           maxLength={60}
         />
 
-        <Text style={styles.rotulo}>Endereço</Text>
+        <Text style={styles.rotulo}>Instagram</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="@abrigoesperanca"
+          placeholderTextColor="#9A8F7E"
+          value={instagram}
+          onChangeText={setInstagram}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={40}
+        />
+
+        <Text style={styles.titulo}>Doações</Text>
+
+        <Text style={styles.ajuda}>
+          Com a chave Pix cadastrada, o aplicativo monta na tela de doação o
+          código que o banco de quem doa lê. O dinheiro vai direto para a
+          conta do abrigo — nada passa pelo InfoAbrigo.
+        </Text>
+
+        <Text style={styles.rotulo}>Chave Pix (opcional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="CNPJ, e-mail, telefone ou chave aleatória"
+          placeholderTextColor="#9A8F7E"
+          value={chavePix}
+          onChangeText={setChavePix}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={77}
+        />
+
+        {chavePix.trim() ? (
+          <Text
+            style={[
+              styles.retornoChave,
+              !chaveValida(chavePix) && styles.retornoRuim,
+            ]}
+          >
+            {chaveValida(chavePix)
+              ? 'Reconhecida como ' + nomeDoTipo(tipoDaChave(chavePix)) + '.'
+              : 'Ainda não parece uma chave válida.'}
+          </Text>
+        ) : null}
+
+        <Text style={styles.titulo}>Endereço</Text>
 
         <Text style={styles.ajuda}>
           Digite o CEP para preencher automaticamente. Todos os campos podem
           ser corrigidos depois.
         </Text>
+
+        <Text style={styles.rotulo}>CEP</Text>
 
         <View style={styles.linhaCep}>
           <TextInput
@@ -540,9 +779,17 @@ export default function RegisterShelterScreen(props) {
           <View style={styles.cartaoLocal}>
             <Ionicons name="checkmark-circle" size={20} color={colors.supportGreen} />
 
-            <Text style={styles.textoLocal}>
-              Marcado em {localizacao.latitude.toFixed(5)}, {localizacao.longitude.toFixed(5)}
-            </Text>
+            <View style={styles.blocoLocal}>
+              <Text style={styles.textoLocal}>
+                Marcado em {localizacao.latitude.toFixed(5)}, {localizacao.longitude.toFixed(5)}
+              </Text>
+
+              {origemPonto ? (
+                <Text style={styles.origemLocal}>
+                  {TEXTO_DA_ORIGEM[origemPonto]}
+                </Text>
+              ) : null}
+            </View>
           </View>
         )}
 
@@ -632,6 +879,24 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
+  retornoChave: {
+    fontSize: 12,
+    color: colors.supportGreen,
+    marginTop: 6,
+  },
+
+  retornoRuim: {
+    color: colors.supportPink,
+  },
+
+  titulo: {
+    fontSize: 17,
+    color: colors.textMain,
+    fontWeight: 'bold',
+    marginTop: 26,
+    marginBottom: 6,
+  },
+
   rotulo: {
     fontSize: 13,
     color: colors.textMain,
@@ -685,8 +950,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  // A folga entre as colunas fica na linha, e não na coluna: com a margem
+  // na coluna maior, a dupla Cidade/UF saía colada de um lado e afastada
+  // do outro, porque nessa linha a coluna maior vem primeiro.
   linha: {
     flexDirection: 'row',
+    gap: 10,
   },
 
   colunaMenor: {
@@ -695,7 +964,6 @@ const styles = StyleSheet.create({
 
   colunaMaior: {
     flex: 2,
-    marginLeft: 10,
   },
 
   botaoBuscar: {
@@ -715,6 +983,18 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
 
+  blocoLocal: {
+    flex: 1,
+    marginLeft: 8,
+  },
+
+  origemLocal: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+
   cartaoLocal: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -727,7 +1007,6 @@ const styles = StyleSheet.create({
   textoLocal: {
     fontSize: 14,
     color: colors.textMain,
-    marginLeft: 8,
   },
 
   botao: {

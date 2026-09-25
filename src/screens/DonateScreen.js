@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -14,29 +15,43 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import BiometricButton from '../components/BiometricButton';
+import PixQrCode from '../components/PixQrCode';
 import { carregarConta } from '../services/auth';
-import { registrarDoacao } from '../services/donations';
+import { DINHEIRO, formatarReais, registrarDoacao } from '../services/donations';
+import { montarCodigoPix } from '../services/pix';
+import { carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
-const VALORES = [20, 50, 100];
+// Atalhos de valor, em centavos. Continuam existindo porque a maioria doa
+// um valor redondo, mas agora são atalhos para o campo, e não a única
+// forma de escolher.
+const ATALHOS = [2000, 5000, 10000];
 
 export default function DonateScreen(props) {
 
-  // O abrigo vem por parâmetro quando a doação começa pelo mapa. Chegando
-  // pela ação rápida da Home não há abrigo escolhido, e a tela diz isso em
-  // vez de inventar um nome.
+  // O abrigo vem por parâmetro quando a doação começa pelo mapa ou pela
+  // lista. Chegando pela ação rápida da Home não há abrigo escolhido, e a
+  // tela diz isso em vez de inventar um nome.
   const parametros = props.route.params || {};
   const abrigo = parametros.abrigo || null;
 
-  const [valor, setValor] = useState(50);
+  // O valor mora em centavos, que é número inteiro: guardar reais em
+  // ponto flutuante faz 0,1 + 0,2 dar 0,30000000000000004, e isso
+  // apareceria no comprovante.
+  const [centavos, setCentavos] = useState(5000);
   const [confirmada, setConfirmada] = useState(false);
   const [temBiometria, setTemBiometria] = useState(true);
   const [conta, setConta] = useState(null);
   const [senha, setSenha] = useState('');
+  const [abrigoCompleto, setAbrigoCompleto] = useState(null);
+  const [codigoPix, setCodigoPix] = useState('');
+  const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
     buscarConta();
+    buscarAbrigo();
   }, []);
 
   // A conta é lida aqui porque, em aparelho sem biometria, a confirmação
@@ -47,73 +62,117 @@ export default function DonateScreen(props) {
 
       setConta(contaSalva);
     } catch (error) {
-      Alert.alert(
-        'Erro',
-        'Não foi possível ler a conta salva neste aparelho.'
-      );
+      Alert.alert('Erro', 'Não foi possível ler a conta salva neste aparelho.');
     }
+  }
+
+  // O cadastro inteiro do abrigo é lido para pegar a chave Pix e a cidade,
+  // que entram no código de pagamento. Vem por id quando existe; pelo nome
+  // quando a doação começou por uma tela que só sabia o nome.
+  async function buscarAbrigo() {
+    if (!abrigo) {
+      return;
+    }
+
+    try {
+      const lista = await carregarAbrigos();
+
+      const achado = lista.find((item) => {
+        return parametros.abrigoId
+          ? item.id === parametros.abrigoId
+          : item.nome === abrigo;
+      });
+
+      setAbrigoCompleto(achado || null);
+    } catch (error) {
+      console.log('Erro ao ler o abrigo da doação:', error);
+    }
+  }
+
+  // O campo de valor recebe só dígitos e vai preenchendo da direita para a
+  // esquerda, como a máquina do cartão. Digitar 2550 mostra R$ 25,50.
+  function digitarValor(texto) {
+    const digitos = texto.replace(/[^0-9]/g, '').slice(0, 9);
+
+    setCentavos(Number(digitos || 0));
+  }
+
+  function emReais() {
+    return centavos / 100;
+  }
+
+  // Monta o código Pix do abrigo com o valor já preenchido. Sem chave
+  // cadastrada devolve vazio, e a tela de sucesso explica o que falta.
+  function gerarCodigoPix() {
+    if (abrigoCompleto == null || !abrigoCompleto.chavePix) {
+      return '';
+    }
+
+    const endereco = abrigoCompleto.enderecoDados || {};
+
+    return montarCodigoPix({
+      chave: abrigoCompleto.chavePix,
+      nome: abrigoCompleto.nome,
+      cidade: endereco.cidade || '',
+      valor: emReais(),
+      identificador: 'INFOABRIGO',
+    });
   }
 
   // O BiometricButton avisa por aqui que a identidade foi confirmada.
   // Só depois disso a doação é gravada no histórico e a tela troca para
-  // o selo de confirmada.
+  // o código de pagamento.
   async function confirmarDoacao() {
     // Sem abrigo escolhido não há para quem doar, e gravar abrigo null
     // faria a tela de sucesso dizer "para o null".
     if (!abrigo) {
-      Alert.alert(
-        'Atenção',
-        'Escolha um abrigo no mapa antes de confirmar a doação.'
-      );
+      Alert.alert('Atenção', 'Escolha um abrigo no mapa antes de confirmar a doação.');
+
+      return;
+    }
+
+    if (centavos <= 0) {
+      Alert.alert('Atenção', 'Digite quanto você quer doar.');
 
       return;
     }
 
     const doacao = {
       id: Date.now().toString(),
-      valor: valor,
+      tipo: DINHEIRO,
+      valor: emReais(),
       abrigo: abrigo,
+      abrigoId: abrigoCompleto ? abrigoCompleto.id : null,
       data: new Date().toISOString(),
     };
 
     try {
       await registrarDoacao(doacao);
     } catch (error) {
-      Alert.alert(
-        'Erro',
-        'Não foi possível registrar a doação.'
-      );
+      Alert.alert('Erro', 'Não foi possível registrar a doação.');
 
       return;
     }
 
+    setCodigoPix(gerarCodigoPix());
     setConfirmada(true);
   }
 
   function confirmarComSenha() {
     if (!conta) {
-      Alert.alert(
-        'Erro',
-        'Não foi possível ler a sua conta.'
-      );
+      Alert.alert('Erro', 'Não foi possível ler a sua conta.');
 
       return;
     }
 
     if (!senha) {
-      Alert.alert(
-        'Atenção',
-        'Digite a sua senha para confirmar.'
-      );
+      Alert.alert('Atenção', 'Digite a sua senha para confirmar.');
 
       return;
     }
 
     if (senha !== conta.senha) {
-      Alert.alert(
-        'Não confirmado',
-        'Senha incorreta.'
-      );
+      Alert.alert('Não confirmado', 'Senha incorreta.');
 
       return;
     }
@@ -121,6 +180,30 @@ export default function DonateScreen(props) {
     Keyboard.dismiss();
 
     confirmarDoacao();
+  }
+
+  async function copiarCodigo() {
+    try {
+      await Clipboard.setStringAsync(codigoPix);
+
+      setCopiado(true);
+    } catch (error) {
+      console.log('Erro ao copiar o código:', error);
+
+      Alert.alert('Erro', 'Não foi possível copiar o código.');
+    }
+  }
+
+  async function enviarCodigo() {
+    try {
+      await Share.share({
+        message:
+          'Doação para o ' + abrigo + ' — R$ ' + formatarReais(emReais()) +
+          '\n\nCódigo Pix copia e cola:\n' + codigoPix,
+      });
+    } catch (error) {
+      console.log('Erro ao enviar o código:', error);
+    }
   }
 
   function voltar() {
@@ -144,32 +227,102 @@ export default function DonateScreen(props) {
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </Pressable>
 
-          <Text style={styles.headerTitulo}>Fazer uma doação</Text>
+          <Text style={styles.headerTitulo}>
+            {confirmada ? 'Pagamento' : 'Fazer uma doação'}
+          </Text>
 
           <View style={styles.voltar} />
         </View>
       </LinearGradient>
 
       {confirmada ? (
-        <View style={styles.sucesso}>
+        <ScrollView
+          style={styles.corpo}
+          contentContainerStyle={styles.sucessoConteudo}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.selo}>
-            <Ionicons name="checkmark" size={44} color="#FFFFFF" />
+            <Ionicons name="checkmark" size={40} color="#FFFFFF" />
           </View>
 
-          <Text style={styles.tituloSucesso}>Doação confirmada</Text>
+          <Text style={styles.tituloSucesso}>Doação registrada</Text>
 
           <Text style={styles.textoSucesso}>
-            R$ {valor},00 para o {abrigo}.{'\n'}
-            Obrigado por ajudar!
+            R$ {formatarReais(emReais())} para o {abrigo}.
           </Text>
+
+          {codigoPix ? (
+            <View style={styles.pagamento}>
+              <Text style={styles.secaoPagamento}>
+                Agora é só pagar no seu banco
+              </Text>
+
+              <Text style={styles.explicacaoPagamento}>
+                Abra o aplicativo do seu banco, escolha Pix e leia o código
+                abaixo — ou copie e cole. O valor já vai preenchido.
+              </Text>
+
+              <PixQrCode codigo={codigoPix} />
+
+              <Text style={styles.rotuloCodigo}>Código copia e cola</Text>
+
+              <Text style={styles.codigo} selectable numberOfLines={3}>
+                {codigoPix}
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
+                onPress={copiarCodigo}
+              >
+                <Ionicons
+                  name={copiado ? 'checkmark' : 'copy-outline'}
+                  size={19}
+                  color="#FFFFFF"
+                />
+
+                <Text style={styles.textoBotaoCopiar}>
+                  {copiado ? 'Código copiado' : 'Copiar código Pix'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoEnviar, pressed && styles.pressionado]}
+                onPress={enviarCodigo}
+              >
+                <Ionicons name="share-social-outline" size={18} color={colors.primary} />
+                <Text style={styles.textoBotaoEnviar}>Enviar para alguém</Text>
+              </Pressable>
+
+              {/* O aplicativo monta o código, quem paga é o banco. E a
+                  chave é a que o abrigo cadastrou: sem servidor não há
+                  como conferir que ela pertence mesmo à instituição, e
+                  esconder isso seria pior do que dizer. */}
+              <Text style={styles.avisoPagamento}>
+                O código é montado neste aparelho e o pagamento acontece no
+                aplicativo do seu banco. O InfoAbrigo não recebe nem
+                processa dinheiro. A chave é a que o abrigo cadastrou —
+                confira o nome que aparecer no seu banco antes de pagar.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.semChave}>
+              <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+
+              <Text style={styles.semChaveTexto}>
+                Este abrigo ainda não cadastrou uma chave Pix. A doação ficou
+                registrada no seu histórico; combine a entrega pelo contato
+                do abrigo, na aba do mapa.
+              </Text>
+            </View>
+          )}
 
           <Pressable
             style={({ pressed }) => [styles.botaoVoltar, pressed && styles.pressionado]}
             onPress={voltar}
           >
-            <Text style={styles.textoBotaoVoltar}>Voltar para as doações</Text>
+            <Text style={styles.textoBotaoVoltar}>Concluir</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       ) : (
         // Sem isto o teclado sobe por cima do campo de senha. No iOS o
         // KeyboardAvoidingView empurra o conteúdo; no Android o sistema
@@ -181,6 +334,7 @@ export default function DonateScreen(props) {
         <ScrollView
           style={styles.corpo}
           contentContainerStyle={styles.corpoConteudo}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
 
@@ -188,6 +342,13 @@ export default function DonateScreen(props) {
             <View style={styles.cartao}>
               <Text style={styles.rotulo}>Abrigo</Text>
               <Text style={styles.valorRotulo}>{abrigo}</Text>
+
+              {abrigoCompleto && abrigoCompleto.chavePix ? (
+                <View style={styles.seloPix}>
+                  <Ionicons name="flash" size={13} color={colors.supportGreen} />
+                  <Text style={styles.seloPixTexto}>Aceita Pix</Text>
+                </View>
+              ) : null}
             </View>
           ) : (
             <Pressable
@@ -202,41 +363,50 @@ export default function DonateScreen(props) {
             </Pressable>
           )}
 
-          <Text style={styles.secao}>Escolha o valor</Text>
+          <Text style={styles.secao}>Quanto você quer doar</Text>
+
+          <View style={styles.campoValor}>
+            <Text style={styles.cifrao}>R$</Text>
+
+            <TextInput
+              style={styles.entradaValor}
+              value={formatarReais(emReais())}
+              onChangeText={digitarValor}
+              keyboardType="number-pad"
+              selectTextOnFocus
+            />
+          </View>
 
           <View style={styles.valores}>
-            {VALORES.map((opcao) => (
+            {ATALHOS.map((opcao) => (
               <Pressable
                 key={opcao}
-                style={[styles.opcao, valor === opcao && styles.opcaoAtiva]}
-                onPress={() => setValor(opcao)}
+                style={[styles.opcao, centavos === opcao && styles.opcaoAtiva]}
+                onPress={() => setCentavos(opcao)}
               >
                 <Text
                   style={[
                     styles.textoOpcao,
-                    valor === opcao && styles.textoOpcaoAtiva,
+                    centavos === opcao && styles.textoOpcaoAtiva,
                   ]}
                 >
-                  R$ {opcao}
+                  R$ {opcao / 100}
                 </Text>
               </Pressable>
             ))}
           </View>
 
-          <View style={styles.resumo}>
-            <Text style={styles.rotulo}>Você vai doar</Text>
-            <Text style={styles.total}>R$ {valor},00</Text>
-          </View>
-
           {/* A mensagem vai para a janela do sistema, então a pessoa lê o
               valor exato na hora de encostar o dedo. É o mesmo componente
               da tela de login, só com outro rótulo e outra mensagem. */}
-          <BiometricButton
-            rotulo="Confirmar com biometria"
-            mensagem={'Confirme a doação de R$ ' + valor + ',00'}
-            onSuccess={confirmarDoacao}
-            onVerificado={setTemBiometria}
-          />
+          <View style={styles.espaco}>
+            <BiometricButton
+              rotulo="Confirmar com biometria"
+              mensagem={'Confirme a doação de R$ ' + formatarReais(emReais())}
+              onSuccess={confirmarDoacao}
+              onVerificado={setTemBiometria}
+            />
+          </View>
 
           {/* Só aparece em aparelho sem biometria. A confirmação continua
               existindo, feita com a senha da conta: quem não tem sensor
@@ -269,7 +439,8 @@ export default function DonateScreen(props) {
           )}
 
           <Text style={styles.aviso}>
-            Demonstração acadêmica: nenhum pagamento é processado de verdade.
+            A confirmação serve para o código de pagamento não ser gerado sem
+            você querer. Quem cobra é o seu banco, no passo seguinte.
           </Text>
 
         </ScrollView>
@@ -346,12 +517,50 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
+  seloPix: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+
+  seloPixTexto: {
+    fontSize: 12,
+    color: colors.supportGreen,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+
   secao: {
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textMain,
     marginTop: 20,
     marginBottom: 10,
+  },
+
+  campoValor: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+
+  cifrao: {
+    fontSize: 20,
+    color: '#9A8F7E',
+    marginRight: 8,
+  },
+
+  entradaValor: {
+    flex: 1,
+    height: 64,
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: colors.textMain,
   },
 
   valores: {
@@ -384,17 +593,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  resumo: {
-    alignItems: 'center',
+  espaco: {
     marginTop: 24,
-    marginBottom: 20,
-  },
-
-  total: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: colors.textMain,
-    marginTop: 4,
   },
 
   rotuloSenha: {
@@ -439,28 +639,27 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
 
-  sucesso: {
-    flex: 1,
+  sucessoConteudo: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-    backgroundColor: colors.backgroundLight,
+    padding: 24,
+    paddingBottom: 60,
   },
 
   selo: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: colors.supportGreen,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 12,
   },
 
   tituloSucesso: {
     fontSize: 21,
     fontWeight: 'bold',
     color: colors.textMain,
-    marginTop: 16,
+    marginTop: 14,
   },
 
   textoSucesso: {
@@ -468,12 +667,115 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     textAlign: 'center',
     lineHeight: 22,
-    marginTop: 8,
+    marginTop: 6,
+  },
+
+  pagamento: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    marginTop: 26,
+  },
+
+  secaoPagamento: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  explicacaoPagamento: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 6,
+    marginBottom: 16,
+  },
+
+  rotuloCodigo: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    alignSelf: 'flex-start',
+    marginTop: 20,
+    marginBottom: 6,
+  },
+
+  codigo: {
+    alignSelf: 'stretch',
+    fontSize: 12,
+    color: colors.textMain,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 12,
+    lineHeight: 17,
+  },
+
+  botaoCopiar: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+
+  textoBotaoCopiar: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  botaoEnviar: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    marginTop: 10,
+  },
+
+  textoBotaoEnviar: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  avisoPagamento: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 16,
+  },
+
+  semChave: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 24,
+  },
+
+  semChaveTexto: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMain,
+    lineHeight: 19,
+    marginLeft: 10,
   },
 
   botaoVoltar: {
+    alignSelf: 'stretch',
     height: 52,
-    paddingHorizontal: 24,
     backgroundColor: colors.primary,
     borderRadius: 12,
     alignItems: 'center',

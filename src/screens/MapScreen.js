@@ -5,6 +5,7 @@ import {
   FlatList,
   Linking,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -18,6 +19,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { ehGestor } from '../data/perfis';
 import { carregarConta } from '../services/auth';
+import {
+  contatosDoAbrigo,
+  linkEmail,
+  linkInstagram,
+  linkTelefone,
+  linkWhatsapp,
+} from '../services/contato';
+import {
+  MODOS,
+  buscarRota,
+  formatarDistancia,
+  formatarDuracao,
+} from '../services/rota';
 import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { colors } from '../theme/colors';
 
@@ -26,6 +40,19 @@ const ZOOM = 14;
 
 // Cores dos pinos, aplicadas em ordem para os abrigos se distinguirem.
 const CORES = [colors.primary, colors.supportGreen, colors.supportBlue];
+
+// A rota não usa o laranja da marca, e isso é de propósito. O mapa base
+// desenha as avenidas em salmão, então uma linha laranja por cima some no
+// meio delas justamente na olhada rápida, que é quando ela mais precisa
+// ser achada. Comparando as duas sobre os mesmos blocos, o azul é a única
+// cor fria num mapa quente e o olho encontra na hora.
+//
+// O contorno branco por baixo é o que separa a linha da rua: sem ele a
+// rota encosta no traçado da via e as duas viram uma coisa só.
+const COR_ROTA = '#1A73E8';
+const COR_CONTORNO_ROTA = '#FFFFFF';
+const PESO_ROTA = 6;
+const PESO_CONTORNO_ROTA = 11;
 
 // Monta a página do mapa que roda dentro do WebView.
 //
@@ -185,6 +212,47 @@ function montarHtml(localizacao, abrigos) {
         })
       }).addTo(mapa);
 
+      var contornoRota = null;
+      var linhaRota = null;
+
+      // Chamadas de fora, pelo injectJavaScript. São duas linhas no mesmo
+      // caminho: a branca mais grossa por baixo, que abre espaço na rua, e
+      // a colorida por cima. O mapa se ajusta para mostrar o caminho
+      // inteiro, que é o que todo aplicativo de mapa faz.
+      function desenharRota(pontos) {
+        limparRota();
+
+        contornoRota = L.polyline(pontos, {
+          color: '${COR_CONTORNO_ROTA}',
+          weight: ${PESO_CONTORNO_ROTA},
+          opacity: 1,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(mapa);
+
+        linhaRota = L.polyline(pontos, {
+          color: '${COR_ROTA}',
+          weight: ${PESO_ROTA},
+          opacity: 1,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(mapa);
+
+        mapa.fitBounds(linhaRota.getBounds(), { padding: [40, 40] });
+      }
+
+      function limparRota() {
+        if (contornoRota) {
+          mapa.removeLayer(contornoRota);
+          contornoRota = null;
+        }
+
+        if (linhaRota) {
+          mapa.removeLayer(linhaRota);
+          linhaRota = null;
+        }
+      }
+
       ${marcadores}
     </script>
   </body>
@@ -201,6 +269,10 @@ export default function MapScreen(props) {
   const [conta, setConta] = useState(null);
   const [modoLista, setModoLista] = useState(false);
   const [carregandoMapa, setCarregandoMapa] = useState(true);
+  const [rota, setRota] = useState(null);
+  const [modoRota, setModoRota] = useState('auto');
+  const [buscandoRota, setBuscandoRota] = useState(false);
+  const [verPassos, setVerPassos] = useState(false);
 
   // A referência serve para mandar comandos para dentro da página, como
   // recentralizar o mapa num abrigo.
@@ -286,9 +358,84 @@ export default function MapScreen(props) {
     }
   }
 
-  // Abre o aplicativo de mapas do celular com a rota até o abrigo. Não
-  // precisa de chave: é um link que o sistema entrega a quem souber abrir.
-  async function tracarRota(abrigo) {
+  // Traça a rota dentro do aplicativo: pede o caminho ao serviço, desenha
+  // a linha por cima do mapa e guarda os passos para a pessoa ler. Antes
+  // daqui a única opção era sair do aplicativo.
+  async function tracarRota(abrigo, modo) {
+    if (!localizacao) {
+      Alert.alert(
+        'Sem a sua localização',
+        'O aplicativo precisa saber de onde você sai para traçar o caminho.'
+      );
+
+      return;
+    }
+
+    setBuscandoRota(true);
+    setModoRota(modo);
+
+    try {
+      const achada = await buscarRota(localizacao, abrigo, modo);
+
+      if (achada.situacao === 'sem-caminho') {
+        Alert.alert(
+          'Sem caminho',
+          'Não foi possível traçar um caminho até esse ponto. Confira se o abrigo está marcado no lugar certo.'
+        );
+
+        return;
+      }
+
+      if (achada.situacao !== 'encontrada') {
+        Alert.alert(
+          'Não deu para traçar agora',
+          'O serviço de rotas não respondeu. Você ainda pode abrir o mapa do celular.'
+        );
+
+        return;
+      }
+
+      setRota({ ...achada, abrigoId: abrigo.id, modo: modo });
+      setVerPassos(false);
+
+      desenharNoMapa(achada.linha);
+    } finally {
+      setBuscandoRota(false);
+    }
+  }
+
+  function desenharNoMapa(linha) {
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(
+        'desenharRota(' + JSON.stringify(linha) + '); true;'
+      );
+    }
+  }
+
+  function limparRota() {
+    setRota(null);
+    setVerPassos(false);
+
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript('limparRota(); true;');
+    }
+  }
+
+  // A página é montada de novo sempre que a lista de abrigos muda — a
+  // busca por nome, por exemplo, refaz o HTML. Sem redesenhar aqui, a
+  // rota sumiria do mapa sem ninguém ter pedido.
+  function aoTerminarDeCarregar() {
+    setCarregandoMapa(false);
+
+    if (rota) {
+      desenharNoMapa(rota.linha);
+    }
+  }
+
+  // Abre o aplicativo de mapas do celular. Fica como a segunda opção: a
+  // navegação com voz, que refaz o caminho quando a pessoa erra a
+  // esquina, é coisa que o aplicativo não faz e não promete.
+  async function abrirNoMapaDoCelular(abrigo) {
     const url =
       'https://www.google.com/maps/dir/?api=1&destination=' +
       abrigo.latitude + ',' + abrigo.longitude;
@@ -302,22 +449,74 @@ export default function MapScreen(props) {
     }
   }
 
-  // Só oferecemos ligar quando o contato tem cara de telefone.
-  function telefoneDoContato(contato) {
-    const digitos = (contato || '').replace(/[^0-9]/g, '');
+  // Os canais que o abrigo tem, na ordem em que as pessoas procuram. A
+  // lista sai vazia quando ninguém preencheu contato nenhum, e aí a
+  // linha inteira some do cartão.
+  function canais(abrigo) {
+    const contatos = contatosDoAbrigo(abrigo);
+    const lista = [];
 
-    return digitos.length >= 8 ? digitos : null;
+    if (contatos.celular) {
+      lista.push({
+        nome: 'whatsapp',
+        icone: 'logo-whatsapp',
+        rotulo: 'WhatsApp',
+        url: linkWhatsapp(
+          contatos.celular,
+          'Olá! Encontrei o ' + abrigo.nome + ' no InfoAbrigo e gostaria de ajudar.'
+        ),
+        aviso: 'Não foi possível abrir o WhatsApp.',
+      });
+    }
+
+    // O fixo é o número de ligar por natureza; o celular só entra aqui
+    // quando o abrigo não informou um fixo.
+    const paraLigar = contatos.fixo || contatos.celular;
+
+    if (paraLigar) {
+      lista.push({
+        nome: 'telefone',
+        icone: 'call',
+        rotulo: 'Ligar',
+        url: linkTelefone(paraLigar),
+        aviso: 'Não foi possível iniciar a chamada.',
+      });
+    }
+
+    if (contatos.email) {
+      lista.push({
+        nome: 'email',
+        icone: 'mail',
+        rotulo: 'E-mail',
+        url: linkEmail(contatos.email, 'Doação para o ' + abrigo.nome),
+        aviso: 'Não foi possível abrir o aplicativo de e-mail.',
+      });
+    }
+
+    if (contatos.instagram) {
+      lista.push({
+        nome: 'instagram',
+        icone: 'logo-instagram',
+        rotulo: 'Instagram',
+        url: linkInstagram(contatos.instagram),
+        aviso: 'Não foi possível abrir o Instagram.',
+      });
+    }
+
+    return lista;
   }
 
-  async function ligar(abrigo) {
-    const telefone = telefoneDoContato(abrigo.contato);
-
+  // Antes o cartão adivinhava o contato: se o texto tivesse oito dígitos
+  // virava telefone, e era só isso que dava para fazer. Agora o abrigo
+  // guarda cada canal no seu campo, e cada um vira um botão que abre o
+  // aplicativo certo do celular.
+  async function abrirCanal(url, aviso) {
     try {
-      await Linking.openURL('tel:' + telefone);
+      await Linking.openURL(url);
     } catch (error) {
-      console.log('Erro ao ligar:', error);
+      console.log('Erro ao abrir o contato:', error);
 
-      Alert.alert('Erro', 'Não foi possível iniciar a chamada.');
+      Alert.alert('Erro', aviso);
     }
   }
 
@@ -338,8 +537,47 @@ export default function MapScreen(props) {
   }
 
   function selecionar(abrigo) {
+    // A rota desenhada é a de outro abrigo: deixá-la na tela faria o
+    // cartão novo mostrar a distância de um caminho que não é o dele.
+    if (rota && rota.abrigoId !== abrigo.id) {
+      limparRota();
+    }
+
     setAbrigoSelecionado(abrigo);
     centralizarEm(abrigo);
+  }
+
+  // Fechar o cartão não apaga a rota. Quem fecha o cartão faz isso
+  // justamente para olhar o mapa sem ele em cima — apagar o caminho aí
+  // era o contrário do que a pessoa pediu. A rota só sai quando alguém
+  // toca no fechar do painel dela, ou quando outro abrigo é escolhido.
+  function fecharCartao() {
+    setAbrigoSelecionado(null);
+  }
+
+  // Com o cartão fechado e a rota no mapa, a faixa de baixo é o que
+  // sobra dela: mostra distância e tempo, traz o cartão de volta ao ser
+  // tocada e tem o seu próprio fechar.
+  function abrigoDaRota() {
+    if (rota == null) {
+      return null;
+    }
+
+    return abrigos.find((abrigo) => abrigo.id === rota.abrigoId) || null;
+  }
+
+  // Reabrir pela faixa não recentraliza no abrigo: isso desfaria o
+  // enquadramento do caminho inteiro, que é o que a pessoa está vendo.
+  function reabrirCartao() {
+    const abrigo = abrigoDaRota();
+
+    if (abrigo) {
+      setAbrigoSelecionado(abrigo);
+    }
+  }
+
+  function rotaDoAbrigo(abrigo) {
+    return rota != null && rota.abrigoId === abrigo.id ? rota : null;
   }
 
   // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
@@ -564,7 +802,7 @@ export default function MapScreen(props) {
               originWhitelist={['*']}
               source={{ html: montarHtml(localizacao, lista) }}
               onMessage={aoTocarNoMapa}
-              onLoadEnd={() => setCarregandoMapa(false)}
+              onLoadEnd={aoTerminarDeCarregar}
             />
 
             {carregandoMapa && (
@@ -621,6 +859,7 @@ export default function MapScreen(props) {
           <Pressable
             style={({ pressed }) => [
               styles.botaoMim,
+              rota && !abrigoSelecionado && styles.botaoMimSobreFaixa,
               abrigoSelecionado && styles.botaoMimAcima,
               pressed && styles.pressionado,
             ]}
@@ -630,14 +869,49 @@ export default function MapScreen(props) {
           </Pressable>
         )}
 
+        {!abrigoSelecionado && rota && abrigoDaRota() && (
+          <View style={styles.faixaRota}>
+            <Pressable
+              style={({ pressed }) => [styles.faixaToque, pressed && styles.pressionado]}
+              onPress={reabrirCartao}
+            >
+              <Ionicons name="navigate-circle" size={22} color={COR_ROTA} />
+
+              <View style={styles.faixaTexto}>
+                <Text style={styles.faixaResumo}>
+                  {formatarDistancia(rota.distanciaKm)}
+                  {'  •  '}
+                  {formatarDuracao(rota.minutos)}
+                </Text>
+
+                <Text style={styles.faixaAbrigo} numberOfLines={1}>
+                  até {abrigoDaRota().nome}
+                </Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.faixaFechar, pressed && styles.pressionado]}
+              onPress={limparRota}
+            >
+              <Ionicons name="close" size={19} color="#9A8F7E" />
+            </Pressable>
+          </View>
+        )}
+
         {abrigoSelecionado && (
           <View style={styles.cartao}>
+            <ScrollView
+              contentContainerStyle={styles.cartaoConteudo}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+            >
             <View style={styles.cartaoTopo}>
               <Text style={styles.nome}>{abrigoSelecionado.nome}</Text>
 
               <Pressable
                 style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
-                onPress={() => setAbrigoSelecionado(null)}
+                onPress={fecharCartao}
               >
                 <Ionicons name="close" size={20} color="#9A8F7E" />
               </Pressable>
@@ -667,22 +941,41 @@ export default function MapScreen(props) {
                   {abrigoSelecionado.criancas} crianças
                 </Text>
               </View>
-
-              {abrigoSelecionado.contato ? (
-                <View style={styles.dado}>
-                  <Ionicons name="call-outline" size={15} color={colors.primary} />
-                  <Text style={styles.textoDado}>{abrigoSelecionado.contato}</Text>
-                </View>
-              ) : null}
             </View>
+
+            {canais(abrigoSelecionado).length > 0 && (
+              <View style={styles.contatos}>
+                {canais(abrigoSelecionado).map((canal) => (
+                  <Pressable
+                    key={canal.nome}
+                    style={({ pressed }) => [
+                      styles.contato,
+                      pressed && styles.pressionado,
+                    ]}
+                    onPress={() => abrirCanal(canal.url, canal.aviso)}
+                  >
+                    <Ionicons name={canal.icone} size={17} color={colors.primary} />
+                    <Text style={styles.textoContato}>{canal.rotulo}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             <View style={styles.acoes}>
               <Pressable
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
-                onPress={() => tracarRota(abrigoSelecionado)}
+                onPress={() => tracarRota(abrigoSelecionado, modoRota)}
+                disabled={buscandoRota}
               >
-                <Ionicons name="navigate" size={20} color={colors.primary} />
-                <Text style={styles.textoAcao}>Rota</Text>
+                <Ionicons
+                  name={buscandoRota ? 'ellipsis-horizontal' : 'navigate'}
+                  size={20}
+                  color={colors.primary}
+                />
+
+                <Text style={styles.textoAcao}>
+                  {buscandoRota ? 'Traçando' : 'Rota'}
+                </Text>
               </Pressable>
 
               <Pressable
@@ -692,16 +985,6 @@ export default function MapScreen(props) {
                 <Ionicons name="locate" size={20} color={colors.primary} />
                 <Text style={styles.textoAcao}>Centralizar</Text>
               </Pressable>
-
-              {telefoneDoContato(abrigoSelecionado.contato) ? (
-                <Pressable
-                  style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
-                  onPress={() => ligar(abrigoSelecionado)}
-                >
-                  <Ionicons name="call" size={20} color={colors.primary} />
-                  <Text style={styles.textoAcao}>Ligar</Text>
-                </Pressable>
-              ) : null}
 
               <Pressable
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
@@ -726,6 +1009,101 @@ export default function MapScreen(props) {
               )}
             </View>
 
+            {rotaDoAbrigo(abrigoSelecionado) && (
+              <View style={styles.rota}>
+                <View style={styles.rotaTopo}>
+                  <Ionicons name="navigate-circle" size={20} color={COR_ROTA} />
+
+                  <Text style={styles.rotaResumo}>
+                    {formatarDistancia(rotaDoAbrigo(abrigoSelecionado).distanciaKm)}
+                    {'  •  '}
+                    {formatarDuracao(rotaDoAbrigo(abrigoSelecionado).minutos)}
+                  </Text>
+
+                  <Pressable
+                    style={({ pressed }) => [styles.rotaFechar, pressed && styles.pressionado]}
+                    onPress={limparRota}
+                  >
+                    <Ionicons name="close" size={17} color="#9A8F7E" />
+                  </Pressable>
+                </View>
+
+                {/* De carro, a pé e de bike dão caminhos e tempos
+                    diferentes de verdade — quem vai levar uma doação a pé
+                    não faz o trajeto do carro. */}
+                <View style={styles.modos}>
+                  {MODOS.map((modo) => (
+                    <Pressable
+                      key={modo.id}
+                      style={({ pressed }) => [
+                        styles.modo,
+                        modoRota === modo.id && styles.modoAtivo,
+                        pressed && styles.pressionado,
+                      ]}
+                      onPress={() => tracarRota(abrigoSelecionado, modo.id)}
+                      disabled={buscandoRota}
+                    >
+                      <Ionicons
+                        name={modo.icone}
+                        size={15}
+                        color={modoRota === modo.id ? '#FFFFFF' : colors.textMain}
+                      />
+
+                      <Text
+                        style={[
+                          styles.modoTexto,
+                          modoRota === modo.id && styles.modoTextoAtivo,
+                        ]}
+                      >
+                        {modo.nome}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [styles.rotaLink, pressed && styles.pressionado]}
+                  onPress={() => setVerPassos(!verPassos)}
+                >
+                  <Text style={styles.rotaLinkTexto}>
+                    {verPassos ? 'Esconder o passo a passo' : 'Ver o passo a passo'}
+                  </Text>
+
+                  <Ionicons
+                    name={verPassos ? 'chevron-up' : 'chevron-down'}
+                    size={15}
+                    color={colors.primary}
+                  />
+                </Pressable>
+
+                {verPassos && (
+                  <View style={styles.passos}>
+                    {rotaDoAbrigo(abrigoSelecionado).passos.map((passo, indice) => (
+                      <View key={passo.id} style={styles.passo}>
+                        <Text style={styles.passoNumero}>{indice + 1}</Text>
+
+                        <Text style={styles.passoTexto}>
+                          {passo.instrucao}
+                          {passo.metros > 0 ? '  (' + passo.metros + ' m)' : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <Pressable
+                  style={({ pressed }) => [styles.rotaExterna, pressed && styles.pressionado]}
+                  onPress={() => abrirNoMapaDoCelular(abrigoSelecionado)}
+                >
+                  <Ionicons name="open-outline" size={16} color="#9A8F7E" />
+
+                  <Text style={styles.rotaExternaTexto}>
+                    Navegar com voz no mapa do celular
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+
             <Pressable
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('Doações')}
@@ -737,12 +1115,16 @@ export default function MapScreen(props) {
             <Pressable
               style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
               onPress={() =>
-                props.navigation.navigate('Donate', { abrigo: abrigoSelecionado.nome })
+                props.navigation.navigate('Donate', {
+                  abrigo: abrigoSelecionado.nome,
+                  abrigoId: abrigoSelecionado.id,
+                })
               }
             >
               <Ionicons name="heart" size={18} color="#FFFFFF" />
               <Text style={styles.textoDoar}>Doar para este abrigo</Text>
             </Pressable>
+            </ScrollView>
           </View>
         )}
 
@@ -1019,20 +1401,80 @@ const styles = StyleSheet.create({
     bottom: 210,
   },
 
-  cartao: {
+  // A faixa da rota é bem mais baixa que o cartão, então o botão sobe só
+  // o que ela ocupa.
+  botaoMimSobreFaixa: {
+    bottom: 104,
+  },
+
+  faixaRota: {
     position: 'absolute',
     right: 16,
     bottom: 16,
     left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 16,
+    paddingLeft: 14,
+    paddingRight: 6,
 
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
     shadowRadius: 6,
     elevation: 5,
+  },
+
+  faixaToque: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+
+  faixaTexto: {
+    flex: 1,
+    marginLeft: 10,
+  },
+
+  faixaResumo: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  faixaAbrigo: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  faixaFechar: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  cartao: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    left: 16,
+    maxHeight: '74%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+
+  cartaoConteudo: {
+    padding: 16,
   },
 
   cartaoTopo: {
@@ -1087,6 +1529,30 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
+  contatos: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+
+  contato: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+    marginTop: 6,
+  },
+
+  textoContato: {
+    fontSize: 13,
+    color: colors.textMain,
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
+
   acoes: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -1106,6 +1572,112 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMain,
     marginTop: 3,
+  },
+
+  rota: {
+    borderTopWidth: 1,
+    borderTopColor: '#F0E9DC',
+    marginTop: 12,
+    paddingTop: 12,
+  },
+
+  rotaTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  rotaResumo: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginLeft: 8,
+  },
+
+  rotaFechar: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modos: {
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+
+  modo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 16,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    marginRight: 7,
+  },
+
+  modoAtivo: {
+    backgroundColor: COR_ROTA,
+  },
+
+  modoTexto: {
+    fontSize: 12,
+    color: colors.textMain,
+    marginLeft: 5,
+  },
+
+  modoTextoAtivo: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+
+  rotaLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+
+  rotaLinkTexto: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: COR_ROTA,
+    marginRight: 4,
+  },
+
+  passos: {
+    marginBottom: 6,
+  },
+
+  passo: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+
+  passoNumero: {
+    width: 20,
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: COR_ROTA,
+  },
+
+  passoTexto: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMain,
+    lineHeight: 18,
+  },
+
+  rotaExterna: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+
+  rotaExternaTexto: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginLeft: 6,
   },
 
   botaoVer: {

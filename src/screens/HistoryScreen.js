@@ -3,7 +3,14 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { carregarDoacoes } from '../services/donations';
+import {
+  ITEM,
+  carregarDoacoes,
+  formatarReais,
+  tipoDaDoacao,
+  totalDeItens,
+  totalEmDinheiro,
+} from '../services/donations';
 import { colors } from '../theme/colors';
 
 export default function HistoryScreen(props) {
@@ -13,6 +20,12 @@ export default function HistoryScreen(props) {
 
   useEffect(() => {
     buscarDoacoes();
+
+    // O histórico muda em outras telas: reservar um item na lista de
+    // doações entra aqui, e desistir sai.
+    const inscricao = props.navigation.addListener('focus', buscarDoacoes);
+
+    return inscricao;
   }, []);
 
   async function buscarDoacoes() {
@@ -30,8 +43,14 @@ export default function HistoryScreen(props) {
     }
   }
 
+  // Só o dinheiro entra na soma. Os itens são contados à parte, porque
+  // somar uma caixa de fraldas com cinquenta reais não diz nada.
   function total() {
-    return doacoes.reduce((soma, doacao) => soma + doacao.valor, 0);
+    return totalEmDinheiro(doacoes);
+  }
+
+  function itens() {
+    return totalDeItens(doacoes);
   }
 
   // A data é gravada em ISO, que é bom para ordenar e ruim para ler. Aqui
@@ -45,15 +64,27 @@ export default function HistoryScreen(props) {
     });
   }
 
+  // Dinheiro e item dividem o mesmo histórico, porque para quem doa é
+  // tudo ajuda. O que muda é a primeira linha do cartão: um mostra o
+  // valor, o outro mostra o que foi prometido levar.
   function renderizarDoacao({ item }) {
+    const ehItem = tipoDaDoacao(item) === ITEM;
+
     return (
       <View style={styles.item}>
         <View style={styles.itemIcone}>
-          <Ionicons name="heart" size={20} color={colors.supportGreen} />
+          <Ionicons
+            name={ehItem ? 'cube' : 'heart'}
+            size={20}
+            color={ehItem ? colors.primary : colors.supportGreen}
+          />
         </View>
 
         <View style={styles.itemTexto}>
-          <Text style={styles.itemValor}>R$ {item.valor},00</Text>
+          <Text style={styles.itemValor}>
+            {ehItem ? item.item : 'R$ ' + formatarReais(item.valor)}
+          </Text>
+
           <Text style={styles.itemAbrigo}>{item.abrigo}</Text>
           <Text style={styles.itemData}>{formatarData(item.data)}</Text>
         </View>
@@ -85,13 +116,16 @@ export default function HistoryScreen(props) {
 
         {doacoes.length > 0 && (
           <View style={styles.resumo}>
-            <Text style={styles.resumoRotulo}>Total doado</Text>
-            <Text style={styles.resumoValor}>R$ {total()},00</Text>
+            <Text style={styles.resumoRotulo}>Total doado em dinheiro</Text>
+            <Text style={styles.resumoValor}>R$ {formatarReais(total())}</Text>
 
             <Text style={styles.resumoRotulo}>
               {doacoes.length === 1
                 ? '1 doação registrada'
                 : doacoes.length + ' doações registradas'}
+              {itens() > 0
+                ? ', sendo ' + (itens() === 1 ? '1 item' : itens() + ' itens')
+                : ''}
             </Text>
           </View>
         )}
