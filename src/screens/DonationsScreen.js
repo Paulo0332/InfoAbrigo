@@ -5,7 +5,6 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -633,12 +632,7 @@ export default function DonationsScreen(props) {
         {/* O filtro por abrigo é o que separa uma lista da outra. Sem ele
             as necessidades de todos os abrigos apareciam misturadas. */}
         {opcoesDoFiltro().length > 1 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filtros}
-            contentContainerStyle={styles.filtrosConteudo}
-          >
+          <View style={styles.filtros}>
             {opcoesDoFiltro().map((opcao) => (
               <Pressable
                 key={opcao.id}
@@ -660,7 +654,7 @@ export default function DonationsScreen(props) {
                 </Text>
               </Pressable>
             ))}
-          </ScrollView>
+          </View>
         )}
 
         {needs.length > 4 && (
@@ -905,12 +899,9 @@ const styles = StyleSheet.create({
   },
 
   filtros: {
-    flexGrow: 0,
-    marginBottom: 12,
-  },
-
-  filtrosConteudo: {
-    paddingRight: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 4,
   },
 
   filtro: {
@@ -922,6 +913,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     marginRight: 8,
+    marginBottom: 8,
   },
 
   filtroAtivo: {
