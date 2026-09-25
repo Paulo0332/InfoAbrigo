@@ -20,6 +20,14 @@ export default function NeedItem(props) {
     return props.email != null && contribuicao.por === props.email;
   }
 
+  // Sem nome visível o cartão fica sem cabeça: sobra o selo de urgente
+  // pairando sobre a barra, e ninguém sabe do que a necessidade trata.
+  // O cadastro exige o nome, mas se algum registro chegar aqui sem ele é
+  // melhor dizer isso do que não dizer nada.
+  function nomeDaNecessidade() {
+    return (props.need.title || '').trim();
+  }
+
   // Quem já ofereceu não oferece de novo pelo mesmo item; quem administra
   // não doa para o próprio abrigo. E item atendido, ou com tudo já
   // prometido, não precisa de mais ninguém.
@@ -74,8 +82,15 @@ export default function NeedItem(props) {
             </View>
           ) : null}
 
-          <Text style={[styles.title, props.need.done && styles.titleDone]}>
-            {props.need.title}
+          <Text
+            style={[
+              styles.title,
+              props.need.done && styles.titleDone,
+              !nomeDaNecessidade() && styles.titleSemNome,
+            ]}
+            numberOfLines={2}
+          >
+            {nomeDaNecessidade() || 'Necessidade sem nome'}
           </Text>
         </View>
 
@@ -245,11 +260,10 @@ const styles = StyleSheet.create({
   linhaTitulo: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
   },
 
   title: {
-    flexShrink: 1,
+    flex: 1,
     fontSize: 16,
     color: colors.textMain,
   },
@@ -257,6 +271,10 @@ const styles = StyleSheet.create({
   titleDone: {
     color: '#9A8F7E',
     textDecorationLine: 'line-through',
+  },
+
+  titleSemNome: {
+    color: '#9A8F7E',
   },
 
   urgente: {

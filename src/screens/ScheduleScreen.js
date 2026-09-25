@@ -1,93 +1,350 @@
-import { useEffect, useState, useRef } from 'react';
-import { StyleSheet, Text, View, Pressable, Modal, Image, Alert, FlatList, TextInput, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as MediaLibrary from 'expo-media-library/legacy';
+
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { carregarAtividades, salvarAtividades } from '../services/activities';
+import {
+  TIPOS,
+  buscarTipo,
+  carregarAgenda,
+  compromissosDaConta,
+  dataDaquiA,
+  diaDoMes,
+  formatarCampoData,
+  formatarCampoHora,
+  formatarHora,
+  ehHoje,
+  jaPassou,
+  mesCurto,
+  montarQuando,
+  ordenarAgenda,
+  quandoAcontece,
+  salvarAgendaDaConta,
+} from '../services/agenda';
+import { carregarConta } from '../services/auth';
+import { escolherDoCelular, salvarNoCelular } from '../services/galeria';
+import {
+  ITEM,
+  carregarDoacoes,
+  doacoesDaConta,
+  estaPendente,
+  tipoDaDoacao,
+} from '../services/donations';
+import { carregarAbrigos } from '../services/shelters';
+import { aviso, deuCerto, toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 import { globalStyles } from '../theme/styles';
-import { LinearGradient } from 'expo-linear-gradient';
 
-const TAGS = ['Doação', 'Visita', 'Manutenção', 'Outros'];
+export default function ScheduleScreen(props) {
 
-export default function ScheduleScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
-  // O SafeAreaView do topo do formulário piscava sem parar quando o
-  // teclado abria na descrição: dentro de um Modal ele remede a folga a
-  // cada mudança da janela, aplica o novo espaço, e a mudança dispara
-  // outra medição. O hook devolve a mesma folga sem remedir, então o
-  // laço não existe.
+  // O SafeAreaView dentro de Modal remede a folga a cada mudança da
+  // janela e entra em laço com o teclado aberto. O hook devolve o mesmo
+  // valor sem remedir.
   const areaSegura = useSafeAreaInsets();
-  
-  const [modalVisible, setModalVisible] = useState(false);
+
+  const [agenda, setAgenda] = useState([]);
+  const [conta, setConta] = useState(null);
+  const [abrigos, setAbrigos] = useState([]);
+  const [promessas, setPromessas] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [aba, setAba] = useState('proximos');
+
+  // Formulário do compromisso.
+  const [formVisivel, setFormVisivel] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [tipo, setTipo] = useState(TIPOS[0].id);
+  const [abrigoEscolhido, setAbrigoEscolhido] = useState(null);
+  const [data, setData] = useState('');
+  const [hora, setHora] = useState('');
+  const [observacao, setObservacao] = useState('');
+
+  // O compromisso só tinha tipo, abrigo e hora. Dois do mesmo tipo no
+  // mesmo abrigo ficavam idênticos na lista, e a pessoa não lembrava
+  // qual era qual — o título é o que diferencia um do outro.
+  const [titulo, setTitulo] = useState('');
+
+  // Câmera: ela continua sendo o módulo de registro, só que agora com um
+  // lugar que faz sentido — documentar o que aconteceu num compromisso.
+  const [cameraVisivel, setCameraVisivel] = useState(false);
+  const [registrandoEm, setRegistrandoEm] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
-  
-  // Form states
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedTag, setSelectedTag] = useState(TAGS[0]);
-
-  // Lista de atividades registradas
-  const [activities, setActivities] = useState([]);
-
-  // O registro que está sendo editado. Nulo quando é um registro novo.
-  const [editando, setEditando] = useState(null);
-
-  // A prévia do formulário é cortada em 250 px de altura, o que esconde
-  // as bordas da foto. Guardando aqui qual foto ampliar, dá para ver a
-  // imagem inteira antes de salvar.
   const [fotoAmpliada, setFotoAmpliada] = useState(null);
-  
+
   const cameraRef = useRef(null);
 
   useEffect(() => {
-    buscarAtividades();
+    buscarTudo();
+
+    const inscricao = props.navigation.addListener('focus', buscarTudo);
+
+    return inscricao;
   }, []);
 
-  // As atividades ficavam so no useState: fotografar, fechar o app e
-  // perder tudo. Agora elas vem do AsyncStorage, como a lista do Modulo 2.
-  async function buscarAtividades() {
+  async function buscarTudo() {
     try {
-      const salvas = await carregarAtividades();
+      const contaSalva = await carregarConta();
+      const lista = await carregarAgenda();
+      const listaAbrigos = await carregarAbrigos();
+      const doacoes = await carregarDoacoes();
 
-      setActivities(salvas);
+      setConta(contaSalva);
+      setAbrigos(listaAbrigos);
+      setAgenda(compromissosDaConta(lista, contaSalva));
+
+      // O que a pessoa prometeu levar e ainda não entregou. A entrega é
+      // justamente o tipo de compromisso que ela vem marcar aqui, e ter
+      // de redigitar o que já está registrado noutra tela é trabalho à
+      // toa — e é onde se erra o abrigo.
+      setPromessas(
+        doacoesDaConta(doacoes, contaSalva)
+          .filter((doacao) => tipoDaDoacao(doacao) === ITEM)
+          .filter(estaPendente)
+      );
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível ler as atividades salvas.');
+      Alert.alert('Erro', 'Não foi possível ler a sua agenda.');
+    } finally {
+      setCarregando(false);
     }
   }
 
-  // Toda alteracao na lista passa por aqui, para o estado da tela e o
-  // disco nunca sairem de sincronia.
-  async function gravarLista(novaLista) {
-    setActivities(novaLista);
+  // Toda alteração passa por aqui, para o estado da tela e o disco nunca
+  // saírem de sincronia.
+  // A tela mostra só os compromissos desta conta. Quem junta com os das
+  // outras antes de gravar é o serviço — se a junção morasse aqui, bastava
+  // uma tela esquecer para a agenda das outras contas sumir.
+  async function gravar(novaLista) {
+    setAgenda(novaLista);
 
     try {
-      await salvarAtividades(novaLista);
+      await salvarAgendaDaConta(novaLista, conta);
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível salvar as atividades.');
+      Alert.alert('Erro', 'Não foi possível salvar a agenda.');
     }
   }
 
-  async function openCamera() {
+  // Preenche o formulário a partir de uma promessa de doação: o abrigo
+  // vem junto, e a observação já diz o que levar.
+  function usarPromessa(promessa) {
+    const abrigo = abrigos.find((item) => item.nome === promessa.abrigo);
+
+    setTipo('entrega');
+
+    if (abrigo) {
+      setAbrigoEscolhido(abrigo.id);
+    }
+
+    setTitulo('Entregar ' + promessa.item);
+    setObservacao('');
+  }
+
+  function abrirNovo() {
+    setEditando(null);
+    setTipo(TIPOS[0].id);
+    setAbrigoEscolhido(abrigos.length === 1 ? abrigos[0].id : null);
+    setData(dataDaquiA(1));
+    setHora('14:00');
+    setObservacao('');
+    setTitulo('');
+    setFormVisivel(true);
+  }
+
+  function abrirEdicao(item) {
+    const quando = new Date(item.quando);
+
+    setEditando(item);
+    setTipo(item.tipo);
+    setAbrigoEscolhido(item.abrigoId);
+    setData(
+      String(quando.getDate()).padStart(2, '0') + '/' +
+      String(quando.getMonth() + 1).padStart(2, '0') + '/' +
+      quando.getFullYear()
+    );
+    setHora(formatarHora(item.quando));
+    setObservacao(item.observacao || '');
+    setTitulo(item.titulo || '');
+    setFormVisivel(true);
+  }
+
+  function salvarCompromisso() {
+    const quando = montarQuando(data, hora);
+
+    if (quando == null) {
+      Alert.alert(
+        'Data ou hora inválida',
+        'Confira o dia, o mês e a hora. A data precisa existir no calendário.'
+      );
+
+      return;
+    }
+
+    const abrigo = abrigos.find((item) => item.id === abrigoEscolhido) || null;
+
+    const dados = {
+      tipo: tipo,
+      titulo: titulo.trim(),
+      abrigoId: abrigo ? abrigo.id : null,
+      abrigoNome: abrigo ? abrigo.nome : null,
+      quando: quando,
+      observacao: observacao.trim(),
+    };
+
+    deuCerto();
+    setFormVisivel(false);
+
+    if (editando) {
+      gravar(
+        agenda.map((item) =>
+          item.id === editando.id ? { ...item, ...dados } : item
+        )
+      );
+
+      return;
+    }
+
+    gravar([
+      {
+        id: Date.now().toString(),
+        ...dados,
+        conta: conta ? conta.email : null,
+        registro: null,
+      },
+      ...agenda,
+    ]);
+  }
+
+  function confirmarExclusao(item) {
+    Alert.alert(
+      'Excluir compromisso',
+      'Ele sai da sua agenda. A foto registrada nele, se houver, sai junto.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => {
+            aviso();
+            gravar(agenda.filter((uma) => uma.id !== item.id));
+          },
+        },
+      ]
+    );
+  }
+
+  // ------------------------------------------------------------ câmera
+
+  // A escolha vem antes de abrir, e não como um botão dentro da câmera.
+  // Dentro dela o espaço é para enquadrar a foto; de onde vem a imagem é
+  // decisão anterior a isso.
+  function escolherOrigem(item) {
+    Alert.alert('Registro com foto', 'De onde vem a foto?', [
+      { text: 'Tirar uma foto', onPress: () => abrirCamera(item) },
+      { text: 'Escolher do celular', onPress: () => abrirComFotoDoCelular(item) },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
+
+  function prepararFormulario(item, uri) {
+    setRegistrandoEm(item);
+    setPhoto(uri);
+    setTitle(item && item.registro ? item.registro.titulo : '');
+    setDescription(item && item.registro ? item.registro.descricao : '');
+    setIsCameraReady(false);
+    setCameraVisivel(true);
+  }
+
+  async function abrirCamera(item) {
     if (!cameraPermission?.granted) {
       const { granted } = await requestCameraPermission();
+
       if (!granted) {
-        Alert.alert('Aviso', 'Você precisa permitir o acesso à câmera para registrar a atividade.');
+        Alert.alert(
+          'Aviso',
+          'Você precisa permitir o acesso à câmera para registrar o que aconteceu.'
+        );
+
         return;
       }
     }
-    setModalVisible(true);
-    setIsCameraReady(false);
+
+    prepararFormulario(item, null);
+  }
+
+  async function abrirComFotoDoCelular(item) {
+    const escolha = await escolherDoCelular();
+
+    if (escolha.situacao === 'escolhida') {
+      toqueLeve();
+      prepararFormulario(item, escolha.uri);
+
+      return;
+    }
+
+    if (escolha.situacao === 'sem-permissao') {
+      Alert.alert(
+        'Sem acesso às fotos',
+        'Para escolher uma foto já tirada, permita o acesso às fotos nas configurações do aparelho.'
+      );
+    }
+  }
+
+  async function takePicture() {
+    if (cameraRef.current && isCameraReady) {
+      try {
+        const data = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+
+        toqueLeve();
+        setPhoto(data.uri);
+      } catch (error) {
+        console.log('Error capturing photo:', error);
+
+        Alert.alert('Erro', 'Não foi possível capturar a foto.');
+      }
+    }
+  }
+
+  // Trocar a foto pergunta de novo de onde ela vem — a mesma escolha da
+  // entrada, porque trocar é começar o registro da imagem outra vez.
+  function trocarFoto() {
+    Alert.alert('Trocar a foto', 'De onde vem a nova foto?', [
+      { text: 'Tirar uma foto', onPress: voltarParaCamera },
+      { text: 'Escolher do celular', onPress: trocarPorFotoDoCelular },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
+
+  async function trocarPorFotoDoCelular() {
+    const escolha = await escolherDoCelular();
+
+    if (escolha.situacao === 'escolhida') {
+      toqueLeve();
+      setPhoto(escolha.uri);
+    }
   }
 
   // Voltar para a câmera não é só limpar a foto: a permissão pode ter
-  // sido revogada nas configurações desde o último registro, e o
-  // isCameraReady precisa voltar a false para o botão de disparo só
-  // liberar quando a câmera estiver de pé outra vez.
-  async function refazerFoto() {
+  // sido revogada, e o isCameraReady precisa voltar a false para o botão
+  // de disparo só liberar quando a câmera estiver de pé outra vez.
+  async function voltarParaCamera() {
     if (!cameraPermission?.granted) {
       const { granted } = await requestCameraPermission();
 
@@ -102,111 +359,72 @@ export default function ScheduleScreen() {
     setIsCameraReady(false);
   }
 
-  async function takePicture() {
-    if (cameraRef.current && isCameraReady) {
-      try {
-        const data = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-        setPhoto(data.uri);
-      } catch (error) {
-        console.log('Error capturing photo:', error);
-        Alert.alert('Erro', 'Não foi possível capturar a foto.');
-      }
+  // Salva no celular uma foto que já está registrada. Foto tirada dentro
+  // do aplicativo mora só nele até ser salva, e some junto se o
+  // aplicativo for desinstalado.
+  async function salvarFotoDoRegistro(item) {
+    const guardou = await salvarNoCelular(item.registro.uri);
+
+    if (!guardou) {
+      Alert.alert(
+        'Não foi possível salvar',
+        'Permita o acesso às fotos nas configurações do aparelho para guardar a imagem na galeria.'
+      );
+
+      return;
     }
+
+    deuCerto();
+
+    gravar(
+      agenda.map((uma) =>
+        uma.id === item.id
+          ? { ...uma, registro: { ...uma.registro, naGaleria: true } }
+          : uma
+      )
+    );
   }
 
-  // Tenta salvar nativamente na galeria exigida pelo módulo. Devolve se
-  // conseguiu, porque no Expo Go a permissão às vezes não vem e aí o
-  // registro continua valendo, só que apenas dentro do aplicativo.
-  async function guardarNaGaleria(uri) {
-    try {
-      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
-
-      if (status !== 'granted') {
-        return false;
-      }
-
-      await MediaLibrary.saveToLibraryAsync(uri);
-
-      return true;
-    } catch (error) {
-      console.log('Galeria nativa bloqueada ou inacessível no Expo Go:', error);
-
-      return false;
-    }
-  }
-
-  async function saveActivity() {
+  async function salvarRegistro() {
     if (!title.trim()) {
-      Alert.alert('Aviso', 'Dê um título para sua atividade.');
-      return;
-    }
-
-    if (editando) {
-      await salvarEdicao();
+      Alert.alert('Aviso', 'Dê um título para o registro.');
 
       return;
     }
 
-    const newActivity = {
-      id: Date.now().toString(),
+    // Só vai para a galeria de novo quando a foto mudou: reeditar só o
+    // título não precisa salvar a mesma imagem outra vez.
+    const trocouFoto =
+      registrandoEm.registro == null || registrandoEm.registro.uri !== photo;
+
+    const naGaleria = trocouFoto
+      ? await salvarNoCelular(photo)
+      : registrandoEm.registro.naGaleria;
+
+    const registro = {
       uri: photo,
-      title: title.trim(),
-      description: description.trim(),
-      tag: selectedTag,
-      date: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      saved: await guardarNaGaleria(photo)
+      titulo: title.trim(),
+      descricao: description.trim(),
+      naGaleria: naGaleria,
     };
 
-    gravarLista([newActivity, ...activities]);
-    closeModal();
+    gravar(
+      agenda.map((item) =>
+        item.id === registrandoEm.id ? { ...item, registro: registro } : item
+      )
+    );
+
+    deuCerto();
+    fecharCamera();
   }
 
-  // Editar troca o registro no lugar, pelo id, como o atualizarAbrigo do
-  // mapa. A data original fica: ela diz quando a atividade aconteceu, não
-  // quando o texto foi corrigido.
-  async function salvarEdicao() {
-    const trocouFoto = photo !== editando.uri;
-    const naGaleria = trocouFoto ? await guardarNaGaleria(photo) : editando.saved;
-
-    const nova = activities.map((item) => {
-      if (item.id !== editando.id) {
-        return item;
-      }
-
-      return {
-        ...item,
-        uri: photo,
-        title: title.trim(),
-        description: description.trim(),
-        tag: selectedTag,
-        saved: naGaleria
-      };
-    });
-
-    gravarLista(nova);
-    closeModal();
-  }
-
-  // Abrir um registro que já existe reaproveita o mesmo formulário: a
-  // foto vem do registro, os campos vêm preenchidos e o salvar troca no
-  // lugar em vez de criar outro.
-  function editarAtividade(atividade) {
-    setEditando(atividade);
-    setPhoto(atividade.uri);
-    setTitle(atividade.title);
-    setDescription(atividade.description);
-    setSelectedTag(atividade.tag);
-    setModalVisible(true);
-  }
-
-  function closeModal() {
-    setModalVisible(false);
+  function fecharCamera() {
+    setCameraVisivel(false);
+    setRegistrandoEm(null);
     setPhoto(null);
     setIsCameraReady(false);
     setTitle('');
     setDescription('');
-    setSelectedTag(TAGS[0]);
-    setEditando(null);
     setFotoAmpliada(null);
   }
 
@@ -230,210 +448,577 @@ export default function ScheduleScreen() {
     );
   }
 
-  function deleteActivity(id) {
-    Alert.alert(
-      'Excluir Atividade',
-      'Tem certeza que deseja apagar este registro?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Excluir', 
-          style: 'destructive',
-          onPress: () => {
-            gravarLista(activities.filter(a => a.id !== id));
-          }
-        }
-      ]
+  // ------------------------------------------------------------- lista
+
+  // A foto é tirada no abrigo, durante a visita — não depois dela. Por
+  // isso registrar libera no dia, e não quando a hora marcada passa:
+  // quem chega dez minutos antes ficava sem conseguir fotografar, e
+  // quando o botão enfim aparecia a pessoa já tinha ido embora.
+  function podeRegistrar(item) {
+    return ehHoje(item.quando) || jaPassou(item.quando);
+  }
+
+  function renderizarCompromisso({ item }) {
+    const tipoDele = buscarTipo(item.tipo);
+    const passado = jaPassou(item.quando);
+
+    return (
+      <View style={styles.cartao}>
+        <View style={styles.cartaoTopo}>
+          <View style={[styles.calendario, passado && styles.calendarioPassado]}>
+            <Text style={styles.dia}>{diaDoMes(item.quando)}</Text>
+            <Text style={styles.mes}>{mesCurto(item.quando)}</Text>
+          </View>
+
+          <View style={styles.cartaoTexto}>
+            <View style={styles.linhaTipo}>
+              <Ionicons name={tipoDele.icone} size={14} color={colors.primary} />
+              <Text style={styles.tipoNome}>{tipoDele.nome}</Text>
+            </View>
+
+            <Text style={styles.abrigoNome} numberOfLines={1}>
+              {item.titulo || item.abrigoNome || 'Abrigo não informado'}
+            </Text>
+
+            {item.titulo && item.abrigoNome ? (
+              <Text style={styles.abrigoSecundario} numberOfLines={1}>
+                {item.abrigoNome}
+              </Text>
+            ) : null}
+
+            <Text style={[styles.quando, passado && styles.quandoPassado]}>
+              {quandoAcontece(item.quando)}
+            </Text>
+
+            {item.observacao ? (
+              <Text style={styles.observacao} numberOfLines={2}>
+                {item.observacao}
+              </Text>
+            ) : null}
+
+          </View>
+
+          {/* Data e hora só mudam no que ainda vai acontecer. Remarcar
+              uma visita que já foi é reescrever o passado: o que vale
+              dela é o registro, e esse continua editável no cartão da
+              foto. Excluir continua valendo, porque compromisso lançado
+              errado precisa poder sumir. */}
+          <View style={styles.acoesCartao}>
+            {!passado && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Mudar o compromisso"
+                style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+                onPress={() => abrirEdicao(item)}
+              >
+                <Ionicons name="create-outline" size={18} color={colors.primary} />
+              </Pressable>
+            )}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Excluir compromisso"
+              style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+              onPress={() => confirmarExclusao(item)}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.supportPink} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* O registro com foto é o que o compromisso deixa depois de
+            acontecer. Antes de acontecer não há o que registrar, então o
+            botão só aparece quando a hora já passou. */}
+        {item.registro ? (
+          <Pressable
+            style={({ pressed }) => [styles.registro, pressed && styles.pressionado]}
+            onPress={() => setFotoAmpliada(item.registro.uri)}
+          >
+            <Image source={{ uri: item.registro.uri }} style={styles.miniatura} />
+
+            <View style={styles.registroTexto}>
+              <Text style={styles.registroTitulo} numberOfLines={1}>
+                {item.registro.titulo}
+              </Text>
+
+              {item.registro.descricao ? (
+                <Text style={styles.registroDescricao} numberOfLines={2}>
+                  {item.registro.descricao}
+                </Text>
+              ) : null}
+
+              {item.registro.naGaleria ? (
+                <View style={styles.selo}>
+                  <Ionicons name="checkmark-circle" size={11} color={colors.supportGreen} />
+                  <Text style={styles.seloTexto}>Salva na galeria do celular</Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Salvar a foto na galeria do celular"
+                  style={({ pressed }) => [styles.salvarFoto, pressed && styles.pressionado]}
+                  onPress={() => salvarFotoDoRegistro(item)}
+                >
+                  <Ionicons name="download-outline" size={12} color={colors.primary} />
+                  <Text style={styles.salvarFotoTexto}>Salvar no celular</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Editar o registro"
+              style={({ pressed }) => [styles.editar, pressed && styles.pressionado]}
+              onPress={() => escolherOrigem(item)}
+            >
+              <Ionicons name="create-outline" size={17} color={colors.primary} />
+            </Pressable>
+          </Pressable>
+        ) : podeRegistrar(item) ? (
+          <Pressable
+            style={({ pressed }) => [styles.botaoRegistrar, pressed && styles.pressionado]}
+            onPress={() => escolherOrigem(item)}
+          >
+            <Ionicons name="camera" size={17} color={colors.primary} />
+
+            <Text style={styles.textoRegistrar}>
+              {ehHoje(item.quando) && !passado
+                ? 'Está acontecendo? Registre com foto'
+                : 'Registrar com foto'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
     );
   }
 
-  function renderActivityItem({ item }) {
+  const separada = ordenarAgenda(agenda);
+  const lista = aba === 'proximos' ? separada.futuros : separada.passados;
+
+  if (carregando) {
     return (
-      <View style={styles.activityCard}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Ver a foto inteira" onPress={() => setFotoAmpliada(item.uri)}>
-          <Image source={{ uri: item.uri }} style={styles.activityImage} />
-
-          <View style={styles.lupa}>
-            <Ionicons name="expand" size={12} color="#FFF" />
-          </View>
-        </Pressable>
-
-        <View style={styles.activityInfo}>
-          <View style={styles.activityHeader}>
-            <Text style={styles.activityTitle} numberOfLines={1}>{item.title}</Text>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Editar o registro" onPress={() => editarAtividade(item)} style={styles.deleteButton}>
-              <Ionicons name="create-outline" size={18} color={colors.primary} />
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Excluir o registro" onPress={() => deleteActivity(item.id)} style={styles.deleteButton}>
-              <Ionicons name="trash-outline" size={18} color="#FF5252" />
-            </Pressable>
-          </View>
-          
-          <Text style={styles.activityDate}>{item.date}</Text>
-          {item.description ? (
-            <Text style={styles.activityDesc} numberOfLines={2}>{item.description}</Text>
-          ) : null}
-          
-          <View style={styles.badgeContainer}>
-            <View style={styles.tagBadge}>
-              <Text style={styles.tagBadgeText}>{item.tag}</Text>
-            </View>
-            <View style={[styles.badge, item.saved ? styles.badgeSuccess : styles.badgeWarning]}>
-              <Ionicons name={item.saved ? "checkmark-circle" : "warning"} size={12} color={item.saved ? "#2e7d32" : "#ed6c02"} />
-              <Text style={[styles.badgeText, { color: item.saved ? "#2e7d32" : "#ed6c02" }]}>
-                {item.saved ? 'Galeria' : 'App'}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
+      <SafeAreaView style={[globalStyles.container, styles.centralizado]} edges={['top']}>
+        <Text style={styles.textoVazio}>Carregando a agenda...</Text>
+      </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[globalStyles.container, styles.container]} edges={['top']}>
-      <View style={{ padding: 20, flex: 1 }}>
-        <Text style={[globalStyles.title, { marginBottom: 4 }]}>Registro de Atividades</Text>
-        <Text style={[globalStyles.text, { marginBottom: 24 }]}>Documente o dia a dia, visitas e doações do abrigo.</Text>
-        
-        <FlatList 
-          data={activities}
+    <SafeAreaView style={[globalStyles.container, styles.safeArea]} edges={['top']}>
+      <View style={styles.corpo}>
+        <Text style={styles.titulo}>Agenda</Text>
+
+        <Text style={styles.subtitulo}>
+          Marque a visita, a entrega ou o trabalho voluntário — e registre
+          com foto o que aconteceu.
+        </Text>
+
+        <View style={styles.abas}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.aba,
+              aba === 'proximos' && styles.abaAtiva,
+              pressed && styles.pressionado,
+            ]}
+            onPress={() => setAba('proximos')}
+          >
+            <Text style={[styles.abaTexto, aba === 'proximos' && styles.abaTextoAtivo]}>
+              Próximos ({separada.futuros.length})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.aba,
+              aba === 'passados' && styles.abaAtiva,
+              pressed && styles.pressionado,
+            ]}
+            onPress={() => setAba('passados')}
+          >
+            <Text style={[styles.abaTexto, aba === 'passados' && styles.abaTextoAtivo]}>
+              Já aconteceram ({separada.passados.length})
+            </Text>
+          </Pressable>
+        </View>
+
+        <FlatList
+          data={lista}
           keyExtractor={(item) => item.id}
-          renderItem={renderActivityItem}
-          contentContainerStyle={styles.listContainer}
+          renderItem={renderizarCompromisso}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            aba === 'proximos' ? styles.listaConteudo : styles.listaConteudoSolta,
+            lista.length === 0 && styles.listaVazia,
+          ]}
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="camera-outline" size={48} color={colors.primary} />
+            <View style={styles.vazio}>
+              <View style={styles.vazioIcone}>
+                <Ionicons
+                  name={aba === 'proximos' ? 'calendar-outline' : 'camera-outline'}
+                  size={44}
+                  color={colors.primary}
+                />
               </View>
-              <Text style={styles.emptyTitle}>Nenhum registro ainda</Text>
-              <Text style={styles.emptyText}>Clique no botão abaixo para capturar momentos importantes do abrigo.</Text>
+
+              <Text style={styles.vazioTitulo}>
+                {aba === 'proximos' ? 'Nada marcado' : 'Nada registrado ainda'}
+              </Text>
+
+              <Text style={styles.textoVazio}>
+                {aba === 'proximos'
+                  ? 'Marque uma visita, uma entrega ou um dia de voluntariado no botão abaixo.'
+                  : 'Passada a hora marcada, o compromisso vem para cá com a foto que você tiver registrado nele.'}
+              </Text>
             </View>
           }
         />
 
-        <View style={styles.fabContainer}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Registrar uma atividade" style={styles.fab} onPress={openCamera}>
-            <LinearGradient
-              colors={[colors.primary, colors.primaryGradient]}
-              style={styles.fabGradient}
+        {/* Marcar é ação de quem olha para frente, então o botão vive
+            na aba dos próximos. Em "Já aconteceram" não há o que marcar:
+            ali o que se faz é registrar, e isso mora no cartão de cada
+            compromisso, onde já existe abrigo, tipo e data. */}
+        {aba === 'proximos' && (
+          <View style={styles.areaBotao}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Marcar um compromisso"
+              style={({ pressed }) => [styles.botaoPrincipal, pressed && styles.pressionado]}
+              onPress={abrirNovo}
             >
-              <Ionicons name="add" size={32} color="#FFF" />
-            </LinearGradient>
-          </Pressable>
-        </View>
+              <LinearGradient
+                colors={[colors.primary, colors.primaryGradient]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.botaoGradiente}
+              >
+                <Ionicons name="add" size={22} color="#FFFFFF" />
+                <Text style={styles.botaoTexto}>Marcar compromisso</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        )}
       </View>
 
-      <Modal visible={modalVisible} animationType="slide" onRequestClose={closeModal} transparent={false}>
-        <KeyboardAvoidingView 
-          style={styles.modalContainer} 
+      {!cameraVisivel && !formVisivel && fotoEmTelaCheia()}
+
+      {/* ----------------------------------------- marcar ou editar */}
+      <Modal
+        visible={formVisivel}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setFormVisivel(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.fundoModal}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.painel}>
+            <View style={styles.painelTopo}>
+              <Text style={styles.painelTitulo}>
+                {editando ? 'Mudar compromisso' : 'Marcar compromisso'}
+              </Text>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Fechar"
+                style={({ pressed }) => [styles.fechar, pressed && styles.pressionado]}
+                onPress={() => setFormVisivel(false)}
+              >
+                <Ionicons name="close" size={22} color="#9A8F7E" />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.rotulo}>O que é</Text>
+
+              {TIPOS.map((opcao) => (
+                <Pressable
+                  key={opcao.id}
+                  style={({ pressed }) => [
+                    styles.opcao,
+                    tipo === opcao.id && styles.opcaoAtiva,
+                    pressed && styles.pressionado,
+                  ]}
+                  onPress={() => setTipo(opcao.id)}
+                >
+                  <Ionicons
+                    name={opcao.icone}
+                    size={19}
+                    color={tipo === opcao.id ? colors.primary : '#9A8F7E'}
+                  />
+
+                  <View style={styles.opcaoTexto}>
+                    <Text style={styles.opcaoNome}>{opcao.nome}</Text>
+                    <Text style={styles.opcaoDescricao}>{opcao.descricao}</Text>
+                  </View>
+
+                  <Ionicons
+                    name={tipo === opcao.id ? 'radio-button-on' : 'radio-button-off'}
+                    size={18}
+                    color={tipo === opcao.id ? colors.primary : '#C9BFB1'}
+                  />
+                </Pressable>
+              ))}
+
+              {/* Escolhendo entrega, o que a pessoa já prometeu levar
+                  aparece pronto para virar compromisso. Sem isso ela
+                  redigitava o que já está registrado na outra tela — e
+                  era ali que trocava o abrigo. */}
+              {tipo === 'entrega' && promessas.length > 0 ? (
+                <View>
+                  <Text style={styles.rotulo}>O que você prometeu levar</Text>
+
+                  {promessas.map((promessa) => (
+                    <Pressable
+                      key={promessa.id}
+                      style={({ pressed }) => [styles.promessa, pressed && styles.pressionado]}
+                      onPress={() => usarPromessa(promessa)}
+                    >
+                      <Ionicons name="cube-outline" size={17} color={colors.primary} />
+
+                      <View style={styles.promessaTexto}>
+                        <Text style={styles.promessaItem} numberOfLines={1}>
+                          {promessa.item}
+                        </Text>
+
+                        <Text style={styles.promessaAbrigo} numberOfLines={1}>
+                          {promessa.abrigo}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.promessaUsar}>Usar</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+
+              <Text style={styles.rotulo}>Título</Text>
+
+              <TextInput
+                style={styles.campo}
+                placeholder="Ex.: Entrega das fraldas de março"
+                placeholderTextColor="#9A8F7E"
+                value={titulo}
+                onChangeText={setTitulo}
+                maxLength={60}
+              />
+
+              <Text style={styles.rotulo}>Com qual abrigo</Text>
+
+              {abrigos.length === 0 ? (
+                <Text style={styles.semAbrigo}>
+                  Nenhum abrigo cadastrado ainda. Dá para marcar assim mesmo e
+                  completar depois.
+                </Text>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.abrigos}
+                >
+                  {abrigos.map((abrigo) => (
+                    <Pressable
+                      key={abrigo.id}
+                      style={({ pressed }) => [
+                        styles.chip,
+                        abrigoEscolhido === abrigo.id && styles.chipAtivo,
+                        pressed && styles.pressionado,
+                      ]}
+                      onPress={() => setAbrigoEscolhido(abrigo.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipTexto,
+                          abrigoEscolhido === abrigo.id && styles.chipTextoAtivo,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {abrigo.nome}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+
+              <Text style={styles.rotulo}>Quando</Text>
+
+              {/* A maior parte do que se marca é para hoje, amanhã ou os
+                  próximos dias. Os atalhos evitam digitar a data inteira. */}
+              <View style={styles.atalhos}>
+                {ATALHOS.map((atalho) => (
+                  <Pressable
+                    key={atalho.rotulo}
+                    style={({ pressed }) => [
+                      styles.atalho,
+                      data === dataDaquiA(atalho.dias) && styles.atalhoAtivo,
+                      pressed && styles.pressionado,
+                    ]}
+                    onPress={() => setData(dataDaquiA(atalho.dias))}
+                  >
+                    <Text
+                      style={[
+                        styles.atalhoTexto,
+                        data === dataDaquiA(atalho.dias) && styles.atalhoTextoAtivo,
+                      ]}
+                    >
+                      {atalho.rotulo}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.linhaData}>
+                <TextInput
+                  style={[styles.campo, styles.campoData]}
+                  placeholder="dd/mm/aaaa"
+                  placeholderTextColor="#9A8F7E"
+                  value={data}
+                  onChangeText={(texto) => setData(formatarCampoData(texto))}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                />
+
+                <TextInput
+                  style={[styles.campo, styles.campoHora]}
+                  placeholder="hh:mm"
+                  placeholderTextColor="#9A8F7E"
+                  value={hora}
+                  onChangeText={(texto) => setHora(formatarCampoHora(texto))}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                />
+              </View>
+
+              <Text style={styles.rotulo}>Observação (opcional)</Text>
+
+              <TextInput
+                style={[styles.campo, styles.campoTexto]}
+                placeholder="O que combinar, o que levar, com quem falar"
+                placeholderTextColor="#9A8F7E"
+                value={observacao}
+                onChangeText={setObservacao}
+                multiline
+                textAlignVertical="top"
+                maxLength={200}
+              />
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoSalvar, pressed && styles.pressionado]}
+                onPress={salvarCompromisso}
+              >
+                <Text style={styles.textoSalvar}>
+                  {editando ? 'Salvar alterações' : 'Marcar na agenda'}
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ------------------------------------------- camera e registro */}
+      <Modal
+        visible={cameraVisivel}
+        animationType="slide"
+        onRequestClose={fecharCamera}
+      >
+        <KeyboardAvoidingView
+          style={styles.telaCamera}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {!photo ? (
-            <View style={styles.cameraContainer}>
-              <CameraView 
-                style={styles.camera} 
-                facing="back" 
+            <View style={styles.areaCamera}>
+              <CameraView
+                style={styles.camera}
+                facing="back"
                 ref={cameraRef}
                 onCameraReady={() => setIsCameraReady(true)}
               />
-              <View style={styles.cameraOverlay}>
-                <View style={[styles.cameraHeader, { paddingTop: areaSegura.top + 20 }]}>
+
+              <View style={styles.sobreCamera}>
+                <View style={[styles.topoCamera, { paddingTop: areaSegura.top + 20 }]}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Fechar a câmera" onPress={closeModal} style={styles.glassButton}>
-                    <Ionicons name="close" size={28} color="#FFF" />
+                    accessibilityLabel="Fechar a câmera"
+                    onPress={fecharCamera}
+                    style={styles.botaoVidro}
+                  >
+                    <Ionicons name="close" size={28} color="#FFFFFF" />
                   </Pressable>
                 </View>
-                <View style={styles.cameraFooter}>
-                  <Pressable 
-                    onPress={takePicture} 
-                    style={[styles.captureRing, !isCameraReady && styles.captureDisabled]}
+
+                <View style={styles.baseCamera}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Tirar a foto"
+                    onPress={takePicture}
+                    style={[styles.anelDisparo, !isCameraReady && styles.disparoTravado]}
                     disabled={!isCameraReady}
                   >
-                    <View style={styles.captureButtonInner} />
+                    <View style={styles.disparo} />
                   </Pressable>
                 </View>
               </View>
             </View>
           ) : (
-            <ScrollView style={styles.formContainer} bounces={false}>
-              <View style={styles.previewHeader}>
-                <Image source={{ uri: photo }} style={styles.formPreviewImage} />
-                <LinearGradient colors={['rgba(0,0,0,0.6)', 'transparent']} style={styles.formPreviewGradient}>
+            <ScrollView style={styles.formulario} bounces={false}>
+              <View style={styles.previaTopo}>
+                <Image source={{ uri: photo }} style={styles.previa} />
+
+                <LinearGradient
+                  colors={['rgba(0,0,0,0.6)', 'transparent']}
+                  style={styles.previaSombra}
+                >
                   <View style={[styles.barraPrevia, { paddingTop: areaSegura.top + 16 }]}>
-                    <Pressable onPress={refazerFoto} style={styles.botaoPrevia}>
-                      <Ionicons name="camera-reverse" size={18} color="#FFF" />
-                      <Text style={styles.textoPrevia}>Refazer foto</Text>
+                    <Pressable onPress={trocarFoto} style={styles.botaoPrevia}>
+                      <Ionicons name="camera-reverse" size={18} color="#FFFFFF" />
+                      <Text style={styles.textoPrevia}>Trocar a foto</Text>
                     </Pressable>
 
                     <Pressable onPress={() => setFotoAmpliada(photo)} style={styles.botaoPrevia}>
-                      <Ionicons name="expand" size={18} color="#FFF" />
+                      <Ionicons name="expand" size={18} color="#FFFFFF" />
                       <Text style={styles.textoPrevia}>Ver inteira</Text>
                     </Pressable>
                   </View>
                 </LinearGradient>
               </View>
 
-              <View style={styles.formBody}>
-                <Text style={styles.formTitle}>
-                  {editando ? 'Editar Registro' : 'Detalhes do Registro'}
+              <View style={styles.corpoFormulario}>
+                <Text style={styles.formTitulo}>Registro da visita</Text>
+
+                <Text style={styles.formContexto}>
+                  {buscarTipo(registrandoEm.tipo).nome}
+                  {registrandoEm.abrigoNome ? ' — ' + registrandoEm.abrigoNome : ''}
                 </Text>
-                
-                <Text style={styles.inputLabel}>Título da Atividade</Text>
+
+                <Text style={styles.rotuloForm}>Título</Text>
+
                 <TextInput
-                  style={styles.input}
-                  placeholder="Ex: Entrega de Ração"
-                  placeholderTextColor="#999"
+                  style={styles.campoForm}
+                  placeholder="Ex.: Entrega das fraldas"
+                  placeholderTextColor="#9A8F7E"
                   value={title}
                   onChangeText={setTitle}
                   maxLength={50}
                 />
 
-                <Text style={styles.inputLabel}>Categoria</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagsContainer}>
-                  {TAGS.map(tag => (
-                    <Pressable 
-                      key={tag} 
-                      style={[styles.chip, selectedTag === tag && styles.chipActive]}
-                      onPress={() => setSelectedTag(tag)}
-                    >
-                      <Text style={[styles.chipText, selectedTag === tag && styles.chipTextActive]}>{tag}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+                <Text style={styles.rotuloForm}>Descrição (opcional)</Text>
 
-                <Text style={styles.inputLabel}>Descrição (Opcional)</Text>
                 <TextInput
-                  style={[styles.input, styles.textArea]}
+                  style={[styles.campoForm, styles.campoGrande]}
                   placeholder="Detalhes sobre o que aconteceu..."
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#9A8F7E"
                   value={description}
                   onChangeText={setDescription}
                   multiline
-                  numberOfLines={4}
                   textAlignVertical="top"
+                  maxLength={300}
                 />
 
-                <Pressable style={styles.saveAction} onPress={saveActivity}>
-                  <LinearGradient colors={[colors.primary, colors.primaryGradient]} style={styles.saveActionGradient}>
-                    <Ionicons name="checkmark-done" size={24} color="#FFF" />
-
-                    <Text style={styles.saveActionText}>
-                      {editando ? 'Salvar Alterações' : 'Salvar Registro'}
-                    </Text>
-                  </LinearGradient>
+                <Pressable
+                  style={({ pressed }) => [styles.botaoSalvar, pressed && styles.pressionado]}
+                  onPress={salvarRegistro}
+                >
+                  <Text style={styles.textoSalvar}>Salvar o registro</Text>
                 </Pressable>
               </View>
             </ScrollView>
@@ -442,211 +1027,712 @@ export default function ScheduleScreen() {
           {fotoEmTelaCheia()}
         </KeyboardAvoidingView>
       </Modal>
-
-      {!modalVisible && fotoEmTelaCheia()}
     </SafeAreaView>
   );
 }
 
+// Atalhos de data do formulário. Ficam fora do componente porque não
+// mudam nunca.
+const ATALHOS = [
+  { rotulo: 'Hoje', dias: 0 },
+  { rotulo: 'Amanhã', dias: 1 },
+  { rotulo: 'Em 3 dias', dias: 3 },
+  { rotulo: 'Em 1 semana', dias: 7 },
+];
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  safeArea: {
     backgroundColor: colors.backgroundLight,
   },
-  listContainer: {
-    paddingBottom: 100,
-    flexGrow: 1,
+
+  centralizado: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  emptyContainer: {
+
+  corpo: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginTop: 60,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
-  emptyIconCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(224, 122, 31, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+
+  titulo: {
+    fontSize: 24,
+    fontWeight: 'bold',
     color: colors.textMain,
-    marginBottom: 8,
   },
-  emptyText: {
-    color: '#666',
+
+  subtitulo: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    lineHeight: 19,
+    marginTop: 4,
+    marginBottom: 14,
+  },
+
+  abas: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 14,
+  },
+
+  aba: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+
+  abaAtiva: {
+    backgroundColor: colors.primary,
+  },
+
+  abaTexto: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#9A8F7E',
+  },
+
+  abaTextoAtivo: {
+    color: '#FFFFFF',
+  },
+
+  listaConteudo: {
+    paddingBottom: 100,
+  },
+
+  listaConteudoSolta: {
+    paddingBottom: 20,
+  },
+
+  listaVazia: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+
+  vazio: {
+    alignItems: 'center',
+    paddingBottom: 60,
+    paddingHorizontal: 20,
+  },
+
+  vazioIcone: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: '#FFF3E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+
+  vazioTitulo: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginBottom: 6,
+  },
+
+  textoVazio: {
+    fontSize: 14,
+    color: '#9A8F7E',
     textAlign: 'center',
-    fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 20,
   },
-  fabContainer: {
+
+  cartao: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  cartaoTopo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+
+  calendario: {
+    width: 50,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#FFF3E6',
+    alignItems: 'center',
+  },
+
+  calendarioPassado: {
+    backgroundColor: colors.backgroundLight,
+  },
+
+  dia: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  mes: {
+    fontSize: 11,
+    color: '#9A8F7E',
+    textTransform: 'uppercase',
+  },
+
+  cartaoTexto: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+
+  linhaTipo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  tipoNome: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 5,
+  },
+
+  abrigoNome: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginTop: 2,
+  },
+
+  abrigoSecundario: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  quando: {
+    fontSize: 13,
+    color: colors.supportBlue,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+
+  quandoPassado: {
+    color: '#9A8F7E',
+    fontWeight: 'normal',
+  },
+
+  observacao: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
+  acoesCartao: {
+    flexDirection: 'row',
+  },
+
+  acaoCartao: {
+    padding: 4,
+  },
+
+  botaoRegistrar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    marginTop: 12,
+  },
+
+  textoRegistrar: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 6,
+  },
+
+  registro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 12,
+  },
+
+  miniatura: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: '#F0E9DC',
+  },
+
+  registroTexto: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  registroTitulo: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  registroDescricao: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+
+  selo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+
+  seloTexto: {
+    fontSize: 10,
+    color: '#9A8F7E',
+    marginLeft: 4,
+  },
+
+  editar: {
+    padding: 6,
+  },
+
+  areaBotao: {
     position: 'absolute',
+    right: 16,
     bottom: 24,
-    alignSelf: 'center',
+    left: 16,
+    alignItems: 'center',
   },
-  fab: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    elevation: 8,
+
+  botaoPrincipal: {
+    borderRadius: 28,
+    overflow: 'hidden',
+
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
+    elevation: 8,
   },
-  fabGradient: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 32,
-    justifyContent: 'center',
+
+  botaoGradiente: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    paddingHorizontal: 26,
   },
-  activityCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-    gap: 16,
+
+  botaoTexto: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 9,
   },
-  activityImage: {
-    width: 90,
-    height: 90,
-    borderRadius: 12,
-    backgroundColor: '#F0F0F0',
-  },
-  activityInfo: {
+
+  fundoModal: {
     flex: 1,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  activityHeader: {
+
+  painel: {
+    maxHeight: '88%',
+    backgroundColor: colors.backgroundLight,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+  },
+
+  painelTopo: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    marginBottom: 6,
   },
-  activityTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+
+  painelTitulo: {
+    fontSize: 19,
+    fontWeight: 'bold',
     color: colors.textMain,
+  },
+
+  fechar: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  rotulo: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+
+  opcao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 12,
+    marginBottom: 8,
+  },
+
+  opcaoAtiva: {
+    borderColor: colors.primary,
+  },
+
+  opcaoTexto: {
     flex: 1,
+    marginHorizontal: 10,
+  },
+
+  opcaoNome: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  opcaoDescricao: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  promessa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+
+  promessaTexto: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  promessaItem: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  promessaAbrigo: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    marginTop: 1,
+  },
+
+  promessaUsar: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+
+  semAbrigo: {
+    fontSize: 12,
+    color: '#9A8F7E',
+    lineHeight: 17,
+  },
+
+  abrigos: {
+    flexGrow: 0,
+  },
+
+  chip: {
+    maxWidth: 180,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     marginRight: 8,
   },
-  deleteButton: {
-    padding: 4,
+
+  chipAtivo: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  activityDate: {
+
+  chipTexto: {
     fontSize: 13,
-    color: '#888',
-    marginTop: 2,
-    marginBottom: 4,
+    color: colors.textMain,
   },
-  activityDesc: {
-    fontSize: 14,
-    color: '#555',
+
+  chipTextoAtivo: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+
+  atalhos: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+  },
+
+  atalho: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
     marginBottom: 8,
-    lineHeight: 20,
   },
-  badgeContainer: {
+
+  atalhoAtivo: {
+    backgroundColor: '#FFF3E6',
+    borderColor: colors.primary,
+  },
+
+  atalhoTexto: {
+    fontSize: 12,
+    color: '#9A8F7E',
+  },
+
+  atalhoTextoAtivo: {
+    color: colors.primary,
+    fontWeight: 'bold',
+  },
+
+  linhaData: {
     flexDirection: 'row',
+  },
+
+  campo: {
+    height: 52,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: colors.textMain,
+  },
+
+  campoData: {
+    flex: 2,
+  },
+
+  campoHora: {
+    flex: 1,
+    marginLeft: 10,
+  },
+
+  campoTexto: {
+    height: 86,
+    paddingTop: 14,
+  },
+
+  botaoSalvar: {
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
     alignItems: 'center',
-    gap: 8,
-    marginTop: 'auto',
+    justifyContent: 'center',
+    marginTop: 20,
+    marginBottom: 10,
   },
-  tagBadge: {
-    backgroundColor: '#F2F2F2',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+
+  textoSalvar: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
-  tagBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#555',
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  badgeSuccess: {
-    backgroundColor: '#e8f5e9',
-  },
-  badgeWarning: {
-    backgroundColor: '#fff3e0',
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  modalContainer: {
+
+  telaCamera: {
     flex: 1,
     backgroundColor: colors.backgroundLight,
   },
-  cameraContainer: {
+
+  areaCamera: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
+
   camera: {
     flex: 1,
   },
-  cameraOverlay: {
+
+  sobreCamera: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
   },
-  cameraHeader: {
-    padding: 20,
+
+  topoCamera: {
+    paddingHorizontal: 20,
     alignItems: 'flex-start',
   },
-  glassButton: {
+
+  botaoVidro: {
     backgroundColor: 'rgba(0,0,0,0.3)',
     padding: 12,
     borderRadius: 30,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
+
+  baseCamera: {
+    paddingBottom: 34,
+    alignItems: 'center',
+  },
+
+  anelDisparo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  disparoTravado: {
+    opacity: 0.3,
+  },
+
+  disparo: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF',
+  },
+
+  formulario: {
+    flex: 1,
+  },
+
+  previaTopo: {
+    height: 250,
+    width: '100%',
+  },
+
+  previa: {
+    ...StyleSheet.absoluteFillObject,
+    resizeMode: 'cover',
+  },
+
+  previaSombra: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
   barraPrevia: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
   },
 
+  salvarFoto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 5,
+  },
+
+  salvarFotoTexto: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 4,
+  },
+
   botaoPrevia: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
     borderRadius: 20,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 9,
   },
 
   textoPrevia: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '600',
+  },
+
+  corpoFormulario: {
+    padding: 24,
+    paddingBottom: 60,
+    backgroundColor: colors.backgroundLight,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -24,
+  },
+
+  formTitulo: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.textMain,
+  },
+
+  formContexto: {
+    fontSize: 13,
+    color: '#9A8F7E',
+    lineHeight: 19,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+
+  rotuloForm: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.textMain,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+
+  campoForm: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0E9DC',
+    padding: 16,
+    fontSize: 16,
+    color: colors.textMain,
+  },
+
+  campoGrande: {
+    height: 100,
+    paddingTop: 14,
   },
 
   camadaFoto: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.94)',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 10,
   },
 
@@ -656,139 +1742,13 @@ const styles = StyleSheet.create({
   },
 
   dicaFoto: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontSize: 13,
     marginTop: 16,
     opacity: 0.7,
   },
 
-  lupa: {
-    position: 'absolute',
-    right: 4,
-    bottom: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cameraFooter: {
-    paddingBottom: 50,
-    alignItems: 'center',
-  },
-  captureRing: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'transparent',
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  captureDisabled: {
-    opacity: 0.3,
-  },
-  captureButtonInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FFF',
-  },
-  formContainer: {
-    flex: 1,
-  },
-  previewHeader: {
-    height: 250,
-    width: '100%',
-    position: 'relative',
-  },
-  formPreviewImage: {
-    ...StyleSheet.absoluteFillObject,
-    resizeMode: 'cover',
-  },
-  formPreviewGradient: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  formBody: {
-    padding: 24,
-    paddingBottom: 60,
-    backgroundColor: colors.backgroundLight,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    marginTop: -24,
-  },
-  formTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.textMain,
-    marginBottom: 24,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#555',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#FFF',
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: colors.textMain,
-    marginBottom: 20,
-  },
-  textArea: {
-    height: 100,
-  },
-  tagsContainer: {
-    flexDirection: 'row',
-    marginBottom: 24,
-  },
-  chip: {
-    backgroundColor: '#FFF',
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  chipTextActive: {
-    color: '#FFF',
-  },
-  saveAction: {
-    marginTop: 10,
-    borderRadius: 16,
-    overflow: 'hidden',
-    elevation: 4,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  saveActionGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 10,
-  },
-  saveActionText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: 'bold',
+  pressionado: {
+    opacity: 0.6,
   },
 });

@@ -16,7 +16,13 @@ import { acoesDoPerfil, ehGestor } from '../data/perfis';
 import { carregarConta } from '../services/auth';
 import { calcularDistancia, carregarAbrigos } from '../services/shelters';
 import { loadNeeds } from '../services/storage';
-import { carregarAtividades } from '../services/activities';
+import {
+  buscarTipo,
+  carregarAgenda,
+  compromissosDaConta,
+  ordenarAgenda,
+  quandoAcontece,
+} from '../services/agenda';
 import { carregarVistos, marcarVistos } from '../services/avisos';
 import { faltam, temMeta, textoDoQueFalta } from '../services/necessidades';
 import {
@@ -35,7 +41,7 @@ export default function HomeScreen(props) {
 
   const [conta, setConta] = useState(null);
   const [necessidades, setNecessidades] = useState([]);
-  const [atividades, setAtividades] = useState([]);
+  const [agenda, setAgenda] = useState([]);
   const [doacoes, setDoacoes] = useState([]);
   const [abrigos, setAbrigos] = useState([]);
   const [localizacao, setLocalizacao] = useState(null);
@@ -67,7 +73,7 @@ export default function HomeScreen(props) {
     try {
       const contaSalva = await carregarConta();
       const listaNecessidades = await loadNeeds();
-      const listaAtividades = await carregarAtividades();
+      const listaAgenda = await carregarAgenda();
       const listaDoacoes = await carregarDoacoes();
       const listaAbrigos = await carregarAbrigos();
       const listaVistos = await carregarVistos();
@@ -75,7 +81,7 @@ export default function HomeScreen(props) {
       setVistos(listaVistos);
       setConta(contaSalva);
       setNecessidades(listaNecessidades || []);
-      setAtividades(listaAtividades);
+      setAgenda(compromissosDaConta(listaAgenda, contaSalva));
       // O contador é do que esta conta doou, não do que passou pelo
       // aparelho: agora mais de uma conta mora aqui.
       setDoacoes(doacoesDaConta(listaDoacoes, contaSalva));
@@ -197,13 +203,18 @@ export default function HomeScreen(props) {
       });
     }
 
-    if (atividades.length > 0) {
+    // O compromisso mais próximo é o aviso mais útil da agenda: é o que
+    // a pessoa precisa lembrar que marcou.
+    const proximo = proximoCompromisso();
+
+    if (proximo) {
       avisos.push({
-        id: 'a' + atividades[0].id,
-        icone: 'camera',
+        id: 'c' + proximo.id,
+        icone: buscarTipo(proximo.tipo).icone,
         cor: colors.supportBlue,
-        titulo: 'Última atividade: ' + atividades[0].title,
-        texto: atividades[0].date,
+        titulo: proximo.titulo || buscarTipo(proximo.tipo).nome,
+        texto: quandoAcontece(proximo.quando) +
+          (proximo.abrigoNome ? ' — ' + proximo.abrigoNome : ''),
         destino: 'Agenda',
       });
     }
@@ -268,6 +279,10 @@ export default function HomeScreen(props) {
     const marcados = await marcarVistos(montarAvisos().map((aviso) => aviso.id));
 
     setVistos(marcados);
+  }
+
+  function proximoCompromisso() {
+    return ordenarAgenda(agenda).futuros[0] || null;
   }
 
   function irPara(destino) {
@@ -395,8 +410,11 @@ export default function HomeScreen(props) {
                 style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
                 onPress={() => irPara('Agenda')}
               >
-                <Text style={styles.statValue}>{atividades.length}</Text>
-                <Text style={styles.statLabel}>atividades</Text>
+                <Text style={styles.statValue}>
+                  {ordenarAgenda(agenda).futuros.length}
+                </Text>
+
+                <Text style={styles.statLabel}>na agenda</Text>
               </Pressable>
             ) : (
               <Pressable
@@ -563,30 +581,38 @@ export default function HomeScreen(props) {
             </Pressable>
           )}
 
-          <Text style={styles.sectionTitle}>Últimas Atividades</Text>
+          <Text style={styles.sectionTitle}>Sua agenda</Text>
 
-          {atividades.length > 0 ? (
+          {proximoCompromisso() ? (
             <Pressable
               style={({ pressed }) => [globalStyles.card, pressed && styles.pressionado]}
               onPress={() => irPara('Agenda')}
             >
               <View style={styles.activityHeader}>
-                <Text style={styles.activityDate}>{atividades[0].date}</Text>
+                <Text style={styles.activityDate}>
+                  {quandoAcontece(proximoCompromisso().quando)}
+                </Text>
 
                 <View style={styles.badgeTag}>
-                  <Text style={styles.badgeText}>{atividades[0].tag}</Text>
+                  <Text style={styles.badgeText}>
+                    {buscarTipo(proximoCompromisso().tipo).nome}
+                  </Text>
                 </View>
               </View>
 
-              <Text style={styles.activityTitle}>{atividades[0].title}</Text>
+              <Text style={styles.activityTitle}>
+                {proximoCompromisso().titulo ||
+                  proximoCompromisso().abrigoNome ||
+                  'Abrigo não informado'}
+              </Text>
 
               <View style={styles.activityLocation}>
-                <Ionicons name="images-outline" size={16} color="#666" />
+                <Ionicons name="calendar-outline" size={16} color="#666" />
 
                 <Text style={styles.activityLocationText}>
-                  {atividades.length === 1
-                    ? '1 atividade registrada'
-                    : atividades.length + ' atividades registradas'}
+                  {ordenarAgenda(agenda).futuros.length === 1
+                    ? '1 compromisso marcado'
+                    : ordenarAgenda(agenda).futuros.length + ' compromissos marcados'}
                 </Text>
               </View>
             </Pressable>
@@ -595,13 +621,13 @@ export default function HomeScreen(props) {
               style={({ pressed }) => [globalStyles.card, pressed && styles.pressionado]}
               onPress={() => irPara('Agenda')}
             >
-              <Text style={styles.activityTitle}>Nenhuma atividade ainda</Text>
+              <Text style={styles.activityTitle}>Nada marcado</Text>
 
               <View style={styles.activityLocation}>
-                <Ionicons name="camera-outline" size={16} color="#666" />
+                <Ionicons name="calendar-outline" size={16} color="#666" />
 
                 <Text style={styles.activityLocationText}>
-                  Toque para registrar a primeira
+                  Toque para marcar uma visita ou uma entrega
                 </Text>
               </View>
             </Pressable>
@@ -635,7 +661,7 @@ export default function HomeScreen(props) {
             {avisosDoPainel.length === 0 ? (
               <Text style={styles.painelVazio}>
                 {avisos.length === 0
-                  ? 'Nenhum aviso por enquanto. Eles aparecem conforme você usa o aplicativo: necessidades cadastradas, atividades registradas e doações confirmadas.'
+                  ? 'Nenhum aviso por enquanto. Eles aparecem conforme você usa o aplicativo: necessidades cadastradas, compromissos marcados e doações registradas.'
                   : 'Nada novo por aqui. O que você já leu continua nas abas de sempre — as necessidades em Doações, os registros na Agenda.'}
               </Text>
             ) : (

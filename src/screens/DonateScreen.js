@@ -29,12 +29,12 @@ import {
   registrarDoacao,
 } from '../services/donations';
 import {
+  MAOS,
   PIX,
   SITE,
   TRANSFERENCIA,
   formasDeDinheiro,
-  formasQueFaltam,
-  juntarComE,
+  formasDisponiveis,
   textoDaTransferencia,
 } from '../services/doacao';
 import { montarCodigoPix } from '../services/pix';
@@ -114,7 +114,7 @@ export default function DonateScreen(props) {
 
       setAbrigoCompleto(achado || null);
 
-      const formas = formasDeDinheiro(achado);
+      const formas = formasDisponiveis(achado);
 
       if (formas.length > 0) {
         setForma(formas[0].id);
@@ -134,6 +134,10 @@ export default function DonateScreen(props) {
 
   function emReais() {
     return centavos / 100;
+  }
+
+  function textoDoValor() {
+    return formatarReais(emReais());
   }
 
   // Monta o código Pix do abrigo com o valor já preenchido. Sem chave
@@ -466,6 +470,55 @@ export default function DonateScreen(props) {
                 os que o abrigo cadastrou.
               </Text>
             </View>
+          ) : forma === MAOS ? (
+            <View style={styles.pagamento}>
+              <Text style={styles.secaoPagamento}>Leve no abrigo</Text>
+
+              <Text style={styles.explicacaoPagamento}>
+                Combine o horário pelo contato do abrigo antes de ir — nem
+                todo abrigo tem alguém para receber a qualquer hora.
+              </Text>
+
+              <Text style={styles.codigo} selectable>
+                {abrigoCompleto.endereco}
+                {abrigoCompleto.enderecoDados && abrigoCompleto.enderecoDados.referencia
+                  ? '\nReferência: ' + abrigoCompleto.enderecoDados.referencia
+                  : ''}
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
+                onPress={() =>
+                  props.navigation.navigate('Tabs', {
+                    screen: 'Agenda',
+                  })
+                }
+              >
+                <Ionicons name="calendar" size={19} color="#FFFFFF" />
+                <Text style={styles.textoBotaoCopiar}>Marcar a entrega na agenda</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.botaoEnviar, pressed && styles.pressionado]}
+                onPress={() => copiar(abrigoCompleto.endereco)}
+              >
+                <Ionicons
+                  name={copiado ? 'checkmark' : 'copy-outline'}
+                  size={18}
+                  color={colors.primary}
+                />
+
+                <Text style={styles.textoBotaoEnviar}>
+                  {copiado ? 'Endereço copiado' : 'Copiar o endereço'}
+                </Text>
+              </Pressable>
+
+              <Text style={styles.avisoPagamento}>
+                Entregando em mãos, peça o recibo ao abrigo. O InfoAbrigo só
+                registra que você combinou — quem confirma o que recebeu é a
+                instituição.
+              </Text>
+            </View>
           ) : forma === SITE ? (
             <View style={styles.pagamento}>
               <Text style={styles.secaoPagamento}>Continue na página do abrigo</Text>
@@ -594,68 +647,104 @@ export default function DonateScreen(props) {
               para caminho que não existe: quem não cadastrou Pix não
               mostra Pix. A seção aparece mesmo com uma forma só, porque
               escondê-la fazia parecer que o aplicativo só sabe fazer Pix. */}
-          {formasDeDinheiro(abrigoCompleto).length > 0 && (
-            <View>
-              <Text style={styles.secao}>Como você quer doar</Text>
+          {/* As quatro formas aparecem sempre. Mostrando só as que o
+              abrigo cadastrou, um abrigo com Pix apenas fazia parecer que
+              o aplicativo não sabe fazer o resto — e quem administra
+              nunca descobria que podia ter preenchido. */}
+          <View>
+            <Text style={styles.secao}>Como você quer doar</Text>
 
-              {formasDeDinheiro(abrigoCompleto).map((opcao) => (
-                <Pressable
-                  key={opcao.id}
-                  style={({ pressed }) => [
-                    styles.forma,
-                    forma === opcao.id && styles.formaAtiva,
-                    pressed && styles.pressionado,
+            {formasDeDinheiro(abrigoCompleto).map((opcao) => (
+              <Pressable
+                key={opcao.id}
+                style={({ pressed }) => [
+                  styles.forma,
+                  forma === opcao.id && opcao.disponivel && styles.formaAtiva,
+                  !opcao.disponivel && styles.formaIndisponivel,
+                  pressed && opcao.disponivel && styles.pressionado,
+                ]}
+                onPress={() => opcao.disponivel && setForma(opcao.id)}
+                disabled={!opcao.disponivel}
+              >
+                <View
+                  style={[
+                    styles.formaIcone,
+                    forma === opcao.id && opcao.disponivel && styles.formaIconeAtivo,
                   ]}
-                  onPress={() => setForma(opcao.id)}
                 >
-                  <View
+                  <Ionicons
+                    name={opcao.icone}
+                    size={19}
+                    color={
+                      !opcao.disponivel
+                        ? '#C9BFB1'
+                        : forma === opcao.id
+                        ? '#FFFFFF'
+                        : colors.primary
+                    }
+                  />
+                </View>
+
+                <View style={styles.formaTexto}>
+                  <Text
                     style={[
-                      styles.formaIcone,
-                      forma === opcao.id && styles.formaIconeAtivo,
+                      styles.formaNome,
+                      !opcao.disponivel && styles.formaNomeIndisponivel,
                     ]}
                   >
-                    <Ionicons
-                      name={opcao.icone}
-                      size={19}
-                      color={forma === opcao.id ? '#FFFFFF' : colors.primary}
-                    />
-                  </View>
+                    {opcao.nome}
+                  </Text>
 
-                  <View style={styles.formaTexto}>
-                    <Text style={styles.formaNome}>{opcao.nome}</Text>
-                    <Text style={styles.formaDescricao}>{opcao.descricao}</Text>
-                  </View>
+                  <Text style={styles.formaDescricao}>
+                    {opcao.disponivel ? opcao.descricao : opcao.motivo}
+                  </Text>
+                </View>
 
+                {opcao.disponivel ? (
                   <Ionicons
                     name={forma === opcao.id ? 'radio-button-on' : 'radio-button-off'}
                     size={19}
                     color={forma === opcao.id ? colors.primary : '#C9BFB1'}
                   />
-                </Pressable>
-              ))}
-
-              {formasQueFaltam(abrigoCompleto).length > 0 ? (
-                <Text style={styles.faltam}>
-                  Este abrigo ainda não cadastrou{' '}
-                  {juntarComE(formasQueFaltam(abrigoCompleto))}. Quem
-                  administra o abrigo acrescenta no cadastro dele.
-                </Text>
-              ) : null}
-            </View>
-          )}
+                ) : (
+                  <Ionicons name="lock-closed-outline" size={17} color="#C9BFB1" />
+                )}
+              </Pressable>
+            ))}
+          </View>
 
           <Text style={styles.secao}>Quanto você quer doar</Text>
 
+          {/* O cursor fica preso no fim, de propósito. O campo se
+              reformata a cada tecla, e no Android isso faz o cursor
+              pular para o começo — as teclas seguintes entravam na
+              frente do número e o valor saía trocado. Aqui não existe
+              editar no meio: dígito digitado empurra os outros para a
+              esquerda, como na maquininha do cartão. */}
           <View style={styles.campoValor}>
             <Text style={styles.cifrao}>R$</Text>
 
             <TextInput
               style={styles.entradaValor}
-              value={formatarReais(emReais())}
+              value={textoDoValor()}
               onChangeText={digitarValor}
+              selection={{
+                start: textoDoValor().length,
+                end: textoDoValor().length,
+              }}
               keyboardType="number-pad"
-              selectTextOnFocus
             />
+
+            {centavos > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Apagar o valor"
+                style={({ pressed }) => [styles.limpar, pressed && styles.pressionado]}
+                onPress={() => setCentavos(0)}
+              >
+                <Ionicons name="close-circle" size={20} color="#C9BFB1" />
+              </Pressable>
+            ) : null}
           </View>
 
           <View style={styles.valores}>
@@ -865,12 +954,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  faltam: {
-    fontSize: 12,
+  formaIndisponivel: {
+    backgroundColor: colors.backgroundLight,
+    borderColor: '#F0E9DC',
+  },
+
+  formaNomeIndisponivel: {
     color: '#9A8F7E',
-    lineHeight: 17,
-    marginTop: 2,
-    marginBottom: 4,
+  },
+
+  limpar: {
+    paddingHorizontal: 4,
   },
 
   campoValor: {

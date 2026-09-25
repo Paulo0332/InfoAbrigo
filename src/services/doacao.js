@@ -14,6 +14,7 @@
 export const PIX = 'pix';
 export const TRANSFERENCIA = 'transferencia';
 export const SITE = 'site';
+export const MAOS = 'maos';
 
 export function temPix(abrigo) {
   return Boolean(abrigo && abrigo.chavePix);
@@ -86,6 +87,13 @@ export function temSite(abrigo) {
   return Boolean(abrigo && abrigo.linkDoacao);
 }
 
+// Entregar o dinheiro no abrigo é forma de doação como qualquer outra, e
+// para muita gente é a preferida: entrega em mãos, conhece o lugar e vê
+// para onde foi. Só precisa de endereço, que todo abrigo cadastrado tem.
+export function temEntregaEmMaos(abrigo) {
+  return Boolean(abrigo && abrigo.endereco);
+}
+
 export function temApadrinhamento(abrigo) {
   return Boolean(abrigo && abrigo.apadrinhamento);
 }
@@ -131,35 +139,50 @@ export function juntarComE(lista) {
   return lista.slice(0, -1).join(', ') + ' e ' + lista[lista.length - 1];
 }
 
+// As quatro formas de doar dinheiro, sempre todas.
+//
+// Antes a lista trazia só as que o abrigo tinha cadastrado, e as outras
+// nem apareciam — com um abrigo que só tinha Pix, a tela dava a entender
+// que o aplicativo não sabe fazer o resto. Agora todas aparecem, e a que
+// não está disponível diz por quê: é informação para quem doa e é recado
+// para quem administra o abrigo.
 export function formasDeDinheiro(abrigo) {
-  const formas = [];
-
-  if (temPix(abrigo)) {
-    formas.push({
+  return [
+    {
       id: PIX,
       nome: 'Pix',
       icone: 'flash',
       descricao: 'Código gerado na hora, com o valor já preenchido',
-    });
-  }
-
-  if (temTransferencia(abrigo)) {
-    formas.push({
+      disponivel: temPix(abrigo),
+      motivo: 'O abrigo ainda não cadastrou a chave Pix',
+    },
+    {
       id: TRANSFERENCIA,
       nome: 'Transferência',
       icone: 'business',
       descricao: 'Dados da conta para transferir ou depositar',
-    });
-  }
-
-  if (temSite(abrigo)) {
-    formas.push({
+      disponivel: temTransferencia(abrigo),
+      motivo: 'O abrigo ainda não cadastrou banco, agência e conta',
+    },
+    {
+      id: MAOS,
+      nome: 'Entregar em mãos',
+      icone: 'walk',
+      descricao: 'Levar no abrigo, com o endereço e o horário combinados',
+      disponivel: temEntregaEmMaos(abrigo),
+      motivo: 'O abrigo ainda não tem endereço cadastrado',
+    },
+    {
       id: SITE,
-      nome: 'Cartão',
+      nome: 'Cartão ou boleto',
       icone: 'card',
       descricao: 'Cartão, boleto ou doação mensal, na página do abrigo',
-    });
-  }
+      disponivel: temSite(abrigo),
+      motivo: 'O abrigo ainda não cadastrou uma página de doação',
+    },
+  ];
+}
 
-  return formas;
+export function formasDisponiveis(abrigo) {
+  return formasDeDinheiro(abrigo).filter((forma) => forma.disponivel);
 }

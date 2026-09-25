@@ -59,7 +59,7 @@ export function podeGerenciarNecessidades(conta) {
 }
 
 // O que cada perfil faz primeiro. A Home era igual para todo mundo: quem
-// só queria doar via "Registrar", que é tarefa de quem trabalha no
+// só queria doar via a agenda do abrigo, que é tarefa de quem trabalha no
 // abrigo, e quem administra via "Doar", como se fosse doar para si mesmo.
 //
 // O destino é o nome da tela. Uns são abas e outros são telas de fora das
@@ -80,10 +80,13 @@ const DOAR = {
   destino: 'Donate',
 };
 
-const REGISTRAR = {
-  id: 'registrar',
-  rotulo: 'Registrar',
-  icone: 'camera',
+// A aba deixou de ser um álbum de fotos e virou agenda de compromissos.
+// O atalho ficou para trás: chamava "Registrar", com ícone de câmera, e
+// levava para uma tela de visitas marcadas.
+const AGENDA = {
+  id: 'agenda',
+  rotulo: 'Agenda',
+  icone: 'calendar',
   cor: colors.supportPink,
   destino: 'Agenda',
 };
@@ -105,8 +108,8 @@ const HISTORICO = {
 };
 
 const ACOES = {
-  gestor: [NECESSIDADES, REGISTRAR, ABRIGOS],
-  voluntario: [REGISTRAR, ABRIGOS, DOAR],
+  gestor: [NECESSIDADES, AGENDA, ABRIGOS],
+  voluntario: [AGENDA, ABRIGOS, DOAR],
   doador: [DOAR, ABRIGOS, HISTORICO],
   visitante: [ABRIGOS, DOAR, NECESSIDADES],
 };

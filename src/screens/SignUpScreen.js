@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { PERFIS } from '../data/perfis';
+import { PERGUNTAS } from '../data/perguntas';
 import {
   CNPJ_DEMONSTRACAO,
   cnpjValido,
@@ -25,16 +26,6 @@ import {
 import { carregarContas, emailJaUsado, salvarConta } from '../services/auth';
 import { novoSal, resumir, resumirResposta } from '../services/senha';
 import { colors } from '../theme/colors';
-
-// Perguntas fixas para a recuperação. Escolher de uma lista é melhor que
-// escrever a pergunta: quem escreve costuma criar uma que não lembra
-// depois, e a resposta livre já basta para não ser adivinhável.
-const PERGUNTAS = [
-  'Qual era o nome do seu primeiro animal de estimação?',
-  'Em que cidade a sua mãe nasceu?',
-  'Qual foi o nome da sua primeira escola?',
-  'Qual é o seu prato preferido?',
-];
 
 export default function SignUpScreen(props) {
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import CameraFoto from '../components/CameraFoto';
+import EscolherNoMapa from '../components/EscolherNoMapa';
 import { carregarConta } from '../services/auth';
 import {
   celularValido,
@@ -44,9 +47,10 @@ import { colors } from '../theme/colors';
 // De onde veio o ponto marcado no mapa. A pessoa precisa saber: o ponto
 // do CEP costuma cair no meio da via, e às vezes no centro da cidade.
 const TEXTO_DA_ORIGEM = {
-  endereco: 'Ponto do endereço digitado.',
+  endereco: 'Ponto do endereço digitado. Se caiu torto, conserte no mapa.',
   cep: 'Ponto aproximado, vindo do CEP. Confira se caiu no lugar certo.',
   gps: 'Ponto do aparelho, onde você está agora.',
+  mapa: 'Ponto marcado por você no mapa.',
 };
 
 export default function RegisterShelterScreen(props) {
@@ -111,6 +115,19 @@ export default function RegisterShelterScreen(props) {
   );
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
+
+  // A foto do abrigo é o que faz a lista deixar de ser uma fila de nomes.
+  // Quem vai doar reconhece o lugar, e quem administra mostra o trabalho.
+  const [foto, setFoto] = useState(
+    abrigoEditado ? abrigoEditado.foto || null : null
+  );
+  const [camera, setCamera] = useState(false);
+
+  // Marcar tocando no mapa. As outras duas formas são aproximações: o CEP
+  // aponta para a via e o geocodificador acerta a rua mas erra o número.
+  // Para quem conhece o lugar, a mão é a única forma exata.
+  const [escolhendoNoMapa, setEscolhendoNoMapa] = useState(false);
+  const [ondeEstou, setOndeEstou] = useState(null);
   // O endereço é guardado campo a campo, e não como um texto só: assim dá
   // para corrigir o que o CEP trouxe errado, preencher à mão quando o CEP
   // é genérico e não devolve rua, e ainda montar a busca da coordenada.
@@ -148,6 +165,7 @@ export default function RegisterShelterScreen(props) {
       const posicao = await Location.getCurrentPositionAsync({});
 
       setLocalizacao(posicao.coords);
+      setOndeEstou(posicao.coords);
       setOrigemPonto('gps');
     } catch (error) {
       console.log('Erro ao obter a localização:', error);
@@ -159,6 +177,40 @@ export default function RegisterShelterScreen(props) {
     } finally {
       setBuscando(false);
     }
+  }
+
+  // Consulta a posição sem pedir nada: serve só para o mapa de escolha
+  // abrir perto de quem cadastra, em vez de no centro do país.
+  async function ondeAPessoaEsta() {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+
+      if (status !== 'granted') {
+        return;
+      }
+
+      const posicao = await Location.getCurrentPositionAsync({});
+
+      setOndeEstou(posicao.coords);
+    } catch (error) {
+      console.log('Sem posição para centralizar o mapa:', error);
+    }
+  }
+
+  function abrirMapa() {
+    ondeAPessoaEsta();
+    setEscolhendoNoMapa(true);
+  }
+
+  function marcarNoMapa(ponto) {
+    setEscolhendoNoMapa(false);
+
+    if (ponto == null) {
+      return;
+    }
+
+    setLocalizacao(ponto);
+    setOrigemPonto('mapa');
   }
 
   function digitarCep(texto) {
@@ -451,6 +503,7 @@ export default function RegisterShelterScreen(props) {
           criancas: quantidade,
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
+          foto: foto,
           chavePix: chavePix.trim(),
           banco: bancoAtual(),
           linkDoacao: normalizarLink(linkDoacao),
@@ -472,6 +525,7 @@ export default function RegisterShelterScreen(props) {
           criancas: quantidade,
           contatos: contatosAtuais(),
           contato: resumirContatos(contatosAtuais()),
+          foto: foto,
           chavePix: chavePix.trim(),
           banco: bancoAtual(),
           linkDoacao: normalizarLink(linkDoacao),
@@ -593,6 +647,46 @@ export default function RegisterShelterScreen(props) {
           keyboardType="number-pad"
           maxLength={4}
         />
+
+        <Text style={styles.titulo}>Foto do abrigo</Text>
+
+        <Text style={styles.ajuda}>
+          Uma foto da fachada ou da área comum. É o que faz a lista deixar
+          de ser uma fila de nomes: quem vai levar uma doação reconhece o
+          lugar antes de chegar.
+        </Text>
+
+        {foto ? (
+          <View style={styles.fotoArea}>
+            <Image source={{ uri: foto }} style={styles.foto} resizeMode="cover" />
+
+            <View style={styles.fotoAcoes}>
+              <Pressable
+                style={({ pressed }) => [styles.fotoBotao, pressed && styles.pressionado]}
+                onPress={() => setCamera(true)}
+              >
+                <Ionicons name="camera-reverse" size={17} color="#FFFFFF" />
+                <Text style={styles.fotoBotaoTexto}>Trocar</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.fotoBotao, pressed && styles.pressionado]}
+                onPress={() => setFoto(null)}
+              >
+                <Ionicons name="trash-outline" size={17} color="#FFFFFF" />
+                <Text style={styles.fotoBotaoTexto}>Remover</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.fotoVazia, pressed && styles.pressionado]}
+            onPress={() => setCamera(true)}
+          >
+            <Ionicons name="camera" size={26} color={colors.primary} />
+            <Text style={styles.fotoVaziaTexto}>Tirar uma foto do abrigo</Text>
+          </Pressable>
+        )}
 
         <Text style={styles.titulo}>Contatos</Text>
 
@@ -918,6 +1012,23 @@ export default function RegisterShelterScreen(props) {
 
         <Text style={styles.rotulo}>Ponto no mapa</Text>
 
+        {/* Tocar no mapa vem primeiro porque é o jeito exato. Os outros
+            dois são aproximações: o CEP aponta para a via, às vezes para o
+            centro da cidade, e o geocodificador acerta a rua mas erra o
+            número e o lado. Quem conhece o lugar aponta e pronto. */}
+        <Pressable
+          style={({ pressed }) => [styles.botaoMapa, pressed && styles.pressionado]}
+          onPress={abrirMapa}
+        >
+          <Ionicons name="map" size={20} color="#FFFFFF" />
+
+          <Text style={styles.textoBotaoMapa}>
+            {localizacao ? 'Ajustar o ponto no mapa' : 'Escolher no mapa'}
+          </Text>
+        </Pressable>
+
+        <Text style={styles.ou}>ou</Text>
+
         <Pressable
           style={({ pressed }) => [styles.botaoLocal, pressed && styles.pressionado]}
           onPress={localizarNoMapa}
@@ -994,6 +1105,24 @@ export default function RegisterShelterScreen(props) {
       </ScrollView>
       </KeyboardAvoidingView>
 
+      <EscolherNoMapa
+        visivel={escolhendoNoMapa}
+        inicial={localizacao}
+        localizacao={ondeEstou}
+        aoFechar={() => setEscolhendoNoMapa(false)}
+        aoConfirmar={marcarNoMapa}
+      />
+
+      <CameraFoto
+        visivel={camera}
+        titulo="Fotografe o abrigo"
+        aoFechar={() => setCamera(false)}
+        aoConfirmar={(uri) => {
+          setFoto(uri);
+          setCamera(false);
+        }}
+      />
+
     </SafeAreaView>
   );
 }
@@ -1048,6 +1177,62 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
+  fotoArea: {
+    height: 170,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#F0E9DC',
+  },
+
+  foto: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  fotoAcoes: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    flexDirection: 'row',
+  },
+
+  fotoBotao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 8,
+  },
+
+  fotoBotaoTexto: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 5,
+  },
+
+  fotoVazia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 92,
+    borderRadius: 14,
+    borderWidth: 1,
+    // Tracejado com canto arredondado o iOS desenha como linha contínua,
+    // então os dois sistemas mostravam coisas diferentes. Linha contínua
+    // é igual nos dois.
+    borderColor: colors.primary,
+    backgroundColor: '#FFF3E6',
+  },
+
+  fotoVaziaTexto: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 8,
+  },
+
   retornoChave: {
     fontSize: 12,
     color: colors.supportGreen,
@@ -1083,6 +1268,22 @@ const styles = StyleSheet.create({
     borderColor: '#F0E9DC',
     paddingHorizontal: 16,
     fontSize: 16,
+  },
+
+  botaoMapa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+
+  textoBotaoMapa: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
 
   botaoLocal: {

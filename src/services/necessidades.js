@@ -141,6 +141,13 @@ export function textoDoQueFalta(need) {
   const restam = faltam(need);
 
   if (restam === 0) {
+    // Tudo prometido e nada entregue ainda. O zero é verdade, mas
+    // responde a outra pergunta: quem acabou de completar a meta quer
+    // ver o total que vem vindo, e um "0 de 10" ali parece defeito.
+    if (recebidos === 0) {
+      return 'Tudo prometido — ' + alvo + sufixo + ' a caminho';
+    }
+
     return 'Tudo prometido — ' + recebidos + ' de ' + alvo + sufixo + ' já chegaram';
   }
 
