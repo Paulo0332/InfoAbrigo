@@ -811,8 +811,8 @@ export default function MapScreen(props) {
     return rota != null && rota.abrigoId === abrigo.id ? rota : null;
   }
 
-  // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
-  // interface, não de segurança: sem servidor ninguém valida nada.
+  // Só quem cadastrou o abrigo vê os botões de editar e excluir. A garantia de
+  // verdade é do servidor, que recusa a alteração vinda de outra conta.
   function souDono(abrigo) {
     return ehDono(abrigo, conta);
   }

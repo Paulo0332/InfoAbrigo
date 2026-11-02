@@ -45,3 +45,7 @@ yarn-error.*
 *.docx
 scripts/
 docs/
+
+# local env files
+.env
+.env.local

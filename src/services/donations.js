@@ -1,6 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { gravarComPedido, gravarLista, lerRegistros } from './bancoLocal';
+import { avisarMudanca, garantirAtualizado } from './sincronizacao';
 
-const STORAGE_KEY = '@infoabrigo:doacoes';
+const COLECAO = 'doacoes';
 
 // Uma doação é de dinheiro ou de um item da lista do abrigo. Os dois
 // moram no mesmo histórico, porque para quem doa é tudo ajuda; o que
@@ -15,8 +16,8 @@ export function tipoDaDoacao(doacao) {
 
 // Confirmar a identidade não é pagar. A biometria diz que foi você quem
 // pediu o código de pagamento; quem cobra é o banco, no passo seguinte, e
-// o aplicativo não tem como saber se a transferência aconteceu — não há
-// servidor nem aviso do banco chegando aqui.
+// o aplicativo não tem como saber se a transferência aconteceu — nenhum
+// aviso do banco chega aqui.
 //
 // Por isso a doação nasce pendente e só vira concluída quando a própria
 // pessoa diz que pagou. Dar como feita na hora enchia o histórico de
@@ -36,7 +37,7 @@ export function estaPendente(doacao) {
 
 // Marcar como paga é a pessoa anotando para si mesma, e nada mais. O
 // aplicativo não confere: conferir um Pix exige o banco que recebeu
-// avisar alguém, o que é servidor e integração bancária.
+// avisar alguém, o que é integração bancária.
 //
 // Por isso esta marcação nunca é apresentada como confirmação do abrigo.
 // A tela diz "você marcou como paga", e não "confirmada" — e dá para
@@ -47,7 +48,7 @@ export function estaPendente(doacao) {
 // oferece logo depois de marcar.
 export async function confirmarPagamento(id) {
   try {
-    const atuais = await carregarDoacoes();
+    const atuais = await lerRegistros(COLECAO);
 
     const nova = atuais.map((doacao) => {
       if (doacao.id !== id) {
@@ -61,7 +62,8 @@ export async function confirmarPagamento(id) {
       };
     });
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {
@@ -73,9 +75,9 @@ export async function confirmarPagamento(id) {
 
 export async function carregarDoacoes() {
   try {
-    const dados = await AsyncStorage.getItem(STORAGE_KEY);
+    await garantirAtualizado();
 
-    return dados != null ? JSON.parse(dados) : [];
+    return await lerRegistros(COLECAO);
   } catch (error) {
     console.log('Erro ao carregar as doações:', error);
 
@@ -85,7 +87,8 @@ export async function carregarDoacoes() {
 
 export async function salvarDoacoes(lista) {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+    await gravarLista(COLECAO, lista);
+    avisarMudanca();
   } catch (error) {
     console.log('Erro ao salvar as doações:', error);
 
@@ -98,10 +101,11 @@ export async function salvarDoacoes(lista) {
 // de que aqui a lista vem do disco em vez do estado da tela.
 export async function registrarDoacao(doacao) {
   try {
-    const atuais = await carregarDoacoes();
+    const atuais = await lerRegistros(COLECAO);
     const nova = [doacao, ...atuais];
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {
@@ -115,10 +119,11 @@ export async function registrarDoacao(doacao) {
 // promessa sai do histórico junto com a reserva.
 export async function apagarDoacao(id) {
   try {
-    const atuais = await carregarDoacoes();
+    const atuais = await lerRegistros(COLECAO);
     const nova = atuais.filter((doacao) => doacao.id !== id);
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {
@@ -137,7 +142,7 @@ export async function apagarDoacao(id) {
 // faz sentido, porque quem recebe é quem sabe que chegou.
 export async function atualizarSituacao(id, situacao) {
   try {
-    const atuais = await carregarDoacoes();
+    const atuais = await lerRegistros(COLECAO);
 
     const nova = atuais.map((doacao) => {
       if (doacao.id !== id) {
@@ -155,7 +160,11 @@ export async function atualizarSituacao(id, situacao) {
       return trocada;
     });
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    // A doação pode ser de outra pessoa, e nem estar neste aparelho: é o abrigo
+    // confirmando o que recebeu. Por isso vai como um pedido próprio, e não como
+    // uma regravação do documento, que o servidor recusaria.
+    await gravarComPedido(COLECAO, nova, 'situacao', id, { situacao: situacao });
+    avisarMudanca();
 
     return nova;
   } catch (error) {
@@ -167,7 +176,7 @@ export async function atualizarSituacao(id, situacao) {
 
 export async function desfazerPagamento(id) {
   try {
-    const atuais = await carregarDoacoes();
+    const atuais = await lerRegistros(COLECAO);
 
     const nova = atuais.map((doacao) => {
       if (doacao.id !== id) {
@@ -181,7 +190,8 @@ export async function desfazerPagamento(id) {
       return voltando;
     });
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {

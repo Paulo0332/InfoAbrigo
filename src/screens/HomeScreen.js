@@ -24,6 +24,7 @@ import {
   quandoAcontece,
 } from '../services/agenda';
 import { carregarVistos, marcarVistos } from '../services/avisos';
+import { atualizarBadge } from '../services/recursosNativos';
 import { faltam, temMeta, textoDoQueFalta } from '../services/necessidades';
 import {
   ITEM,
@@ -331,6 +332,11 @@ export default function HomeScreen(props) {
 
   const avisos = montarAvisos();
   const novos = naoVistos();
+
+  // O mesmo número do sino, no ícone do aplicativo.
+  useEffect(() => {
+    atualizarBadge(novos.length);
+  }, [novos.length]);
   const necessidadesAbertas = abertas();
 
   return (

@@ -254,7 +254,7 @@ export default function HistoryScreen(props) {
             ListFooterComponent={
               doacoes.length > 0 ? (
                 <Text style={styles.rodape}>
-                  Este histórico é a sua anotação neste aparelho. O
+                  Este histórico é a sua anotação. O
                   aplicativo não confere pagamento e não emite recibo —
                   quem emite recibo, inclusive para deduzir no imposto, é a
                   própria instituição.
@@ -387,10 +387,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.primary,
     marginTop: 2,
-  },
-
-  pressionado: {
-    opacity: 0.6,
   },
 
   entregue: {

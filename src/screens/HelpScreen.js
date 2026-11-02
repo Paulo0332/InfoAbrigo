@@ -217,7 +217,7 @@ export default function HelpScreen(props) {
           <Text style={styles.aviso}>Carregando...</Text>
         ) : abrigo == null ? (
           <Text style={styles.aviso}>
-            Este abrigo não está mais cadastrado neste aparelho.
+            Este abrigo não está mais cadastrado.
           </Text>
         ) : (
           <View>

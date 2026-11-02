@@ -26,7 +26,10 @@ import {
   salvarConta,
 } from '../services/auth';
 import CameraFoto from '../components/CameraFoto';
+import { temServidor } from '../services/api';
+import { apagarDoServidor, limparRastros } from '../services/contaRemota';
 import { apagarDadosDaConta } from '../services/limpeza';
+import { estadoDaSincronizacao } from '../services/sincronizacao';
 import { buscarPerfil } from '../data/perfis';
 import { PERGUNTAS } from '../data/perguntas';
 import { escolherDoCelular } from '../services/galeria';
@@ -37,9 +40,27 @@ import { colors } from '../theme/colors';
 
 const VERSAO = '1.0.0';
 
+// Diz onde os dados estão, para a pessoa nunca achar que algo subiu sem ter subido.
+function textoDaSincronia(estado) {
+  if (estado == null || estado.situacao === 'sem-servidor') {
+    return 'Nome, e-mail e senha ficam só neste aparelho.';
+  }
+
+  if (estado.situacao === 'sem-sessao') {
+    return 'Seus dados estão só neste aparelho até você entrar com a senha, conectado à internet.';
+  }
+
+  if (estado.pendentes > 0) {
+    return 'Há alterações esperando conexão para chegar ao servidor.';
+  }
+
+  return 'Seus dados estão guardados no servidor do InfoAbrigo.';
+}
+
 export default function ProfileScreen(props) {
 
   const [conta, setConta] = useState(null);
+  const [sincronia, setSincronia] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [temBiometria, setTemBiometria] = useState(false);
   const [permissaoLocalizacao, setPermissaoLocalizacao] = useState(false);
@@ -86,6 +107,7 @@ export default function ProfileScreen(props) {
 
       setConta(contaSalva);
       setMeusAbrigos(abrigosDaConta(abrigos, contaSalva));
+      setSincronia(await estadoDaSincronizacao(contaSalva));
     } catch (error) {
       Alert.alert(
         'Erro',
@@ -191,8 +213,10 @@ export default function ProfileScreen(props) {
 
   function confirmarExclusao() {
     Alert.alert(
-      'Apagar a conta deste aparelho',
-      'Some o seu nome, e-mail e senha, e também as suas doações, os seus compromissos e os itens que você prometeu levar. Não existe servidor guardando nada: não há como recuperar.',
+      temServidor() ? 'Apagar a conta' : 'Apagar a conta deste aparelho',
+      temServidor()
+        ? 'Some o seu nome, e-mail e senha, as suas doações, os seus compromissos, os itens que você prometeu levar e os abrigos que você cadastrou, aqui e no servidor. Não há como recuperar.'
+        : 'Some o seu nome, e-mail e senha, e também as suas doações, os seus compromissos e os itens que você prometeu levar. Não há como recuperar.',
       [
         {
           text: 'Cancelar',
@@ -212,16 +236,20 @@ export default function ProfileScreen(props) {
       // Os dados saem antes do cadastro: apagando a conta primeiro, o
       // e-mail que identifica o que é dela já teria sumido.
       if (conta) {
+        // O servidor vem primeiro: sem conexão, nada é apagado daqui, e a pessoa
+        // não fica achando que os dados sumiram quando continuam lá.
+        await apagarDoServidor(conta);
         await apagarDadosDaConta(conta.email);
+        await limparRastros(conta);
+      } else {
+        await apagarConta();
       }
-
-      await apagarConta();
 
       props.navigation.getParent().replace('Login');
     } catch (error) {
       Alert.alert(
         'Erro',
-        'Não foi possível apagar a conta.'
+        'Não foi possível apagar a conta. Confira a sua internet e tente de novo.'
       );
     }
   }
@@ -706,8 +734,8 @@ export default function ProfileScreen(props) {
                   <Text style={styles.linhaTitulo}>Seus dados</Text>
 
                   <Text style={styles.linhaDescricao}>
-                    Nome, e-mail e senha ficam só neste aparelho. A digital
-                    nunca chega ao aplicativo.
+                    {textoDaSincronia(sincronia)} A digital nunca chega ao
+                    aplicativo.
                   </Text>
                 </View>
               </View>
@@ -753,7 +781,7 @@ export default function ProfileScreen(props) {
 
                 <View style={styles.linhaTexto}>
                   <Text style={styles.linhaTituloSair}>
-                    Apagar a conta deste aparelho
+                    {temServidor() ? 'Apagar a conta' : 'Apagar a conta deste aparelho'}
                   </Text>
 
                   <Text style={styles.linhaDescricao}>
@@ -905,8 +933,8 @@ export default function ProfileScreen(props) {
               <Text style={styles.painelTitulo}>Pergunta de segurança</Text>
 
               <Text style={styles.painelTexto}>
-                Sem servidor não existe "enviar link por e-mail". Esta
-                resposta é o que devolve o acesso se você esquecer a senha.
+                O aplicativo não envia e-mail de recuperação. Esta resposta é
+                o que devolve o acesso se você esquecer a senha.
               </Text>
 
               {PERGUNTAS.map((opcao) => (

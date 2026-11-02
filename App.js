@@ -1,3 +1,4 @@
+import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
@@ -18,6 +19,9 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 export default function App() {
   return (
     <SafeAreaProvider>
+      {/* O topo das telas é laranja: os ícones do sistema ficam claros. */}
+      <StatusBar style="light" />
+
       <NavigationContainer>
         <RootNavigator />
       </NavigationContainer>

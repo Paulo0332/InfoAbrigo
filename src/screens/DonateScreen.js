@@ -424,7 +424,7 @@ export default function DonateScreen(props) {
               </Pressable>
 
               {/* O aplicativo monta o código, quem paga é o banco. E a
-                  chave é a que o abrigo cadastrou: sem servidor não há
+                  chave é a que o abrigo cadastrou: o aplicativo não tem
                   como conferir que ela pertence mesmo à instituição, e
                   esconder isso seria pior do que dizer. */}
               <Text style={styles.avisoPagamento}>

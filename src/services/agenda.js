@@ -1,7 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { carregarAtividades } from './activities';
+import { gravarAnotacao, gravarLista, lerAnotacao, lerRegistros } from './bancoLocal';
+import { avisarMudanca, garantirAtualizado } from './sincronizacao';
 
-const STORAGE_KEY = '@infoabrigo:agenda';
+const COLECAO = 'compromissos';
 
 // A aba se chamava Agenda e entregava um álbum de fotos. Agora ela guarda
 // compromissos com hora marcada — visitar o abrigo, levar a doação que
@@ -45,18 +46,22 @@ export function buscarTipo(id) {
 
 export async function carregarAgenda() {
   try {
-    const dados = await AsyncStorage.getItem(STORAGE_KEY);
+    await garantirAtualizado();
 
-    if (dados != null) {
-      return JSON.parse(dados);
+    const lista = await lerRegistros(COLECAO);
+
+    if (lista.length > 0 || (await lerAnotacao('atividades-trazidas')) != null) {
+      return lista;
     }
 
     // Primeira abertura depois da mudança: os registros de foto viram
     // compromissos já acontecidos, para ninguém perder o que fotografou.
     const antigas = await migrarAtividades();
 
+    await gravarAnotacao('atividades-trazidas', '1');
+
     if (antigas.length > 0) {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(antigas));
+      await gravarLista(COLECAO, antigas);
     }
 
     return antigas;
@@ -97,7 +102,8 @@ async function migrarAtividades() {
 
 export async function salvarAgenda(lista) {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+    await gravarLista(COLECAO, lista);
+    avisarMudanca();
   } catch (error) {
     console.log('Erro ao salvar a agenda:', error);
 

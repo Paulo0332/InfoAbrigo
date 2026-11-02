@@ -23,6 +23,8 @@ import {
   consultarCnpj,
   formatarCnpj,
 } from '../services/cnpj';
+import { temServidor } from '../services/api';
+import { EMAIL_EM_USO, RECUSADA, registrar } from '../services/contaRemota';
 import { carregarContas, emailJaUsado, salvarConta } from '../services/auth';
 import { novoSal, resumir, resumirResposta } from '../services/senha';
 import { colors } from '../theme/colors';
@@ -204,6 +206,24 @@ export default function SignUpScreen(props) {
     };
 
     try {
+      // Sem internet a conta nasce só aqui, e sobe no primeiro login conectado.
+      const remoto = await registrar(conta);
+
+      if (remoto.situacao === EMAIL_EM_USO) {
+        Alert.alert(
+          'E-mail já cadastrado',
+          'Já existe uma conta com este e-mail. Volte e entre por "Já tenho conta em outro celular".'
+        );
+
+        return;
+      }
+
+      if (remoto.situacao === RECUSADA) {
+        Alert.alert('Confira os dados', remoto.mensagem);
+
+        return;
+      }
+
       await salvarConta(conta);
 
       Keyboard.dismiss();
@@ -372,8 +392,8 @@ export default function SignUpScreen(props) {
         <Text style={styles.rotulo}>Pergunta de segurança</Text>
 
         <Text style={styles.ajudaPergunta}>
-          Sem servidor não existe "enviar link por e-mail". Esta resposta é
-          o que devolve o acesso se você esquecer a senha.
+          O aplicativo não envia e-mail de recuperação. Esta resposta é o
+          que devolve o acesso se você esquecer a senha.
         </Text>
 
         {PERGUNTAS.map((opcao) => (
@@ -533,8 +553,9 @@ export default function SignUpScreen(props) {
         </Pressable>
 
         <Text style={styles.nota}>
-          A conta fica salva apenas neste aparelho. Ainda não existe servidor:
-          desinstalar o aplicativo apaga a conta.
+          {temServidor()
+            ? 'Sua conta fica guardada no servidor do InfoAbrigo, e você pode entrar nela de outro celular.'
+            : 'A conta fica salva apenas neste aparelho: desinstalar o aplicativo apaga a conta.'}
         </Text>
 
       </ScrollView>

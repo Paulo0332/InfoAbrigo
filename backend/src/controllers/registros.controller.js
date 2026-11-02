@@ -120,7 +120,10 @@ export async function listarNecessidades(req, res) {
 
 export async function gravarNecessidade(req, res) {
   const atual = await Necessidade.findOne({ id: req.params.id }).lean();
-  const recebidas = req.body.contribuicoes || [];
+  // O id da doação sempre como texto: é por ele que o abrigo a encontra depois.
+  const recebidas = (req.body.contribuicoes || []).map((item) =>
+    item.doacaoId == null ? item : { ...item, doacaoId: String(item.doacaoId) }
+  );
 
   if (!atual) {
     if (!(await administra({ abrigoId: req.body.abrigoId }, req.email))) {

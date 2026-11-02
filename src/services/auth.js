@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { temServidor } from './api';
+import { pedirEnvio } from './bancoLocal';
+import { lerToken } from './sessao';
+import { avisarMudanca } from './sincronizacao';
+
 // Duas chaves, com papéis diferentes: uma guarda todas as contas criadas
 // neste aparelho, a outra diz qual delas está em uso agora.
 //
@@ -55,9 +60,53 @@ export async function carregarConta() {
   }
 }
 
+// O que mudou na conta e precisa chegar ao servidor. A preferência de biometria
+// e a foto de perfil são deste aparelho e ficam de fora. Mudança de senha ou de
+// pergunta leva o resumo da senha anterior, que é a prova que o servidor exige.
+export function mudancasDaConta(anterior, conta) {
+  const mudou = (campo) =>
+    JSON.stringify(anterior[campo] ?? null) !== JSON.stringify(conta[campo] ?? null);
+  const campos = {};
+
+  ['nome', 'perfil', 'instituicao', 'telefone'].forEach((campo) => {
+    if (mudou(campo)) {
+      campos[campo] = conta[campo] ?? null;
+    }
+  });
+
+  const credenciais = ['sal', 'senhaResumo', 'pergunta', 'respostaResumo'].filter(mudou);
+
+  if (credenciais.length > 0 && anterior.senhaResumo) {
+    credenciais.forEach((campo) => {
+      campos[campo] = conta[campo];
+    });
+    campos.senhaAtualResumo = anterior.senhaResumo;
+  }
+
+  return campos;
+}
+
+// Salva a conta alterada por uma tela e deixa o pedido na fila do servidor.
+export async function salvarConta(conta) {
+  const anterior = await buscarContaPorEmail(conta.email);
+
+  await gravarContaLocal(conta);
+
+  if (anterior == null || !temServidor() || (await lerToken(conta.email)) == null) {
+    return;
+  }
+
+  const campos = mudancasDaConta(anterior, conta);
+
+  if (Object.keys(campos).length > 0) {
+    await pedirEnvio('contas', 'conta', 'eu', campos, conta.email);
+    avisarMudanca();
+  }
+}
+
 // Grava a conta na lista — trocando no lugar se já existir uma com o
 // mesmo e-mail — e deixa ela como a conta em uso.
-export async function salvarConta(conta) {
+export async function gravarContaLocal(conta) {
   try {
     const contas = await carregarContas();
     const jaExiste = contas.some((item) => mesmoEmail(item.email, conta.email));

@@ -38,6 +38,7 @@ import {
 } from '../services/agenda';
 import { carregarConta } from '../services/auth';
 import { escolherDoCelular, salvarNoCelular } from '../services/galeria';
+import { adicionarAoCalendario, reprogramarLembretes } from '../services/recursosNativos';
 import {
   ITEM,
   carregarDoacoes,
@@ -110,6 +111,7 @@ export default function ScheduleScreen(props) {
       setConta(contaSalva);
       setAbrigos(listaAbrigos);
       setAgenda(compromissosDaConta(lista, contaSalva));
+      reprogramarLembretes(compromissosDaConta(lista, contaSalva));
 
       // O que a pessoa prometeu levar e ainda não entregou. A entrega é
       // justamente o tipo de compromisso que ela vem marcar aqui, e ter
@@ -137,6 +139,7 @@ export default function ScheduleScreen(props) {
 
     try {
       await salvarAgendaDaConta(novaLista, conta);
+      reprogramarLembretes(novaLista);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível salvar a agenda.');
     }
@@ -458,6 +461,21 @@ export default function ScheduleScreen(props) {
     return ehHoje(item.quando) || jaPassou(item.quando);
   }
 
+  async function levarParaCalendario(item) {
+    const abrigo = abrigos.find((um) => um.id === item.abrigoId);
+
+    try {
+      await adicionarAoCalendario(
+        buscarTipo(item.tipo).nome + (item.abrigoNome ? ' — ' + item.abrigoNome : ''),
+        item.quando,
+        abrigo ? abrigo.endereco : '',
+        item.observacao
+      );
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível abrir o calendário do celular.');
+    }
+  }
+
   function renderizarCompromisso({ item }) {
     const tipoDele = buscarTipo(item.tipo);
     const passado = jaPassou(item.quando);
@@ -504,6 +522,17 @@ export default function ScheduleScreen(props) {
               foto. Excluir continua valendo, porque compromisso lançado
               errado precisa poder sumir. */}
           <View style={styles.acoesCartao}>
+            {!passado && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Adicionar ao calendário do celular"
+                style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+                onPress={() => levarParaCalendario(item)}
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+              </Pressable>
+            )}
+
             {!passado && (
               <Pressable
                 accessibilityRole="button"

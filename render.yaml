@@ -1,0 +1,18 @@
+# Publicação da API no Render (plano gratuito). MONGODB_URI é preenchido no
+# painel, com o endereço do MongoDB Atlas; nunca deve entrar no repositório.
+services:
+  - type: web
+    name: infoabrigo-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /saude
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SEGREDO
+        generateValue: true

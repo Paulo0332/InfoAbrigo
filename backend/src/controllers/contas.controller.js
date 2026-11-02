@@ -8,6 +8,14 @@ import { criarToken } from '../middlewares/auth.js';
 
 const derivar = promisify(scrypt);
 
+// As mesmas perguntas de src/data/perguntas.js do aplicativo.
+const PERGUNTAS = [
+  'Qual era o nome do seu primeiro animal de estimação?',
+  'Em que cidade a sua mãe nasceu?',
+  'Qual foi o nome da sua primeira escola?',
+  'Qual é o seu prato preferido?',
+];
+
 async function proteger(resumo) {
   const sal = randomBytes(16).toString('hex');
   const chave = await derivar(resumo, sal, 32);
@@ -44,18 +52,22 @@ function sessao(conta) {
   return { token: criarToken(conta.email, conta.versaoSessao), conta: publica(conta) };
 }
 
-// Para e-mail que não existe, responde um sal falso, porém sempre o mesmo.
-// Responder 404 entregaria quem tem conta para qualquer um que perguntasse.
-function salFalso(email) {
-  return createHmac('sha256', process.env.JWT_SEGREDO).update(email).digest('hex').slice(0, 36);
+// Para e-mail que não existe, responde sal e pergunta falsos, porém sempre os
+// mesmos. Responder 404 entregaria quem tem conta para qualquer um que perguntasse.
+function falsoEstavel(email) {
+  return createHmac('sha256', process.env.JWT_SEGREDO).update(email).digest('hex');
+}
+
+function perguntaFalsa(email) {
+  return PERGUNTAS[parseInt(falsoEstavel(email).slice(36, 44), 16) % PERGUNTAS.length];
 }
 
 export async function pedirSal(req, res) {
   const conta = await Conta.findOne({ email: req.body.email }).lean();
 
   res.json({
-    sal: conta ? conta.sal : salFalso(req.body.email),
-    pergunta: conta ? conta.pergunta : '',
+    sal: conta ? conta.sal : falsoEstavel(req.body.email).slice(0, 36),
+    pergunta: conta ? conta.pergunta : perguntaFalsa(req.body.email),
   });
 }
 
