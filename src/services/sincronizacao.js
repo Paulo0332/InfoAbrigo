@@ -1,9 +1,7 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 
 import { ErroDaApi, SemConexao, enderecoDaApi, pedir, temServidor } from './api';
-import { carregarConta } from './auth';
 import {
-  contarFila,
   gravarAnotacao,
   lerAnotacao,
   lerFila,
@@ -11,6 +9,7 @@ import {
   tirarDaFila,
   trocarDados,
 } from './bancoLocal';
+import { carregarConta } from './contaAtual';
 import { apagarToken, guardarToken, lerToken } from './sessao';
 
 // Leva a fila ao servidor e traz o que mudou por lá.
@@ -31,6 +30,20 @@ const LARGURA_DA_FOTO = 1024;
 let emAndamento = null;
 let repetir = false;
 let ultima = { email: null, em: 0 };
+let semConexao = false;
+
+const ouvintes = new Set();
+
+// Para a faixa de aviso saber quando olhar de novo. Devolve a função que para.
+export function ouvirSincronizacao(ouvinte) {
+  ouvintes.add(ouvinte);
+
+  return () => ouvintes.delete(ouvinte);
+}
+
+function avisarOuvintes() {
+  ouvintes.forEach((ouvinte) => ouvinte());
+}
 
 function normal(texto) {
   return (texto || '').trim().toLowerCase();
@@ -207,6 +220,7 @@ async function rodar() {
     await baixar(email, atual);
 
     ultima = { email: email, em: Date.now() };
+    semConexao = false;
 
     await gravarAnotacao('ultima-sincronizacao', new Date().toISOString());
   } catch (error) {
@@ -221,6 +235,8 @@ async function rodar() {
     if (!(error instanceof SemConexao)) {
       throw error;
     }
+
+    semConexao = true;
   }
 }
 
@@ -252,6 +268,7 @@ async function rodarAteFicarEmDia() {
     console.log('Erro ao sincronizar:', error);
   } finally {
     emAndamento = null;
+    avisarOuvintes();
   }
 }
 
@@ -286,7 +303,24 @@ export async function garantirAtualizado() {
   ]);
 }
 
-// O que o Perfil mostra para a pessoa saber onde os dados dela estão.
+// Só conta o que é desta conta: o que é de outra conta do aparelho está esperando
+// ela entrar, e não a conexão voltar.
+async function contarPendentes(email) {
+  const abrigosRetidos = new Set();
+  let total = 0;
+
+  for (const op of await lerFila()) {
+    if (!ehDeOutraConta(op, email, abrigosRetidos)) {
+      total += 1;
+    } else if (op.colecao === 'abrigos') {
+      abrigosRetidos.add(op.id);
+    }
+  }
+
+  return total;
+}
+
+// O que o Perfil e a faixa de aviso mostram para a pessoa saber onde os dados dela estão.
 export async function estadoDaSincronizacao(conta) {
   if (!temServidor()) {
     return { situacao: 'sem-servidor', pendentes: 0, ultimaEm: null };
@@ -296,7 +330,8 @@ export async function estadoDaSincronizacao(conta) {
 
   return {
     situacao: token ? 'conectada' : 'sem-sessao',
-    pendentes: await contarFila(),
+    semConexao: semConexao,
+    pendentes: conta ? await contarPendentes(normal(conta.email)) : 0,
     ultimaEm: await lerAnotacao('ultima-sincronizacao'),
   };
 }

@@ -1187,7 +1187,7 @@ const styles = StyleSheet.create({
   },
 
   foto: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
 
   fotoAcoes: {

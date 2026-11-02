@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { CLUSTER_CSS, CLUSTER_JS, LEAFLET_CSS, LEAFLET_JS } from '../mapa/leaflet';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,7 +34,7 @@ import {
   formatarDistancia,
   formatarDuracao,
 } from '../services/rota';
-import { calcularDistancia, carregarAbrigos, ehDono } from '../services/shelters';
+import { calcularDistancia, carregarAbrigos, carregarAbrigosDoAparelho, ehDono } from '../services/shelters';
 import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 
@@ -102,24 +103,10 @@ function montarHtml(localizacao, abrigos) {
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <!-- Agrupa pinos que caem quase no mesmo ponto. Se o arquivo não
-         carregar, a página segue sem ele e os pinos entram soltos no
-         mapa: agrupar é conforto, não é requisito. -->
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-    />
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <style>${LEAFLET_CSS}</style>
+    <style>${CLUSTER_CSS}</style>
+    <script>${LEAFLET_JS}</script>
+    <script>${CLUSTER_JS}</script>
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
       body { background: ${colors.backgroundLight}; }
@@ -267,7 +254,7 @@ function montarHtml(localizacao, abrigos) {
 
       blocosEsri.addTo(mapa);
 
-      L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
+      var eu = L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
         icon: L.divIcon({
           className: 'vazio',
           html: '<div class="eu"></div>',
@@ -347,6 +334,26 @@ function montarHtml(localizacao, abrigos) {
         }
       }
 
+      // A posição guardada do aparelho desenha o mapa na hora, e o GPS corrige
+      // depois, sem recarregar a página. O mapa só vai atrás se a diferença for
+      // grande e a pessoa ainda não tiver mexido nele.
+      var mexeu = false;
+
+      mapa.on('dragstart', function () {
+        mexeu = true;
+      });
+
+      function moverEu(latitude, longitude) {
+        var nova = L.latLng(latitude, longitude);
+        var longe = mapa.distance(eu.getLatLng(), nova) > 300;
+
+        eu.setLatLng(nova);
+
+        if (longe && !mexeu) {
+          mapa.setView(nova, mapa.getZoom());
+        }
+      }
+
       var contornoRota = null;
       var linhaRota = null;
 
@@ -389,6 +396,12 @@ function montarHtml(localizacao, abrigos) {
       }
 
       ${marcadores}
+
+      // O mapa já pode ser mexido, mesmo com blocos ainda chegando. Esperar o fim
+      // do carregamento da página deixava o aviso na frente de um mapa pronto.
+      mapa.whenReady(function () {
+        window.ReactNativeWebView.postMessage('mapa-pronto');
+      });
     </script>
   </body>
 </html>`;
@@ -397,6 +410,8 @@ function montarHtml(localizacao, abrigos) {
 export default function MapScreen(props) {
 
   const [localizacao, setLocalizacao] = useState(null);
+  const [centro, setCentro] = useState(null);
+  const [abrigosLidos, setAbrigosLidos] = useState(false);
   const [erro, setErro] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
@@ -438,7 +453,17 @@ export default function MapScreen(props) {
 
   useEffect(() => {
     buscarLocalizacao();
-    buscarAbrigos();
+
+    // O que já está no aparelho desenha o mapa. Sem isto ele nascia vazio e era
+    // desenhado de novo inteiro quando a lista chegava.
+    carregarAbrigosDoAparelho()
+      .then(setAbrigos)
+      .catch((error) => console.log('Erro ao ler os abrigos:', error))
+      .finally(() => {
+        setAbrigosLidos(true);
+        buscarAbrigos();
+      });
+
     buscarConta().then(setConta).catch(() => setConta(null));
 
     // Ao voltar do cadastro, a lista precisa ser lida de novo.
@@ -459,14 +484,47 @@ export default function MapScreen(props) {
         return;
       }
 
-      const posicao = await Location.getCurrentPositionAsync({});
+      // O GPS pode levar muitos segundos, ainda mais dentro de casa. A última
+      // posição conhecida sai na hora e já serve para abrir o mapa.
+      const guardada = await Location.getLastKnownPositionAsync();
 
-      setLocalizacao(posicao.coords);
+      if (guardada) {
+        aplicarPosicao(guardada.coords);
+      }
+
+      try {
+        const atual = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        aplicarPosicao(atual.coords);
+      } catch (error) {
+        if (!guardada) {
+          throw error;
+        }
+
+        console.log('Erro ao atualizar a localização:', error);
+      }
     } catch (error) {
       console.log('Erro ao obter a localização:', error);
 
       setErro('Não foi possível obter a sua localização.');
     }
+  }
+
+  function moverPontoAzul(coords) {
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(
+        'moverEu(' + coords.latitude + ',' + coords.longitude + '); true;'
+      );
+    }
+  }
+
+  // O centro fica na primeira posição: mudá-lo recarregaria a página do mapa.
+  function aplicarPosicao(coords) {
+    setLocalizacao(coords);
+    setCentro((atual) => atual || coords);
+    moverPontoAzul(coords);
   }
 
   async function buscarConta() {
@@ -538,6 +596,12 @@ export default function MapScreen(props) {
 
     if (recado === 'sem-rede') {
       setSemRede(true);
+
+      return;
+    }
+
+    if (recado === 'mapa-pronto') {
+      setCarregandoMapa(false);
 
       return;
     }
@@ -651,6 +715,10 @@ export default function MapScreen(props) {
   // rota sumiria do mapa sem ninguém ter pedido.
   function aoTerminarDeCarregar() {
     setCarregandoMapa(false);
+
+    if (localizacao) {
+      moverPontoAzul(localizacao);
+    }
 
     if (rota) {
       desenharNoMapa(rota.linha);
@@ -919,6 +987,16 @@ export default function MapScreen(props) {
 
   const lista = localizacao ? noMapa() : [];
 
+  // A página só é remontada se os pinos mudarem de verdade. Abrir a aba de novo
+  // com a mesma lista não pode redesenhar o mapa inteiro.
+  const pinosDoMapa = lista
+    .map((abrigo) => [abrigo.id, abrigo.latitude, abrigo.longitude].join(','))
+    .join('|');
+  const paginaDoMapa = useMemo(
+    () => (centro ? montarHtml(centro, lista) : ''),
+    [centro, pinosDoMapa]
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
 
@@ -1124,19 +1202,19 @@ export default function MapScreen(props) {
           </View>
         )}
 
-        {!erro && !localizacao && (
+        {!erro && (!localizacao || !abrigosLidos) && (
           <View style={styles.centralizado}>
             <Text style={styles.texto}>Aguarde...</Text>
           </View>
         )}
 
-        {!erro && localizacao && !modoLista && (
+        {!erro && localizacao && abrigosLidos && !modoLista && (
           <View style={styles.mapa}>
             <WebView
               ref={mapaRef}
               style={styles.mapa}
               originWhitelist={['*']}
-              source={{ html: montarHtml(localizacao, lista) }}
+              source={{ html: paginaDoMapa }}
               onMessage={aoTocarNoMapa}
               onLoadEnd={aoTerminarDeCarregar}
             />

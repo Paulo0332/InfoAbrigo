@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { LEAFLET_CSS, LEAFLET_JS } from '../mapa/leaflet';
 import { Ionicons } from '@expo/vector-icons';
 import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
@@ -34,8 +35,8 @@ function montarHtml(inicial, temMarca) {
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>${LEAFLET_CSS}</style>
+    <script>${LEAFLET_JS}</script>
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
 
@@ -297,7 +298,7 @@ const styles = StyleSheet.create({
   },
 
   carregando: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.backgroundLight,

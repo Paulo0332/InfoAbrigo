@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   },
 
   previa: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
 
   // Flutuando por cima da imagem, sem faixa por baixo: a foto ocupa a

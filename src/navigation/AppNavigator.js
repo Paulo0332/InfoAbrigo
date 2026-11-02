@@ -1,6 +1,8 @@
+import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AvisoConexao from '../components/AvisoConexao';
 import { colors } from '../theme/colors';
 
 import HomeScreen from '../screens/HomeScreen';
@@ -22,6 +24,7 @@ export default function AppNavigator() {
   const areaSegura = useSafeAreaInsets();
 
   return (
+    <View style={{ flex: 1 }}>
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
@@ -64,5 +67,9 @@ export default function AppNavigator() {
       <Tab.Screen name="Agenda" component={ScheduleScreen} />
       <Tab.Screen name="Perfil" component={ProfileScreen} />
     </Tab.Navigator>
+
+    {/* Por cima das abas: vale para todas, e a barra inferior continua livre. */}
+    <AvisoConexao distanciaDaBase={ALTURA_BARRA + areaSegura.bottom + 8} />
+    </View>
   );
 }

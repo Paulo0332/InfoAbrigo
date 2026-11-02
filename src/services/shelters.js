@@ -17,6 +17,12 @@ export async function carregarAbrigos() {
   }
 }
 
+// O que já está no aparelho, sem esperar o servidor. É o que o mapa desenha
+// primeiro: a lista nova, quando chega, só redesenha se algo tiver mudado.
+export function carregarAbrigosDoAparelho() {
+  return lerRegistros(COLECAO);
+}
+
 // Cadastra um abrigo e devolve a lista já atualizada, para a tela não
 // precisar ler de novo em seguida.
 export async function cadastrarAbrigo(abrigo) {

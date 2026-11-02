@@ -1,5 +1,5 @@
 import { Linking, Platform } from 'react-native';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { isRunningInExpoGo } from 'expo';
 
 // Badge, lembrete e calendário do celular.
 //
@@ -8,7 +8,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 // antes. Agora os dois só são carregados dentro das funções, e só fora do Expo
 // Go. No Expo Go o aplicativo abre normalmente, sem badge e sem lembrete; no
 // aplicativo instalado de verdade, os dois funcionam.
-const noExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+const noExpoGo = isRunningInExpoGo();
 
 const UMA_HORA = 60 * 60 * 1000;
 
@@ -28,10 +28,15 @@ async function temPermissao(Notifications) {
   }
 
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('lembretes', {
-      name: 'Lembretes da agenda',
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
+    // Sem o canal o lembrete não toca, mas isso não é motivo para perder o badge.
+    try {
+      await Notifications.setNotificationChannelAsync('lembretes', {
+        name: 'Lembretes da agenda',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    } catch (error) {
+      console.log('Erro ao criar o canal de lembretes:', error);
+    }
   }
 
   return (await Notifications.requestPermissionsAsync()).granted;

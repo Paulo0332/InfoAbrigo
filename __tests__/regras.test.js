@@ -22,6 +22,29 @@ const NEED = {
   ],
 };
 
+describe('compatibilidade com o React Native', () => {
+  test('nenhuma tela usa o estilo removido na versão 0.88', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+
+    function arquivos(pasta) {
+      return fs.readdirSync(pasta, { withFileTypes: true }).flatMap((item) => {
+        const caminho = path.join(pasta, item.name);
+
+        return item.isDirectory() ? arquivos(caminho) : [caminho];
+      });
+    }
+
+    const comProblema = arquivos(path.join(__dirname, '..', 'src')).filter(
+      (arquivo) =>
+        !arquivo.endsWith(path.join('mapa', 'leaflet.js')) &&
+        fs.readFileSync(arquivo, 'utf8').includes('absoluteFillObject')
+    );
+
+    expect(comProblema).toEqual([]);
+  });
+});
+
 describe('necessidades', () => {
   test('separa o prometido do recebido', () => {
     expect(prometido(NEED)).toBe(7);

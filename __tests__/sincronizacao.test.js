@@ -180,13 +180,22 @@ descrever('sincronização com a API', () => {
     );
     await doador.sync.sincronizar();
 
+    const conta = await doador.auth.carregarConta();
+    const semRede = await doador.sync.estadoDaSincronizacao(conta);
+
     expect(await doador.banco.contarFila()).toBe(1);
+    expect(semRede.pendentes).toBe(1);
+    expect(semRede.semConexao).toBe(true);
     expect(await doador.agenda.carregarAgenda()).toHaveLength(1);
 
     global.fetch = fetchDeVerdade;
     await doador.sync.sincronizar();
 
+    const comRede = await doador.sync.estadoDaSincronizacao(conta);
+
     expect(await doador.banco.contarFila()).toBe(0);
+    expect(comRede.pendentes).toBe(0);
+    expect(comRede.semConexao).toBe(false);
   });
 
   test('a lista velha de uma tela não apaga o que chegou de outro celular', async () => {
@@ -293,7 +302,10 @@ descrever('sincronização com a API', () => {
     });
     await celular.sync.sincronizar();
 
+    const estado = await celular.sync.estadoDaSincronizacao(entrada.conta);
+
     expect(await celular.banco.contarFila()).toBe(1);
+    expect(estado.pendentes).toBe(0);
     expect((await celular.doacoes.carregarDoacoes()).some((d) => d.id === 'de-outra-conta')).toBe(true);
   });
 

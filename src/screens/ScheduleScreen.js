@@ -1607,7 +1607,7 @@ const styles = StyleSheet.create({
   },
 
   sobreCamera: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'space-between',
   },
 
@@ -1660,12 +1660,12 @@ const styles = StyleSheet.create({
   },
 
   previa: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     resizeMode: 'cover',
   },
 
   previaSombra: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
 
   barraPrevia: {
@@ -1758,7 +1758,7 @@ const styles = StyleSheet.create({
   },
 
   camadaFoto: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.94)',
     alignItems: 'center',
     justifyContent: 'center',

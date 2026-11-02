@@ -113,7 +113,10 @@ export default function HomeScreen(props) {
         return;
       }
 
-      const posicao = await Location.getCurrentPositionAsync({});
+      // A posição guardada sai na hora; o GPS poderia segurar o card por segundos.
+      const posicao =
+        (await Location.getLastKnownPositionAsync()) ||
+        (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
 
       setLocalizacao(posicao.coords);
     } catch (error) {

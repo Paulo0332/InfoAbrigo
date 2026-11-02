@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { temServidor } from './api';
 import { pedirEnvio } from './bancoLocal';
+import { CHAVE_ATUAL, carregarConta } from './contaAtual';
 import { lerToken } from './sessao';
 import { avisarMudanca } from './sincronizacao';
 
@@ -12,7 +13,8 @@ import { avisarMudanca } from './sincronizacao';
 // o aplicativo pelo lado do gestor e pelo lado de quem doa era preciso
 // apagar a conta e criar outra — perdendo tudo no caminho.
 const CHAVE_CONTAS = '@infoabrigo:contas';
-const CHAVE_ATUAL = '@infoabrigo:conta';
+
+export { carregarConta };
 
 function mesmoEmail(a, b) {
   return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
@@ -41,20 +43,6 @@ export async function carregarContas() {
     return lista;
   } catch (error) {
     console.log('Erro ao carregar as contas:', error);
-
-    throw error;
-  }
-}
-
-export async function carregarConta() {
-  try {
-    const dados = await AsyncStorage.getItem(CHAVE_ATUAL);
-
-    // Sem conta em uso o getItem devolve null, e é assim que a tela de
-    // entrada sabe que precisa oferecer a lista ou o cadastro.
-    return dados != null ? JSON.parse(dados) : null;
-  } catch (error) {
-    console.log('Erro ao carregar a conta:', error);
 
     throw error;
   }

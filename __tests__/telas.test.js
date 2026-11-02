@@ -3,7 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import HomeScreen from '../src/screens/HomeScreen';
+import AvisoConexao, { textoDoAviso } from '../src/components/AvisoConexao';
 import LoginScreen from '../src/screens/LoginScreen';
+import MapScreen from '../src/screens/MapScreen';
 import ProfileScreen from '../src/screens/ProfileScreen';
 import ScheduleScreen from '../src/screens/ScheduleScreen';
 import SignUpScreen from '../src/screens/SignUpScreen';
@@ -20,6 +22,22 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
+jest.mock('react-native-webview', () => {
+  const { View } = require('react-native');
+
+  return { WebView: (props) => <View testID="mapa" {...props} /> };
+});
+
+jest.mock('expo-location', () => ({
+  Accuracy: { Balanced: 3 },
+  requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+  getForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+  getLastKnownPositionAsync: jest.fn(async () => ({
+    coords: { latitude: -22.4, longitude: -43.66 },
+  })),
+  getCurrentPositionAsync: jest.fn(() => new Promise(() => {})),
+}));
 
 jest.mock('../src/services/recursosNativos', () => ({
   adicionarAoCalendario: jest.fn(async () => {}),
@@ -143,6 +161,30 @@ describe('telas', () => {
       '',
       undefined
     );
+  });
+
+  test('o mapa abre com a posição guardada, sem esperar o GPS nem a internet', async () => {
+    await criarConta();
+    await abrir(MapScreen);
+
+    const pagina = (await screen.findByTestId('mapa')).props.source.html;
+
+    expect(pagina).toContain('-22.4');
+    expect(pagina).toContain('L.markerClusterGroup');
+    expect(pagina).not.toContain('unpkg.com');
+  });
+
+  test('a faixa avisa quando há alteração esperando conexão', () => {
+    const base = { situacao: 'conectada', semConexao: true };
+
+    expect(textoDoAviso({ ...base, pendentes: 1 })).toBe(
+      'Aguardando conexão: 1 alteração aguardando envio.'
+    );
+    expect(textoDoAviso({ ...base, pendentes: 3 })).toContain('3 alterações');
+    expect(textoDoAviso({ ...base, pendentes: 0 })).toBeNull();
+    expect(textoDoAviso({ ...base, pendentes: 2, semConexao: false })).toBeNull();
+    expect(textoDoAviso({ situacao: 'sem-sessao', pendentes: 1 })).toContain('Entre com a senha');
+    expect(AvisoConexao).toBeDefined();
   });
 
   test('perfil abre e diz onde os dados estão', async () => {
