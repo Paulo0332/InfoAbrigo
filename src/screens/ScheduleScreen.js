@@ -61,6 +61,7 @@ export default function ScheduleScreen(props) {
   const areaSegura = useSafeAreaInsets();
 
   const [agenda, setAgenda] = useState([]);
+  const [ladoDaCamera, setLadoDaCamera] = useState('back');
   const [conta, setConta] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
   const [promessas, setPromessas] = useState([]);
@@ -958,13 +959,22 @@ export default function ScheduleScreen(props) {
             <View style={styles.areaCamera}>
               <CameraView
                 style={styles.camera}
-                facing="back"
+                facing={ladoDaCamera}
                 ref={cameraRef}
                 onCameraReady={() => setIsCameraReady(true)}
               />
 
               <View style={styles.sobreCamera}>
-                <View style={[styles.topoCamera, { paddingTop: areaSegura.top + 20 }]}>
+                <View
+                  style={[
+                    styles.topoCamera,
+                    {
+                      paddingTop: areaSegura.top + 20,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                    },
+                  ]}
+                >
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Fechar a câmera"
@@ -972,6 +982,18 @@ export default function ScheduleScreen(props) {
                     style={styles.botaoVidro}
                   >
                     <Ionicons name="close" size={28} color="#FFFFFF" />
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Alternar entre a câmera frontal e a traseira"
+                    onPress={() => {
+                      setIsCameraReady(false);
+                      setLadoDaCamera(ladoDaCamera === 'back' ? 'front' : 'back');
+                    }}
+                    style={styles.botaoVidro}
+                  >
+                    <Ionicons name="camera-reverse" size={26} color="#FFFFFF" />
                   </Pressable>
                 </View>
 

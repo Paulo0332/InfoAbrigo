@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import HomeScreen from '../src/screens/HomeScreen';
 import AvisoConexao, { textoDoAviso } from '../src/components/AvisoConexao';
+import CameraFoto from '../src/components/CameraFoto';
 import LoginScreen from '../src/screens/LoginScreen';
 import MapScreen from '../src/screens/MapScreen';
 import ProfileScreen from '../src/screens/ProfileScreen';
@@ -22,6 +23,15 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
+jest.mock('expo-camera', () => {
+  const { View } = require('react-native');
+
+  return {
+    CameraView: (props) => <View testID="camera" facing={props.facing} />,
+    useCameraPermissions: () => [{ granted: true }, jest.fn(async () => ({ granted: true }))],
+  };
+});
 
 jest.mock('react-native-webview', () => {
   const { View } = require('react-native');
@@ -62,10 +72,10 @@ function navegacao() {
   };
 }
 
-async function abrir(Tela, params) {
+async function abrir(Tela, params, extras) {
   return render(
     <SafeAreaProvider initialMetrics={area}>
-      <Tela navigation={navegacao()} route={{ params: params }} />
+      <Tela navigation={navegacao()} route={{ params: params }} {...extras} />
     </SafeAreaProvider>
   );
 }
@@ -185,6 +195,16 @@ describe('telas', () => {
     expect(textoDoAviso({ ...base, pendentes: 2, semConexao: false })).toBeNull();
     expect(textoDoAviso({ situacao: 'sem-sessao', pendentes: 1 })).toContain('Entre com a senha');
     expect(AvisoConexao).toBeDefined();
+  });
+
+  test('a câmera alterna entre a traseira e a frontal', async () => {
+    await abrir(CameraFoto, undefined, { visivel: true, aoFechar: jest.fn(), aoConfirmar: jest.fn() });
+
+    expect(screen.getByTestId('camera').props.facing).toBe('back');
+
+    await fireEvent.press(screen.getByLabelText('Alternar entre a câmera frontal e a traseira'));
+
+    expect(screen.getByTestId('camera').props.facing).toBe('front');
   });
 
   test('perfil abre e diz onde os dados estão', async () => {

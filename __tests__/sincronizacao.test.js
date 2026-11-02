@@ -1,12 +1,13 @@
 // O caminho completo: dois "celulares", cada um com o próprio banco e cofre,
-// falando com a API de verdade, num MongoDB temporário.
+// falando com a API de verdade, num banco MySQL próprio dos testes.
+//
+// Precisa do MySQL no ar e de duas variáveis: TESTE_API=1 e API_PYTHON, com o
+// caminho do Python onde estão as dependências do backend. Sem elas, fica de fora.
 const { spawn } = require('node:child_process');
-const fs = require('node:fs');
 const path = require('node:path');
 
 const PASTA_API = path.join(__dirname, '..', 'backend');
-const apiInstalada = fs.existsSync(path.join(PASTA_API, 'node_modules'));
-const descrever = apiInstalada ? describe : describe.skip;
+const descrever = process.env.TESTE_API === '1' ? describe : describe.skip;
 
 jest.setTimeout(120000);
 
@@ -61,10 +62,19 @@ descrever('sincronização com a API', () => {
   const fetchOriginal = global.fetch;
 
   beforeAll(async () => {
-    servidor = spawn(process.execPath, ['test/servidor-memoria.js'], {
+    servidor = spawn(process.env.API_PYTHON || 'python', ['tests/servidor_teste.py'], {
       cwd: PASTA_API,
-      env: { ...process.env, PORT: '0', NODE_ENV: 'test', LIMITE_LOGIN: '1000' },
+      env: {
+        ...process.env,
+        PORT: '0',
+        LIMITE_LOGIN: '1000',
+        MYSQL_DB: 'infoabrigo_jest',
+        MYSQL_HOST: '127.0.0.1',
+        MYSQL_PASSWORD: 'root',
+      },
     });
+
+    servidor.stderr.on('data', () => {});
 
     const porta = await new Promise((resolve, reject) => {
       servidor.stdout.on('data', (dados) => {
@@ -113,7 +123,7 @@ descrever('sincronização com a API', () => {
     const lista = await doador.abrigos.carregarAbrigos();
 
     expect(lista.map((a) => a.nome)).toEqual(['Casa Lar']);
-    expect(lista[0].foto).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/arquivos\/[0-9a-f]{24}$/);
+    expect(lista[0].foto).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/arquivos\/[0-9a-f]{32}$/);
     expect((await doador.necessidades.loadNeeds())[0].title).toBe('Fraldas');
   });
 

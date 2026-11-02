@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { carregarConta } from '../services/auth';
 import {
+  acompanharMudancas,
   estadoDaSincronizacao,
   ouvirSincronizacao,
   sincronizar,
@@ -51,9 +52,12 @@ export default function AvisoConexao(props) {
       atualizar().catch((error) => console.log('Erro ao ler a sincronização:', error));
     });
 
+    const pararAcompanhamento = acompanharMudancas();
+
     return () => {
       ativo = false;
       parar();
+      pararAcompanhamento();
     };
   }, []);
 

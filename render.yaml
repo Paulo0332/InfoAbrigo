@@ -1,18 +1,23 @@
-# Publicação da API no Render (plano gratuito). MONGODB_URI é preenchido no
-# painel, com o endereço do MongoDB Atlas; nunca deve entrar no repositório.
+# Publicação da API no Render, pelo Dockerfile. MYSQL_* são preenchidos no painel,
+# com os dados de um MySQL hospedado; nunca devem entrar no repositório.
 services:
   - type: web
     name: infoabrigo-api
-    runtime: node
+    runtime: docker
     plan: free
     rootDir: backend
-    buildCommand: npm ci
-    startCommand: npm start
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /saude
     envVars:
-      - key: NODE_VERSION
-        value: 24
-      - key: MONGODB_URI
+      - key: MYSQL_HOST
         sync: false
+      - key: MYSQL_PORT
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_DB
+        value: infoabrigo
       - key: JWT_SEGREDO
         generateValue: true

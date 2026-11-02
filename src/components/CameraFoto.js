@@ -28,6 +28,7 @@ export default function CameraFoto(props) {
 
   const [foto, setFoto] = useState(null);
   const [pronta, setPronta] = useState(false);
+  const [lado, setLado] = useState('back');
 
   const cameraRef = useRef(null);
 
@@ -75,6 +76,11 @@ export default function CameraFoto(props) {
     }
   }
 
+  function alternarCamera() {
+    setPronta(false);
+    setLado((atual) => (atual === 'back' ? 'front' : 'back'));
+  }
+
   function refazer() {
     setFoto(null);
     setPronta(false);
@@ -117,7 +123,7 @@ export default function CameraFoto(props) {
           <View style={styles.tela}>
             <CameraView
               style={styles.camera}
-              facing="back"
+              facing={lado}
               ref={cameraRef}
               onCameraReady={() => setPronta(true)}
             />
@@ -137,6 +143,19 @@ export default function CameraFoto(props) {
               onPress={props.aoFechar}
             >
               <Ionicons name="close" size={24} color="#FFFFFF" />
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Alternar entre a câmera frontal e a traseira"
+              style={({ pressed }) => [
+                styles.alternar,
+                { top: areaSegura.top + 12 },
+                pressed && styles.pressionado,
+              ]}
+              onPress={alternarCamera}
+            >
+              <Ionicons name="camera-reverse" size={24} color="#FFFFFF" />
             </Pressable>
 
             <Text style={[styles.aviso, { top: areaSegura.top + 20 }]}>
@@ -162,6 +181,17 @@ export default function CameraFoto(props) {
 }
 
 const styles = StyleSheet.create({
+  alternar: {
+    position: 'absolute',
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+
   tela: {
     flex: 1,
     backgroundColor: '#000000',

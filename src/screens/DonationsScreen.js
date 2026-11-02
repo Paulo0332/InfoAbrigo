@@ -35,6 +35,7 @@ import {
 } from '../services/necessidades';
 import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
 import { aviso, deuCerto, toqueLeve } from '../services/tato';
+import { ouvirNovidadesDeFora } from '../services/sincronizacao';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
 // Os dois filtros que não são um abrigo específico.
@@ -74,11 +75,15 @@ export default function DonationsScreen(props) {
 
     // Ao voltar do cadastro de abrigo, o vínculo e a lista podem ter
     // mudado.
+    const pararNovidades = ouvirNovidadesDeFora(() => carregarTudo(false));
     const inscricao = props.navigation.addListener('focus', () => {
       carregarTudo(false);
     });
 
-    return inscricao;
+    return () => {
+      inscricao();
+      pararNovidades();
+    };
   }, []);
 
   // Uma leitura só para tudo que a tela mostra: a conta diz o perfil, os

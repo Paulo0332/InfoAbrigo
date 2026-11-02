@@ -1,9 +1,16 @@
+import axios from 'axios';
+
 // Fala com a API do InfoAbrigo.
 //
 // O endereço vem do arquivo .env (EXPO_PUBLIC_API_URL). Sem ele o aplicativo
 // funciona como sempre funcionou: tudo fica só no aparelho. É assim que ele
 // continua abrindo para quem só quer ver as telas, sem servidor nenhum.
-const ESPERA_MAXIMA = 8000;
+const cliente = axios.create({
+  timeout: 8000,
+  headers: { 'Content-Type': 'application/json' },
+  // Quem decide o que cada resposta significa é a função pedir, logo abaixo.
+  validateStatus: () => true,
+});
 
 export function enderecoDaApi() {
   return (process.env.EXPO_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
@@ -25,25 +32,17 @@ export class ErroDaApi extends Error {
 export class SemConexao extends Error {}
 
 export async function pedir(metodo, caminho, corpo, token) {
-  const cancelar = new AbortController();
-  const relogio = setTimeout(() => cancelar.abort(), ESPERA_MAXIMA);
-
   let resposta;
 
   try {
-    resposta = await fetch(enderecoDaApi() + caminho, {
+    resposta = await cliente.request({
       method: metodo,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: 'Bearer ' + token } : {}),
-      },
-      body: corpo === undefined ? undefined : JSON.stringify(corpo),
-      signal: cancelar.signal,
+      url: enderecoDaApi() + caminho,
+      data: corpo,
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
     });
   } catch (error) {
     throw new SemConexao('Não foi possível falar com o servidor.');
-  } finally {
-    clearTimeout(relogio);
   }
 
   // Servidor fora do ar responde 5xx, e isso é o mesmo que estar sem conexão:
@@ -56,11 +55,9 @@ export async function pedir(metodo, caminho, corpo, token) {
     return null;
   }
 
-  const dados = await resposta.json().catch(() => null);
-
-  if (!resposta.ok) {
-    throw new ErroDaApi(resposta.status, (dados && dados.erro) || 'Pedido recusado.');
+  if (resposta.status < 200 || resposta.status >= 300) {
+    throw new ErroDaApi(resposta.status, (resposta.data && resposta.data.erro) || 'Pedido recusado.');
   }
 
-  return dados;
+  return resposta.data;
 }

@@ -1,4 +1,5 @@
 import * as ImageManipulator from 'expo-image-manipulator';
+import NetInfo from '@react-native-community/netinfo';
 
 import { ErroDaApi, SemConexao, enderecoDaApi, pedir, temServidor } from './api';
 import {
@@ -11,6 +12,7 @@ import {
 } from './bancoLocal';
 import { carregarConta } from './contaAtual';
 import { apagarToken, guardarToken, lerToken } from './sessao';
+import { avisarNovidade, ouvirNovidades } from './tempoReal';
 
 // Leva a fila ao servidor e traz o que mudou por lá.
 //
@@ -33,6 +35,7 @@ let ultima = { email: null, em: 0 };
 let semConexao = false;
 
 const ouvintes = new Set();
+const ouvintesDeNovidades = new Set();
 
 // Para a faixa de aviso saber quando olhar de novo. Devolve a função que para.
 export function ouvirSincronizacao(ouvinte) {
@@ -43,6 +46,41 @@ export function ouvirSincronizacao(ouvinte) {
 
 function avisarOuvintes() {
   ouvintes.forEach((ouvinte) => ouvinte());
+}
+
+// Para as telas abertas lerem de novo quando outro celular mudou algo. É separado
+// do ouvinte acima de propósito: ler de novo já dispara uma sincronização, e reagir
+// ao fim de toda sincronização faria as duas coisas se chamarem sem parar.
+export function ouvirNovidadesDeFora(ouvinte) {
+  ouvintesDeNovidades.add(ouvinte);
+
+  return () => ouvintesDeNovidades.delete(ouvinte);
+}
+
+// Liga o que acorda a sincronização sem ninguém tocar na tela: a conexão voltando e
+// o aviso de outro celular. Devolve a função que desliga.
+export function acompanharMudancas() {
+  const pararConexao = NetInfo.addEventListener((estado) => {
+    const conectado = Boolean(estado.isConnected);
+
+    if (!conectado && !semConexao) {
+      semConexao = true;
+      avisarOuvintes();
+    } else if (conectado && semConexao) {
+      sincronizar();
+    }
+  });
+
+  const pararNovidades = ouvirNovidades(async () => {
+    esquecerUltimaSincronizacao();
+    await sincronizar();
+    ouvintesDeNovidades.forEach((ouvinte) => ouvinte());
+  });
+
+  return () => {
+    pararConexao();
+    pararNovidades();
+  };
 }
 
 function normal(texto) {
@@ -151,6 +189,7 @@ async function enviarFila(conta, tokenInicial) {
   const email = normal(conta.email);
   const abrigosRetidos = new Set();
   let token = tokenInicial;
+  let enviados = 0;
 
   for (const op of await lerFila()) {
     if (ehDeOutraConta(op, email, abrigosRetidos)) {
@@ -176,9 +215,10 @@ async function enviarFila(conta, tokenInicial) {
     }
 
     await tirarDaFila(op.seq);
+    enviados += 1;
   }
 
-  return token;
+  return { token, enviados };
 }
 
 async function baixar(email, token) {
@@ -215,9 +255,13 @@ async function rodar() {
   const email = normal(conta.email);
 
   try {
-    const atual = await enviarFila(conta, token);
+    const envio = await enviarFila(conta, token);
 
-    await baixar(email, atual);
+    await baixar(email, envio.token);
+
+    if (envio.enviados > 0) {
+      await avisarNovidade();
+    }
 
     ultima = { email: email, em: Date.now() };
     semConexao = false;
