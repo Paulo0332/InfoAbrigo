@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import CameraFoto from '../components/CameraFoto';
 import EscolherNoMapa from '../components/EscolherNoMapa';
-import { temServidor } from '../services/api';
+import { temFirebase } from '../services/firebase';
 import { carregarConta } from '../services/auth';
 import {
   celularValido,
@@ -1099,7 +1099,7 @@ export default function RegisterShelterScreen(props) {
         )}
 
         <Text style={styles.aviso}>
-          {temServidor()
+          {temFirebase()
             ? 'O abrigo aparece para todo mundo assim que este celular estiver conectado.'
             : 'O cadastro fica apenas neste aparelho.'}
         </Text>

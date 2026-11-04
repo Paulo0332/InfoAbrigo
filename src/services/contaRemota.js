@@ -1,190 +1,244 @@
-import { ErroDaApi, SemConexao, pedir, temServidor } from './api';
+import {
+  EmailAuthProvider,
+  createUserWithEmailAndPassword,
+  deleteUser,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  updatePassword,
+} from 'firebase/auth';
+
+import { pedir, temServidor } from './api';
 import { apagarConta, buscarContaPorEmail, gravarContaLocal } from './auth';
 import { esquecerPendencias } from './bancoLocal';
-import { resumir, resumirResposta } from './senha';
-import { apagarToken, guardarToken, lerToken } from './sessao';
+import { apagarDadosDaPessoa, gravarPerfil, lerPerfil } from './bancoRemoto';
+import { obterAuth, temFirebase, usuarioAtual } from './firebase';
+import { novoSal, resumir } from './senha';
 import { esquecerUltimaSincronizacao } from './sincronizacao';
 
-// O lado da conta que fala com o servidor. O aplicativo continua conferindo a
-// senha sozinho quando está sem internet; com internet, quem decide é o servidor,
-// porque a senha pode ter sido trocada em outro celular.
+// O lado da conta que fala com o Firebase Authentication. O aplicativo continua
+// conferindo a senha sozinho quando está sem internet; com internet, quem decide é
+// o Firebase, porque a senha pode ter sido trocada em outro celular.
 
 export const CONECTADA = 'conectada';
 export const SENHA_ERRADA = 'senha-errada';
 export const EMAIL_EM_USO = 'email-em-uso';
 export const SEM_REDE = 'sem-rede';
 export const RECUSADA = 'recusada';
+export const ENTRAR_DE_NOVO = 'entrar-de-novo';
 
-// O que veio do servidor por cima do que o aparelho já sabia. A preferência de
-// biometria e a foto de perfil são deste aparelho e não sobem.
-function juntarConta(local, remota, senhaResumo) {
-  return {
-    biometriaAtiva: false,
-    ...(local || {}),
-    ...remota,
-    senhaResumo: senhaResumo,
-  };
+function situacaoDoErro(error) {
+  const codigo = (error && error.code) || '';
+
+  if (codigo === 'auth/email-already-in-use') {
+    return { situacao: EMAIL_EM_USO };
+  }
+
+  if (
+    codigo === 'auth/invalid-credential' ||
+    codigo === 'auth/wrong-password' ||
+    codigo === 'auth/user-not-found'
+  ) {
+    return { situacao: SENHA_ERRADA };
+  }
+
+  if (codigo === 'auth/requires-recent-login') {
+    return { situacao: ENTRAR_DE_NOVO };
+  }
+
+  if (codigo === 'auth/weak-password') {
+    return { situacao: RECUSADA, mensagem: 'A senha precisa ter pelo menos 6 caracteres.' };
+  }
+
+  if (codigo === 'auth/invalid-email') {
+    return { situacao: RECUSADA, mensagem: 'Confira o e-mail digitado.' };
+  }
+
+  if (codigo === 'auth/too-many-requests') {
+    return { situacao: RECUSADA, mensagem: 'Muitas tentativas. Aguarde alguns minutos.' };
+  }
+
+  // O resto (sem rede, serviço fora do ar): o aplicativo segue com o que tem aqui.
+  return { situacao: SEM_REDE };
 }
 
-function dadosDeCadastro(conta) {
-  return {
-    email: conta.email,
-    nome: conta.nome,
-    perfil: conta.perfil,
-    instituicao: conta.instituicao || null,
-    telefone: conta.telefone || '',
-    sal: conta.sal,
-    senhaResumo: conta.senhaResumo,
-    pergunta: conta.pergunta || '',
-    respostaResumo: conta.respostaResumo || '',
-  };
-}
-
-// Traduz os erros esperados em situações. O resto é defeito, e continua sendo
-// erro para quem chamou.
-async function comSituacao(tarefa, recusado) {
-  if (!temServidor()) {
+async function comSituacao(tarefa) {
+  if (!temFirebase()) {
     return { situacao: SEM_REDE };
   }
 
   try {
     return await tarefa();
   } catch (error) {
-    if (error instanceof SemConexao) {
-      return { situacao: SEM_REDE };
+    if (error && error.code) {
+      return situacaoDoErro(error);
     }
 
-    if (error instanceof ErroDaApi) {
-      return { situacao: recusado };
-    }
+    console.log('Erro ao falar com o Firebase:', error);
 
-    throw error;
+    return { situacao: SEM_REDE };
   }
 }
 
-export function registrar(conta) {
+function perfilDe(conta) {
+  return {
+    email: conta.email.trim().toLowerCase(),
+    nome: conta.nome,
+    perfil: conta.perfil,
+    instituicao: conta.instituicao || null,
+    telefone: conta.telefone || '',
+  };
+}
+
+// A conta local guarda o resumo da senha para entrar sem internet. Ela é refeita a
+// cada login conectado, e por isso a senha trocada em outro celular chega aqui.
+async function juntarConta(local, remota, senha, email) {
+  const sal = (local && local.sal) || novoSal();
+
+  return {
+    biometriaAtiva: false,
+    ...(local || {}),
+    ...(remota || {}),
+    email: (local && local.email) || email,
+    sal: sal,
+    senhaResumo: await resumir(senha, sal),
+  };
+}
+
+export function registrar(conta, senha) {
   return comSituacao(async () => {
-    try {
-      const resposta = await pedir('POST', '/auth/cadastro', dadosDeCadastro(conta));
+    const criada = await createUserWithEmailAndPassword(
+      obterAuth(),
+      conta.email.trim().toLowerCase(),
+      senha
+    );
 
-      await guardarToken(conta.email, resposta.token);
-      esquecerUltimaSincronizacao();
+    await gravarPerfil(criada.user.uid, perfilDe(conta));
+    esquecerUltimaSincronizacao();
 
-      return { situacao: CONECTADA };
-    } catch (error) {
-      if (error instanceof ErroDaApi && error.status !== 409) {
-        return { situacao: RECUSADA, mensagem: error.message };
-      }
-
-      throw error;
-    }
-  }, EMAIL_EM_USO);
+    return { situacao: CONECTADA };
+  });
 }
 
-async function tentarEntrar(email, senha) {
-  const { sal } = await pedir('POST', '/auth/sal', { email: email });
-  const senhaResumo = await resumir(senha, sal);
-  const resposta = await pedir('POST', '/auth/entrar', { email: email, senhaResumo: senhaResumo });
+async function entrarNoFirebase(email, senha) {
+  const entrada = await signInWithEmailAndPassword(obterAuth(), email, senha);
 
-  await guardarToken(email, resposta.token);
+  esquecerUltimaSincronizacao();
 
-  return { remota: resposta.conta, senhaResumo: senhaResumo };
+  return entrada.user;
 }
 
-// Entrar com uma conta que já está no aparelho, depois de a senha conferir ou
-// não localmente. `senhaLocalConfere` resolve a conta criada antes de existir
-// servidor: ela sobe agora, no primeiro login com internet.
+// Entrar com uma conta que já está no aparelho. `senhaLocalConfere` resolve a conta
+// criada antes do Firebase ou sem internet: ela sobe agora, no primeiro login
+// conectado. Se o e-mail já existir por lá, a senha digitada estava mesmo errada.
 export function conectar(local, senha, senhaLocalConfere) {
   return comSituacao(async () => {
+    const email = local.email.trim().toLowerCase();
+
     try {
-      const { remota, senhaResumo } = await tentarEntrar(local.email, senha);
-      const conta = juntarConta(local, remota, senhaResumo);
+      const usuario = await entrarNoFirebase(email, senha);
+      const remota = await lerPerfil(usuario.uid);
+      const conta = await juntarConta(local, remota, senha, email);
 
       await gravarContaLocal(conta);
-      esquecerUltimaSincronizacao();
 
       return { situacao: CONECTADA, conta: conta };
     } catch (error) {
-      if (!(error instanceof ErroDaApi) || !senhaLocalConfere) {
+      const situacao = situacaoDoErro(error).situacao;
+
+      if (situacao !== SENHA_ERRADA || !senhaLocalConfere) {
         throw error;
       }
     }
 
-    const resultado = await registrar(local);
+    const resultado = await registrar(local, senha);
 
     return resultado.situacao === EMAIL_EM_USO
       ? { situacao: SENHA_ERRADA }
       : { ...resultado, conta: local };
-  }, SENHA_ERRADA);
+  });
 }
 
 // O caminho de quem abre o aplicativo num celular novo.
 export function entrarPorEmail(email, senha) {
   return comSituacao(async () => {
     const local = await buscarContaPorEmail(email);
-    const { remota, senhaResumo } = await tentarEntrar(email, senha);
-    const conta = juntarConta(local, remota, senhaResumo);
+    const usuario = await entrarNoFirebase(email, senha);
+    const remota = await lerPerfil(usuario.uid);
+    const conta = await juntarConta(local, remota, senha, email);
 
     await gravarContaLocal(conta);
-    esquecerUltimaSincronizacao();
 
     return { situacao: CONECTADA, conta: conta };
-  }, SENHA_ERRADA);
+  });
 }
 
-// Monta o começo de uma conta para quem esqueceu a senha num celular novo. Não
-// grava nada: a conta só entra no aparelho se a resposta conferir.
-export function buscarParaRecuperar(email) {
+// A tela diz a mesma coisa exista a conta ou não: revelar quem tem conta ajudaria
+// quem está tentando entrar na dos outros.
+export function pedirNovaSenha(email) {
   return comSituacao(async () => {
-    const { sal, pergunta } = await pedir('POST', '/auth/sal', { email: email });
+    try {
+      await sendPasswordResetEmail(obterAuth(), email.trim().toLowerCase());
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') {
+        throw error;
+      }
+    }
 
-    return {
-      situacao: CONECTADA,
-      conta: { email: email, nome: email, sal: sal, pergunta: pergunta },
-    };
-  }, SENHA_ERRADA);
-}
-
-export function recuperar(conta, resposta, senhaNova) {
-  return comSituacao(async () => {
-    const senhaResumo = await resumir(senhaNova, conta.sal);
-    const retorno = await pedir('POST', '/auth/recuperar', {
-      email: conta.email,
-      respostaResumo: await resumirResposta(resposta, conta.sal),
-      senhaResumoNova: senhaResumo,
-    });
-    const atualizada = juntarConta(conta, retorno.conta, senhaResumo);
-
-    await guardarToken(conta.email, retorno.token);
-    await gravarContaLocal(atualizada);
-    esquecerUltimaSincronizacao();
-
-    return { situacao: CONECTADA, conta: atualizada };
-  }, SENHA_ERRADA);
+    return { situacao: CONECTADA };
+  });
 }
 
 export async function temSessao(conta) {
-  return temServidor() && (await lerToken(conta.email)) != null;
+  const usuario = await usuarioAtual();
+
+  return usuario != null && usuario.email === conta.email.trim().toLowerCase();
 }
 
-// Apagar a conta precisa chegar ao servidor. Sem conexão, recusa em vez de
-// apagar só daqui: a pessoa acharia que os dados sumiram, e eles continuariam lá.
-export async function apagarDoServidor(conta) {
-  const token = await lerToken(conta.email);
+export function trocarSenha(senhaAtual, senhaNova) {
+  return comSituacao(async () => {
+    const usuario = await usuarioAtual();
 
-  if (!temServidor() || token == null) {
-    return;
-  }
-
-  try {
-    await pedir('DELETE', '/contas/eu', undefined, token);
-  } catch (error) {
-    if (error instanceof ErroDaApi && error.status === 401) {
-      throw new SemConexao('Entre de novo com a senha antes de apagar a conta.');
+    if (usuario == null) {
+      return { situacao: ENTRAR_DE_NOVO };
     }
 
-    throw error;
-  }
+    await reauthenticateWithCredential(
+      usuario,
+      EmailAuthProvider.credential(usuario.email, senhaAtual)
+    );
+    await updatePassword(usuario, senhaNova);
+
+    return { situacao: CONECTADA };
+  });
+}
+
+// Apagar a conta precisa chegar ao servidor. Sem conexão, recusa em vez de apagar só
+// daqui: a pessoa acharia que os dados sumiram, e eles continuariam lá. A senha
+// renova o login, porque o Firebase só deixa excluir um login recente. Os dados saem
+// antes do login: sem ele, ninguém mais teria permissão para apagá-los.
+export function apagarDoServidor(conta, senha) {
+  return comSituacao(async () => {
+    const usuario = await usuarioAtual();
+
+    if (usuario == null || !(await temSessao(conta))) {
+      return { situacao: ENTRAR_DE_NOVO };
+    }
+
+    await reauthenticateWithCredential(
+      usuario,
+      EmailAuthProvider.credential(usuario.email, senha)
+    );
+
+    if (temServidor()) {
+      await pedir('DELETE', '/contas/eu', undefined, await usuario.getIdToken());
+    }
+
+    await apagarDadosDaPessoa(usuario);
+    await deleteUser(usuario);
+
+    return { situacao: CONECTADA };
+  });
 }
 
 // Depois de apagar: nada do que era dela pode continuar esperando para subir.
@@ -197,6 +251,5 @@ export async function limparRastros(conta) {
 
     return dela(op.conta) || dela(dados.conta) || dela(dados.dono) || dela(dados.por);
   });
-  await apagarToken(conta.email);
   await apagarConta(conta.email);
 }

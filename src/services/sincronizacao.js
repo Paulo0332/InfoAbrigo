@@ -1,7 +1,7 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import NetInfo from '@react-native-community/netinfo';
 
-import { ErroDaApi, SemConexao, enderecoDaApi, pedir, temServidor } from './api';
+import { enderecoDaApi, pedir, SemConexao, temServidor } from './api';
 import {
   gravarAnotacao,
   lerAnotacao,
@@ -10,21 +10,26 @@ import {
   tirarDaFila,
   trocarDados,
 } from './bancoLocal';
+import {
+  RecusadoPeloBanco,
+  apagarAbrigo,
+  apagarNecessidade,
+  apagarPrivado,
+  gravarAbrigo,
+  gravarNecessidade,
+  gravarPerfil,
+  gravarPrivado,
+  lerTudo,
+  ouvirMudancas,
+} from './bancoRemoto';
 import { carregarConta } from './contaAtual';
-import { apagarToken, guardarToken, lerToken } from './sessao';
-import { avisarNovidade, ouvirNovidades } from './tempoReal';
+import { temFirebase, usuarioAtual } from './firebase';
 
-// Leva a fila ao servidor e traz o que mudou por lá.
+// Leva a fila ao Firebase e traz o que mudou por lá.
 //
-// As telas continuam lendo e gravando no banco do aparelho, como sempre. Por
-// isso nada aqui trava o uso: sem internet a fila só espera a próxima tentativa.
-const ROTAS = {
-  abrigos: '/abrigos',
-  necessidades: '/necessidades',
-  doacoes: '/doacoes',
-  compromissos: '/compromissos',
-};
-
+// As telas continuam lendo e gravando no banco do aparelho, como sempre. Por isso
+// nada aqui trava o uso: sem internet a fila só espera a próxima tentativa. É o
+// mesmo desenho do exemplo LPAH-2026-SQLITE-FIREBASE da disciplina.
 const INTERVALO_MINIMO = 10000;
 const ESPERA_DA_TELA = 2500;
 const LARGURA_DA_FOTO = 1024;
@@ -58,7 +63,7 @@ export function ouvirNovidadesDeFora(ouvinte) {
 }
 
 // Liga o que acorda a sincronização sem ninguém tocar na tela: a conexão voltando e
-// o aviso de outro celular. Devolve a função que desliga.
+// a mudança feita por outro celular. Devolve a função que desliga.
 export function acompanharMudancas() {
   const pararConexao = NetInfo.addEventListener((estado) => {
     const conectado = Boolean(estado.isConnected);
@@ -71,15 +76,25 @@ export function acompanharMudancas() {
     }
   });
 
-  const pararNovidades = ouvirNovidades(async () => {
-    esquecerUltimaSincronizacao();
-    await sincronizar();
-    ouvintesDeNovidades.forEach((ouvinte) => ouvinte());
-  });
+  let desligado = false;
+  let pararMudancas = () => {};
+
+  usuarioAtual()
+    .then((usuario) => {
+      if (usuario != null && !desligado) {
+        pararMudancas = ouvirMudancas(async () => {
+          esquecerUltimaSincronizacao();
+          await sincronizar();
+          ouvintesDeNovidades.forEach((ouvinte) => ouvinte());
+        });
+      }
+    })
+    .catch((error) => console.log('Erro ao escutar o Firebase:', error));
 
   return () => {
+    desligado = true;
     pararConexao();
-    pararNovidades();
+    pararMudancas();
   };
 }
 
@@ -114,7 +129,7 @@ function ehDeOutraConta(op, email, abrigosRetidos) {
   return false;
 }
 
-async function enviarFoto(uri, token) {
+async function compactar(uri) {
   const contexto = ImageManipulator.ImageManipulator.manipulate(uri);
 
   contexto.resize({ width: LARGURA_DA_FOTO });
@@ -125,71 +140,114 @@ async function enviarFoto(uri, token) {
     compress: 0.6,
     base64: true,
   });
-  const resposta = await pedir('POST', '/arquivos', { base64: salva.base64 }, token);
 
-  return enderecoDaApi() + resposta.caminho;
+  return salva.base64;
 }
 
-// A foto do abrigo nasce como um arquivo deste celular, que nenhum outro
-// consegue abrir. Antes de o abrigo subir, ela sobe e vira um endereço público.
-async function prepararAbrigo(op, token) {
+// A foto do abrigo nasce como um arquivo deste celular, que nenhum outro consegue
+// abrir. Antes de o abrigo subir, ela vira algo que todos abrem. O lugar dela é a
+// API, porque o Storage do Firebase exige o plano pago. Com a API fora do ar, a foto
+// segue junto do abrigo, em texto, para o cadastro não ficar preso esperando.
+async function prepararAbrigo(op, usuario) {
   const foto = op.dados.foto;
 
-  if (!foto || /^https?:/i.test(foto)) {
+  if (!foto || /^(https?|data):/i.test(foto)) {
     return op.dados;
   }
 
+  let base64;
+
   try {
-    const dados = { ...op.dados, foto: await enviarFoto(foto, token) };
-
-    await trocarDados(op.seq, op.colecao, op.id, dados);
-
-    return dados;
+    base64 = await compactar(foto);
   } catch (error) {
-    if (error instanceof SemConexao) {
-      throw error;
-    }
-
     // O arquivo sumiu do aparelho: o abrigo sobe sem foto em vez de travar a fila.
-    console.log('Erro ao enviar a foto do abrigo:', error);
+    console.log('Erro ao preparar a foto do abrigo:', error);
 
     return { ...op.dados, foto: null };
   }
+
+  let endereco = 'data:image/jpeg;base64,' + base64;
+
+  if (temServidor()) {
+    try {
+      const resposta = await pedir('POST', '/arquivos', { base64 }, await usuario.getIdToken());
+
+      endereco = enderecoDaApi() + resposta.caminho;
+    } catch (error) {
+      console.log('A foto seguiu sem passar pela API:', error.message);
+    }
+  }
+
+  const dados = { ...op.dados, foto: endereco };
+
+  await trocarDados(op.seq, op.colecao, op.id, dados);
+
+  return dados;
 }
 
-async function executar(op, conta, token) {
-  const caminho = ROTAS[op.colecao] + '/' + encodeURIComponent(op.id);
+// O selo é decidido pela API: se fosse o próprio celular, poderia ser falsificado.
+// Falhar aqui não atrapalha nada, e a próxima gravação do abrigo tenta de novo.
+async function pedirVerificacao(abrigo, conta, usuario) {
+  const cnpj = conta.instituicao && conta.instituicao.cnpj;
 
+  if (!temServidor() || !cnpj) {
+    return;
+  }
+
+  try {
+    await pedir(
+      'POST',
+      '/verificacoes',
+      { abrigoId: String(abrigo.id), cnpj: cnpj },
+      await usuario.getIdToken()
+    );
+  } catch (error) {
+    console.log('Verificação da instituição adiada:', error.message);
+  }
+}
+
+async function executar(op, conta, usuario) {
   if (op.colecao === 'contas') {
-    const resposta = await pedir('PUT', '/contas/eu', op.dados, token);
+    await gravarPerfil(usuario.uid, op.dados);
 
-    await guardarToken(conta.email, resposta.token);
+    return;
+  }
 
-    return resposta.token;
+  // Pedido de uma versão anterior do aplicativo. A entrega agora é lida na necessidade.
+  if (op.acao === 'situacao') {
+    return;
   }
 
   if (op.acao === 'apagar') {
-    await pedir('DELETE', caminho, undefined, token);
-  } else if (op.acao === 'situacao') {
-    await pedir('PATCH', caminho + '/situacao', op.dados, token);
-  } else if (op.colecao === 'abrigos') {
-    await pedir('PUT', caminho, await prepararAbrigo(op, token), token);
-  } else {
-    await pedir('PUT', caminho, op.dados, token);
+    if (op.colecao === 'abrigos') {
+      await apagarAbrigo(op.id);
+    } else if (op.colecao === 'necessidades') {
+      await apagarNecessidade(op.id);
+    } else {
+      await apagarPrivado(op.colecao, usuario, op.id);
+    }
+
+    return;
   }
 
-  return token;
+  if (op.colecao === 'abrigos') {
+    const dados = await prepararAbrigo(op, usuario);
+
+    await gravarAbrigo(usuario, dados);
+    await pedirVerificacao(dados, conta, usuario);
+  } else if (op.colecao === 'necessidades') {
+    await gravarNecessidade(usuario, op.dados);
+  } else {
+    await gravarPrivado(op.colecao, usuario, op.dados);
+  }
 }
 
-// Envia na ordem em que aconteceu. Falta de conexão para tudo e tenta depois;
-// recusa do servidor descarta só aquele pedido, senão um registro inválido
-// seguraria todos os outros para sempre. O que foi recusado volta ao estado do
-// servidor no download logo em seguida.
-async function enviarFila(conta, tokenInicial) {
-  const email = normal(conta.email);
+// Envia na ordem em que aconteceu. Falta de conexão para tudo e tenta depois; recusa
+// do banco descarta só aquele pedido, senão um registro inválido seguraria todos os
+// outros para sempre. O que foi recusado volta ao estado do banco logo em seguida.
+async function enviarFila(conta, usuario) {
+  const email = normal(usuario.email);
   const abrigosRetidos = new Set();
-  let token = tokenInicial;
-  let enviados = 0;
 
   for (const op of await lerFila()) {
     if (ehDeOutraConta(op, email, abrigosRetidos)) {
@@ -201,42 +259,30 @@ async function enviarFila(conta, tokenInicial) {
     }
 
     try {
-      token = await executar(op, conta, token);
+      await executar(op, conta, usuario);
     } catch (error) {
-      if (error instanceof ErroDaApi && error.status === 401) {
+      if (!(error instanceof RecusadoPeloBanco)) {
         throw error;
       }
 
-      if (!(error instanceof ErroDaApi)) {
-        throw error;
-      }
-
-      console.log('Pedido recusado pelo servidor:', op.colecao, op.id, error.message);
+      console.log('Pedido recusado pelo Firebase:', op.colecao, op.id, error.message);
     }
 
     await tirarDaFila(op.seq);
-    enviados += 1;
   }
-
-  return { token, enviados };
 }
 
-async function baixar(email, token) {
-  const [abrigos, necessidades, doacoes, compromissos] = await Promise.all([
-    pedir('GET', ROTAS.abrigos, undefined, token),
-    pedir('GET', ROTAS.necessidades, undefined, token),
-    pedir('GET', ROTAS.doacoes, undefined, token),
-    pedir('GET', ROTAS.compromissos, undefined, token),
-  ]);
+async function baixar(email, usuario) {
+  const tudo = await lerTudo(usuario);
 
-  // Doação e agenda são privadas: o servidor só devolve as desta conta, e as
-  // das outras contas do aparelho continuam guardadas.
+  // Doação e agenda são privadas: só vêm as desta conta, e as das outras contas do
+  // aparelho continuam guardadas.
   const deOutraConta = (item) => normal(item.conta) !== email;
 
-  await receberDoServidor('abrigos', abrigos);
-  await receberDoServidor('necessidades', necessidades);
-  await receberDoServidor('doacoes', doacoes, deOutraConta);
-  await receberDoServidor('compromissos', compromissos, deOutraConta);
+  await receberDoServidor('abrigos', tudo.abrigos);
+  await receberDoServidor('necessidades', tudo.necessidades);
+  await receberDoServidor('doacoes', tudo.doacoes, deOutraConta);
+  await receberDoServidor('compromissos', tudo.compromissos, deOutraConta);
 }
 
 async function rodar() {
@@ -246,32 +292,26 @@ async function rodar() {
     return;
   }
 
-  const token = await lerToken(conta.email);
+  const usuario = await usuarioAtual();
+  const email = normal(conta.email);
 
-  if (token == null) {
+  // Entrou pela digital em outra conta do aparelho: a sessão do Firebase é de outra
+  // pessoa. Os dados ficam aqui até ela entrar com a senha.
+  if (usuario == null || normal(usuario.email) !== email) {
     return;
   }
 
-  const email = normal(conta.email);
-
   try {
-    const envio = await enviarFila(conta, token);
-
-    await baixar(email, envio.token);
-
-    if (envio.enviados > 0) {
-      await avisarNovidade();
-    }
+    await enviarFila(conta, usuario);
+    await baixar(email, usuario);
 
     ultima = { email: email, em: Date.now() };
     semConexao = false;
 
     await gravarAnotacao('ultima-sincronizacao', new Date().toISOString());
   } catch (error) {
-    if (error instanceof ErroDaApi && error.status === 401) {
-      // Sessão vencida ou senha trocada em outro celular. Os dados ficam no
-      // aparelho e voltam a subir quando a pessoa entrar com a senha.
-      await apagarToken(conta.email);
+    if (error instanceof RecusadoPeloBanco) {
+      console.log('Leitura recusada pelo Firebase:', error.message);
 
       return;
     }
@@ -285,7 +325,7 @@ async function rodar() {
 }
 
 export function sincronizar() {
-  if (!temServidor()) {
+  if (!temFirebase()) {
     return Promise.resolve();
   }
 
@@ -321,10 +361,10 @@ export function avisarMudanca() {
   sincronizar();
 }
 
-// Chamado antes de cada leitura. Espera um pouco para a tela já abrir com o
-// dado novo, mas nunca muito: com internet ruim, ela abre com o que já tem.
+// Chamado antes de cada leitura. Espera um pouco para a tela já abrir com o dado
+// novo, mas nunca muito: com internet ruim, ela abre com o que já tem.
 export async function garantirAtualizado() {
-  if (!temServidor()) {
+  if (!temFirebase()) {
     return;
   }
 
@@ -366,16 +406,17 @@ async function contarPendentes(email) {
 
 // O que o Perfil e a faixa de aviso mostram para a pessoa saber onde os dados dela estão.
 export async function estadoDaSincronizacao(conta) {
-  if (!temServidor()) {
+  if (!temFirebase()) {
     return { situacao: 'sem-servidor', pendentes: 0, ultimaEm: null };
   }
 
-  const token = conta ? await lerToken(conta.email) : null;
+  const usuario = await usuarioAtual();
+  const email = conta ? normal(conta.email) : '';
 
   return {
-    situacao: token ? 'conectada' : 'sem-sessao',
+    situacao: usuario != null && normal(usuario.email) === email ? 'conectada' : 'sem-sessao',
     semConexao: semConexao,
-    pendentes: conta ? await contarPendentes(normal(conta.email)) : 0,
+    pendentes: conta ? await contarPendentes(email) : 0,
     ultimaEm: await lerAnotacao('ultima-sincronizacao'),
   };
 }

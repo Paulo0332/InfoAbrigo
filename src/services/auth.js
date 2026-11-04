@@ -1,9 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { temServidor } from './api';
 import { pedirEnvio } from './bancoLocal';
 import { CHAVE_ATUAL, carregarConta } from './contaAtual';
-import { lerToken } from './sessao';
+import { usuarioAtual } from './firebase';
 import { avisarMudanca } from './sincronizacao';
 
 // Duas chaves, com papéis diferentes: uma guarda todas as contas criadas
@@ -48,9 +47,9 @@ export async function carregarContas() {
   }
 }
 
-// O que mudou na conta e precisa chegar ao servidor. A preferência de biometria
-// e a foto de perfil são deste aparelho e ficam de fora. Mudança de senha ou de
-// pergunta leva o resumo da senha anterior, que é a prova que o servidor exige.
+// O que mudou na conta e precisa chegar ao banco. A preferência de biometria e a
+// foto de perfil são deste aparelho e ficam de fora, e a senha é assunto do Firebase
+// Authentication, nunca do banco.
 export function mudancasDaConta(anterior, conta) {
   const mudou = (campo) =>
     JSON.stringify(anterior[campo] ?? null) !== JSON.stringify(conta[campo] ?? null);
@@ -62,15 +61,6 @@ export function mudancasDaConta(anterior, conta) {
     }
   });
 
-  const credenciais = ['sal', 'senhaResumo', 'pergunta', 'respostaResumo'].filter(mudou);
-
-  if (credenciais.length > 0 && anterior.senhaResumo) {
-    credenciais.forEach((campo) => {
-      campos[campo] = conta[campo];
-    });
-    campos.senhaAtualResumo = anterior.senhaResumo;
-  }
-
   return campos;
 }
 
@@ -80,7 +70,9 @@ export async function salvarConta(conta) {
 
   await gravarContaLocal(conta);
 
-  if (anterior == null || !temServidor() || (await lerToken(conta.email)) == null) {
+  const usuario = await usuarioAtual();
+
+  if (anterior == null || usuario == null || usuario.email !== conta.email.trim().toLowerCase()) {
     return;
   }
 

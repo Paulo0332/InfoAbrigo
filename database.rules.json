@@ -1,0 +1,54 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "contas": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "abrigos": {
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null && (data.exists() ? data.child('donoUid').val() === auth.uid : newData.child('donoUid').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['nome', 'latitude', 'longitude', 'dono', 'donoUid']) && newData.child('donoUid').val() === auth.uid && newData.child('dono').val() === auth.token.email",
+        "nome": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+        "latitude": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+        "longitude": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" }
+      }
+    },
+    "necessidades": {
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null && (data.exists() ? (data.child('criadoPor').val() === auth.uid || root.child('abrigos').child(data.child('abrigoId').val() + '').child('donoUid').val() === auth.uid) : (newData.child('criadoPor').val() === auth.uid && (!newData.child('abrigoId').exists() || root.child('abrigos').child(newData.child('abrigoId').val() + '').child('donoUid').val() === auth.uid)))",
+        "contribuicoes": {
+          "$cid": {
+            ".write": "auth != null && (data.exists() ? data.child('porUid').val() === auth.uid : newData.child('porUid').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['id', 'por', 'porUid', 'quantidade'])",
+            "quantidade": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "entregue": { ".validate": "newData.isBoolean() && (newData.val() === false || data.val() === true || root.child('necessidades').child($id).child('criadoPor').val() === auth.uid || root.child('abrigos').child(root.child('necessidades').child($id).child('abrigoId').val() + '').child('donoUid').val() === auth.uid)" }
+          }
+        }
+      }
+    },
+    "doacoes": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "compromissos": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "verificacoes": {
+      ".read": "auth != null"
+    },
+    "alertas": {
+      ".read": "auth != null"
+    }
+  }
+}

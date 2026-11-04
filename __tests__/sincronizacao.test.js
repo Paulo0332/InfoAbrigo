@@ -1,17 +1,16 @@
-// O caminho completo: dois "celulares", cada um com o próprio banco e cofre,
-// falando com a API de verdade, num banco MySQL próprio dos testes.
+// O caminho completo: vários "celulares", cada um com o próprio banco local, falando
+// com o emulador do Firebase, com as regras de segurança de verdade.
 //
-// Precisa do MySQL no ar e de duas variáveis: TESTE_API=1 e API_PYTHON, com o
-// caminho do Python onde estão as dependências do backend. Sem elas, fica de fora.
-const { spawn } = require('node:child_process');
-const path = require('node:path');
+// Precisa do emulador no ar (npm run emulador) e da variável TESTE_FIREBASE=1. Sem
+// isso, esta parte fica de fora.
+const fetchDoNode = require('./apoio/fetch-node');
 
-const PASTA_API = path.join(__dirname, '..', 'backend');
-const descrever = process.env.TESTE_API === '1' ? describe : describe.skip;
+const PROJETO = 'demo-infoabrigo';
+const descrever = process.env.TESTE_FIREBASE === '1' ? describe : describe.skip;
 
 jest.setTimeout(120000);
 
-// jest.resetModules dá a cada celular um banco, um cofre e um AsyncStorage novos.
+// jest.resetModules dá a cada celular um banco, um login e um AsyncStorage novos.
 function novoCelular() {
   jest.resetModules();
 
@@ -26,23 +25,29 @@ function novoCelular() {
     sync: require('../src/services/sincronizacao'),
     banco: require('../src/services/bancoLocal'),
     limpeza: require('../src/services/limpeza'),
+    firebase: require('../src/services/firebase'),
+    db: require('firebase/database'),
   };
 }
 
-async function criarConta(celular, email, perfil, senha) {
-  const sal = celular.senha.novoSal();
-  const conta = {
+function contaNova(celular, email, perfil, sal) {
+  return (async () => ({
     nome: 'Pessoa ' + perfil,
     email: email,
     sal: sal,
-    senhaResumo: await celular.senha.resumir(senha, sal),
-    pergunta: 'Qual é o seu prato preferido?',
-    respostaResumo: await celular.senha.resumirResposta('lasanha', sal),
+    senhaResumo: await celular.senha.resumir('senha-' + perfil, sal),
+    pergunta: '',
+    respostaResumo: '',
     perfil: perfil,
     instituicao: null,
     biometriaAtiva: false,
-  };
-  const remoto = await celular.remota.registrar(conta);
+  }))();
+}
+
+async function criarConta(celular, email, perfil) {
+  const sal = celular.senha.novoSal();
+  const conta = await contaNova(celular, email, perfil, sal);
+  const remoto = await celular.remota.registrar(conta, 'senha-' + perfil);
 
   await celular.auth.salvarConta(conta);
 
@@ -57,57 +62,61 @@ const ABRIGO = {
   dono: 'gestor@teste.com',
 };
 
-descrever('sincronização com a API', () => {
-  let servidor;
+function ligarAmbiente() {
+  process.env.EXPO_PUBLIC_FIREBASE_API_KEY = 'chave-falsa';
+  process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL =
+    'http://127.0.0.1:9000/?ns=' + PROJETO + '-default-rtdb';
+  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID = PROJETO;
+  process.env.EXPO_PUBLIC_FIREBASE_EMULATOR = '127.0.0.1';
+}
+
+function desligarAmbiente() {
+  delete process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+  delete process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL;
+  delete process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID;
+  delete process.env.EXPO_PUBLIC_FIREBASE_EMULATOR;
+}
+
+async function limparEmulador() {
+  await fetchDoNode(
+    'http://127.0.0.1:9099/emulator/v1/projects/' + PROJETO + '/accounts',
+    { method: 'DELETE', headers: { Authorization: 'Bearer owner' } }
+  );
+  await fetchDoNode(
+    'http://127.0.0.1:9000/.json?ns=' + PROJETO + '-default-rtdb',
+    {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' },
+      body: 'null',
+    }
+  );
+}
+
+descrever('sincronização com o Firebase', () => {
   const fetchOriginal = global.fetch;
+  let gestor;
+  let doador;
 
   beforeAll(async () => {
-    servidor = spawn(process.env.API_PYTHON || 'python', ['tests/servidor_teste.py'], {
-      cwd: PASTA_API,
-      env: {
-        ...process.env,
-        PORT: '0',
-        LIMITE_LOGIN: '1000',
-        MYSQL_DB: 'infoabrigo_jest',
-        MYSQL_HOST: '127.0.0.1',
-        MYSQL_PASSWORD: 'root',
-      },
-    });
-
-    servidor.stderr.on('data', () => {});
-
-    const porta = await new Promise((resolve, reject) => {
-      servidor.stdout.on('data', (dados) => {
-        const achado = /PRONTO (\d+)/.exec(String(dados));
-
-        if (achado) {
-          resolve(achado[1]);
-        }
-      });
-      servidor.on('exit', () => reject(new Error('A API não subiu.')));
-    });
-
-    process.env.EXPO_PUBLIC_API_URL = 'http://127.0.0.1:' + porta;
-    global.fetch = require('./apoio/fetch-node');
+    global.fetch = fetchDoNode;
+    ligarAmbiente();
+    await limparEmulador();
   });
 
   afterAll(() => {
     global.fetch = fetchOriginal;
-    servidor.removeAllListeners('exit');
-    servidor.kill();
-    delete process.env.EXPO_PUBLIC_API_URL;
+    global.__semInternet = false;
+    desligarAmbiente();
   });
-
-  let gestor;
-  let doador;
 
   test('o abrigo cadastrado num celular aparece no outro', async () => {
     gestor = novoCelular();
 
-    const { remoto } = await criarConta(gestor, 'gestor@teste.com', 'gestor', 'senha-gestor');
+    const { remoto } = await criarConta(gestor, 'gestor@teste.com', 'gestor');
 
     expect(remoto.situacao).toBe('conectada');
 
+    await gestor.abrigos.carregarAbrigos();
     await gestor.abrigos.cadastrarAbrigo({ ...ABRIGO, foto: 'file:///foto-local.jpg' });
     await gestor.necessidades.loadNeeds();
     await gestor.necessidades.saveNeeds([
@@ -118,12 +127,12 @@ descrever('sincronização com a API', () => {
     expect(await gestor.banco.contarFila()).toBe(0);
 
     doador = novoCelular();
-    await criarConta(doador, 'doador@teste.com', 'doador', 'senha-doador');
+    await criarConta(doador, 'doador@teste.com', 'doador');
 
     const lista = await doador.abrigos.carregarAbrigos();
 
     expect(lista.map((a) => a.nome)).toEqual(['Casa Lar']);
-    expect(lista[0].foto).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/arquivos\/[0-9a-f]{32}$/);
+    expect(lista[0].foto).toMatch(/^data:image\/jpeg;base64,/);
     expect((await doador.necessidades.loadNeeds())[0].title).toBe('Fraldas');
   });
 
@@ -146,8 +155,11 @@ descrever('sincronização com a API', () => {
         ],
       }))
     );
+    await doador.doacoes.carregarDoacoes();
     await doador.doacoes.registrarDoacao(doacao);
     await doador.sync.sincronizar();
+
+    expect(await doador.banco.contarFila()).toBe(0);
 
     gestor.sync.esquecerUltimaSincronizacao();
 
@@ -161,7 +173,6 @@ descrever('sincronização com a API', () => {
         contribuicoes: need.contribuicoes.map((uma) => ({ ...uma, entregue: true })),
       }))
     );
-    await gestor.doacoes.atualizarSituacao('doacao-1', gestor.doacoes.CONFIRMADA);
     await gestor.sync.sincronizar();
 
     doador.sync.esquecerUltimaSincronizacao();
@@ -173,12 +184,9 @@ descrever('sincronização com a API', () => {
   });
 
   test('sem internet a gravação espera na fila, e sobe quando a conexão volta', async () => {
-    const fetchDeVerdade = global.fetch;
+    global.__semInternet = true;
 
-    global.fetch = async () => {
-      throw new TypeError('Network request failed');
-    };
-
+    const conta = await doador.auth.carregarConta();
     const agenda = await doador.agenda.carregarAgenda();
 
     await doador.agenda.salvarAgendaDaConta(
@@ -190,7 +198,6 @@ descrever('sincronização com a API', () => {
     );
     await doador.sync.sincronizar();
 
-    const conta = await doador.auth.carregarConta();
     const semRede = await doador.sync.estadoDaSincronizacao(conta);
 
     expect(await doador.banco.contarFila()).toBe(1);
@@ -198,7 +205,7 @@ descrever('sincronização com a API', () => {
     expect(semRede.semConexao).toBe(true);
     expect(await doador.agenda.carregarAgenda()).toHaveLength(1);
 
-    global.fetch = fetchDeVerdade;
+    global.__semInternet = false;
     await doador.sync.sincronizar();
 
     const comRede = await doador.sync.estadoDaSincronizacao(conta);
@@ -209,6 +216,8 @@ descrever('sincronização com a API', () => {
   });
 
   test('a lista velha de uma tela não apaga o que chegou de outro celular', async () => {
+    gestor.sync.esquecerUltimaSincronizacao();
+
     // A tela do gestor leu a lista antes de existir a segunda necessidade.
     const naTela = await gestor.necessidades.loadNeeds();
     const outroCelular = novoCelular();
@@ -237,6 +246,7 @@ descrever('sincronização com a API', () => {
     const finais = await outroCelular.necessidades.loadNeeds();
 
     expect(finais.map((n) => n.title).sort()).toEqual(['Fraldas G', 'Leite']);
+    expect(finais.find((n) => n.id === 'need-1').contribuicoes).toHaveLength(1);
   });
 
   test('num celular novo, a pessoa entra pelo e-mail e recebe os próprios dados', async () => {
@@ -256,46 +266,43 @@ descrever('sincronização com a API', () => {
     expect(errada.situacao).toBe('senha-errada');
   });
 
-  test('e-mail desconhecido recebe uma pergunta, sem revelar que não existe', async () => {
+  test('conta criada sem internet sobe no primeiro login conectado', async () => {
     const celular = novoCelular();
-    const achado = await celular.remota.buscarParaRecuperar('ninguem@teste.com');
+    const conta = await contaNova(celular, 'offline@teste.com', 'doador', 'sal-qualquer');
 
-    expect(achado.situacao).toBe('conectada');
-    expect(achado.conta.pergunta.length).toBeGreaterThan(0);
+    await celular.auth.gravarContaLocal(conta);
+
+    const entrada = await celular.remota.conectar(conta, 'senha-doador', true);
+
+    expect(entrada.situacao).toBe('conectada');
+    expect(await celular.remota.temSessao(conta)).toBe(true);
+
+    // Com a senha errada localmente, o e-mail já existente não vira outra conta.
+    const outro = novoCelular();
+    const recusada = await outro.remota.conectar(conta, 'outra-senha', true);
+
+    expect(recusada.situacao).toBe('senha-errada');
   });
 
   test('trocar a senha num celular faz o outro precisar da senha nova', async () => {
-    const atual = await doador.auth.carregarConta();
-    const sal = atual.sal;
-
-    await doador.auth.salvarConta({
-      ...atual,
-      senhaResumo: await doador.senha.resumir('senha-nova', sal),
-    });
-    await doador.sync.sincronizar();
-
-    expect(await doador.banco.contarFila()).toBe(0);
-
     const celular = novoCelular();
+    const { conta } = await criarConta(celular, 'troca@teste.com', 'visitante');
 
-    expect((await celular.remota.entrarPorEmail('doador@teste.com', 'senha-doador')).situacao).toBe('senha-errada');
-    expect((await celular.remota.entrarPorEmail('doador@teste.com', 'senha-nova')).situacao).toBe('conectada');
+    expect((await celular.remota.trocarSenha('senha-errada', 'senha-nova')).situacao).toBe('senha-errada');
+    expect((await celular.remota.trocarSenha('senha-visitante', 'senha-nova')).situacao).toBe('conectada');
+    expect(conta.email).toBe('troca@teste.com');
 
-    // E a sessão do próprio celular continua valendo: o servidor mandou outra.
-    doador.sync.esquecerUltimaSincronizacao();
-    expect(await doador.remota.temSessao(atual)).toBe(true);
+    const outro = novoCelular();
+
+    expect((await outro.remota.entrarPorEmail('troca@teste.com', 'senha-visitante')).situacao).toBe('senha-errada');
+    expect((await outro.remota.entrarPorEmail('troca@teste.com', 'senha-nova')).situacao).toBe('conectada');
   });
 
-  test('esqueci a senha: a resposta certa troca a senha no servidor', async () => {
+  test('esqueci a senha pede o e-mail, exista a conta ou não', async () => {
     const celular = novoCelular();
-    const { conta } = await celular.remota.buscarParaRecuperar('doador@teste.com');
 
-    expect((await celular.remota.recuperar(conta, 'errada', 'nova-2')).situacao).toBe('senha-errada');
-
-    const certa = await celular.remota.recuperar(conta, ' Lasanha ', 'nova-2');
-
-    expect(certa.situacao).toBe('conectada');
-    expect((await novoCelular().remota.entrarPorEmail('doador@teste.com', 'nova-2')).situacao).toBe('conectada');
+    expect((await celular.remota.pedirNovaSenha('doador@teste.com')).situacao).toBe('conectada');
+    expect((await celular.remota.pedirNovaSenha('ninguem@teste.com')).situacao).toBe('conectada');
   });
 
   test('dados de outra conta do aparelho não sobem com a sessão desta', async () => {
@@ -319,25 +326,128 @@ descrever('sincronização com a API', () => {
     expect((await celular.doacoes.carregarDoacoes()).some((d) => d.id === 'de-outra-conta')).toBe(true);
   });
 
-  test('apagar a conta some com ela no servidor e no aparelho', async () => {
-    const celular = novoCelular();
-    const { conta } = await criarConta(celular, 'sai@teste.com', 'doador', 'senha-sai');
+  describe('regras de segurança', () => {
+    let fb;
+    let banco;
+    let uid;
 
-    await celular.remota.apagarDoServidor(conta);
+    beforeAll(async () => {
+      fb = novoCelular();
+
+      const entrou = await fb.remota.entrarPorEmail('doador@teste.com', 'senha-doador');
+
+      await fb.auth.entrarNaConta(entrou.conta);
+
+      banco = fb.firebase.obterBanco();
+      uid = (await fb.firebase.usuarioAtual()).uid;
+    });
+
+    const gravar = (caminho, valor) => fb.db.set(fb.db.ref(banco, caminho), valor);
+    const ler = (caminho) => fb.db.get(fb.db.ref(banco, caminho));
+    const recusa = { message: expect.stringMatching(/permission/i) };
+
+    test('quem não é dono não altera nem apaga o abrigo', async () => {
+      await expect(gravar('abrigos/abrigo-1/nome', 'Roubado')).rejects.toMatchObject(recusa);
+      await expect(gravar('abrigos/abrigo-1', null)).rejects.toMatchObject(recusa);
+    });
+
+    test('não dá para criar abrigo em nome de outra pessoa', async () => {
+      await expect(
+        gravar('abrigos/falso', {
+          nome: 'Falso',
+          latitude: 0,
+          longitude: 0,
+          dono: 'gestor@teste.com',
+          donoUid: 'outro-uid',
+        })
+      ).rejects.toMatchObject(recusa);
+    });
+
+    test('quem doa não muda o título nem cria necessidade em abrigo alheio', async () => {
+      await expect(gravar('necessidades/need-1/title', 'Trocado')).rejects.toMatchObject(recusa);
+      await expect(
+        gravar('necessidades/nova', { id: 'nova', title: 'X', abrigoId: 'abrigo-1', criadoPor: uid })
+      ).rejects.toMatchObject(recusa);
+    });
+
+    test('quem doa não marca a própria promessa como entregue', async () => {
+      await expect(
+        gravar('necessidades/need-2/contribuicoes/p1', {
+          id: 'p1',
+          por: 'doador@teste.com',
+          porUid: uid,
+          quantidade: 1,
+          entregue: true,
+        })
+      ).rejects.toMatchObject(recusa);
+    });
+
+    test('ninguém apaga nem cria promessa em nome de outra pessoa', async () => {
+      await expect(
+        gravar('necessidades/need-2/contribuicoes/p2', {
+          id: 'p2',
+          por: 'gestor@teste.com',
+          porUid: 'outro-uid',
+          quantidade: 1,
+        })
+      ).rejects.toMatchObject(recusa);
+    });
+
+    test('doação, agenda e perfil de outra pessoa não podem ser lidos', async () => {
+      await expect(ler('doacoes/outro-uid')).rejects.toMatchObject(recusa);
+      await expect(ler('compromissos/outro-uid')).rejects.toMatchObject(recusa);
+      await expect(ler('contas/outro-uid')).rejects.toMatchObject(recusa);
+    });
+
+    test('selo e alerta só são escritos pela API', async () => {
+      await expect(gravar('verificacoes/abrigo-1', { verificado: true })).rejects.toMatchObject(recusa);
+      await expect(gravar('alertas/abrigo-1', null)).rejects.toMatchObject(recusa);
+      expect((await ler('verificacoes')).exists()).toBe(false);
+    });
+
+    test('quem não entrou não lê nada', async () => {
+      const anonimo = novoCelular();
+
+      await expect(
+        anonimo.db.get(anonimo.db.ref(anonimo.firebase.obterBanco(), 'abrigos'))
+      ).rejects.toMatchObject(recusa);
+    });
+  });
+
+  test('apagar a conta some com os dados dela no Firebase e no aparelho', async () => {
+    const celular = novoCelular();
+    const { conta } = await criarConta(celular, 'sai@teste.com', 'gestor');
+
+    await celular.abrigos.carregarAbrigos();
+    await celular.abrigos.cadastrarAbrigo({ ...ABRIGO, id: 'abrigo-sai', dono: 'sai@teste.com' });
+    await celular.sync.sincronizar();
+
+    expect((await celular.remota.apagarDoServidor(conta, 'errada')).situacao).toBe('senha-errada');
+    expect((await celular.remota.apagarDoServidor(conta, 'senha-gestor')).situacao).toBe('conectada');
+
     await celular.limpeza.apagarDadosDaConta(conta.email);
     await celular.remota.limparRastros(conta);
 
     expect(await celular.auth.carregarConta()).toBeNull();
-    expect((await novoCelular().remota.entrarPorEmail('sai@teste.com', 'senha-sai')).situacao).toBe('senha-errada');
+
+    const outro = novoCelular();
+
+    expect((await outro.remota.entrarPorEmail('sai@teste.com', 'senha-gestor')).situacao).toBe('senha-errada');
+
+    const entrou = await outro.remota.entrarPorEmail('doador@teste.com', 'senha-doador');
+
+    await outro.auth.entrarNaConta(entrou.conta);
+
+    expect((await outro.abrigos.carregarAbrigos()).some((a) => a.id === 'abrigo-sai')).toBe(false);
   });
 });
 
-describe('sem servidor configurado', () => {
-  test('tudo continua funcionando só com o aparelho', async () => {
-    delete process.env.EXPO_PUBLIC_API_URL;
+describe('sem Firebase configurado', () => {
+  beforeAll(desligarAmbiente);
 
+  test('tudo continua funcionando só com o aparelho', async () => {
     const celular = novoCelular();
-    const { remoto } = await criarConta(celular, 'local@teste.com', 'gestor', 'senha');
+    const { remoto } = await criarConta(celular, 'local@teste.com', 'gestor');
 
     expect(remoto.situacao).toBe('sem-rede');
 

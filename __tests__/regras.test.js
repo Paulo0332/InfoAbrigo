@@ -165,11 +165,8 @@ describe('mudanças da conta', () => {
     expect(mudancasDaConta(base, { ...base, biometriaAtiva: true, foto: 'x' })).toEqual({});
   });
 
-  test('troca de senha leva a prova da senha atual', () => {
-    expect(mudancasDaConta(base, { ...base, senhaResumo: 'r2' })).toEqual({
-      senhaResumo: 'r2',
-      senhaAtualResumo: 'r1',
-    });
+  test('senha nunca vai para o banco', () => {
+    expect(mudancasDaConta(base, { ...base, senhaResumo: 'r2', sal: 'outro' })).toEqual({});
   });
 
   test('troca de nome não leva credencial', () => {

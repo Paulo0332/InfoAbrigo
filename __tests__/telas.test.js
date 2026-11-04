@@ -14,6 +14,7 @@ import * as avisos from '../src/services/avisos';
 import { salvarConta } from '../src/services/auth';
 import { adicionarAoCalendario, atualizarBadge } from '../src/services/recursosNativos';
 import { salvarAgendaDaConta } from '../src/services/agenda';
+import { temFirebase } from '../src/services/firebase';
 import { resumir } from '../src/services/senha';
 
 jest.mock('@react-navigation/native', () => ({
@@ -23,6 +24,11 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
+jest.mock('../src/services/firebase', () => ({
+  ...jest.requireActual('../src/services/firebase'),
+  temFirebase: jest.fn(() => false),
+}));
 
 jest.mock('expo-camera', () => {
   const { View } = require('react-native');
@@ -117,8 +123,8 @@ describe('telas', () => {
     await fireEvent.press(screen.getByText('Entrar'));
   });
 
-  test('entrada mostra a opção de outro celular quando há servidor', async () => {
-    process.env.EXPO_PUBLIC_API_URL = 'http://127.0.0.1:9';
+  test('com o Firebase, a entrada oferece a conta de outro celular', async () => {
+    temFirebase.mockReturnValue(true);
 
     try {
       await abrir(LoginScreen);
@@ -127,7 +133,20 @@ describe('telas', () => {
 
       expect(screen.getByPlaceholderText('O e-mail da sua conta')).toBeTruthy();
     } finally {
-      delete process.env.EXPO_PUBLIC_API_URL;
+      temFirebase.mockReturnValue(false);
+    }
+  });
+
+  test('com o Firebase, o cadastro não pede a pergunta de segurança', async () => {
+    temFirebase.mockReturnValue(true);
+
+    try {
+      await abrir(SignUpScreen);
+
+      expect(await screen.findByText(/guardada no Firebase/)).toBeTruthy();
+      expect(screen.queryByText('Pergunta de segurança')).toBeNull();
+    } finally {
+      temFirebase.mockReturnValue(false);
     }
   });
 

@@ -19,16 +19,14 @@ import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
 import { buscarPerfil } from '../data/perfis';
 import { carregarConta, carregarContas, entrarNaConta, salvarConta } from '../services/auth';
-import { temServidor } from '../services/api';
+import { temFirebase } from '../services/firebase';
 import {
   CONECTADA,
   SEM_REDE,
   SENHA_ERRADA,
-  buscarParaRecuperar,
   conectar,
   entrarPorEmail,
-  recuperar,
-  temSessao,
+  pedirNovaSenha,
 } from '../services/contaRemota';
 import { adotarDadosSemDono } from '../services/limpeza';
 import { conferirResposta, conferirSenha, novoSal, resumir } from '../services/senha';
@@ -206,20 +204,24 @@ export default function LoginScreen(props) {
       return;
     }
 
-    const remoto = await buscarParaRecuperar(email);
+    enviarLinkDeSenha(email);
+  }
 
-    if (remoto.situacao !== CONECTADA) {
-      Alert.alert('Sem conexão', 'Para recuperar a conta neste aparelho, é preciso internet.');
+  // A tela diz a mesma coisa exista a conta ou não: revelar quem tem conta ajudaria
+  // quem está tentando entrar na dos outros.
+  async function enviarLinkDeSenha(email) {
+    const remoto = await pedirNovaSenha(email);
+
+    if (remoto.situacao === CONECTADA) {
+      Alert.alert(
+        'Confira o seu e-mail',
+        'Se houver uma conta com este endereço, enviamos um link para criar uma senha nova. Depois, entre aqui com a senha nova.'
+      );
 
       return;
     }
 
-    setSelecionada(remoto.conta);
-    setSenha('');
-    setResposta('');
-    setNovaSenha('');
-    setComEmail(false);
-    setRecuperando(true);
+    Alert.alert('Sem conexão', 'Para recuperar a senha, é preciso internet.');
   }
 
   async function converterParaResumo() {
@@ -243,13 +245,16 @@ export default function LoginScreen(props) {
   }
 
   function podeRecuperar() {
-    return (
-      selecionada != null &&
-      (Boolean(selecionada.respostaResumo) || (temServidor() && Boolean(selecionada.pergunta)))
-    );
+    return selecionada != null && Boolean(selecionada.respostaResumo);
   }
 
   function abrirRecuperacao() {
+    if (temFirebase()) {
+      enviarLinkDeSenha(selecionada.email);
+
+      return;
+    }
+
     // Conta criada antes da pergunta de segurança existir cai aqui. Antes
     // a mensagem encerrava o assunto; agora ela diz o caminho, porque a
     // pergunta passou a poder ser definida depois, pelo perfil.
@@ -270,32 +275,6 @@ export default function LoginScreen(props) {
       Alert.alert('Atenção', 'A senha nova precisa ter pelo menos 6 caracteres.');
 
       return;
-    }
-
-    // Conta que está no servidor troca a senha por lá: trocar só aqui deixaria
-    // a senha antiga valendo em todo o resto.
-    if (temServidor()) {
-      const remoto = await recuperar(selecionada, resposta, novaSenha);
-
-      if (remoto.situacao === CONECTADA) {
-        setSelecionada(remoto.conta);
-        setContas(await carregarContas());
-        setRecuperando(false);
-        setSenha('');
-
-        Alert.alert('Senha alterada', 'Pronto. Entre com a senha nova.');
-
-        return;
-      }
-
-      if (
-        remoto.situacao === SEM_REDE &&
-        (!selecionada.respostaResumo || (await temSessao(selecionada)))
-      ) {
-        Alert.alert('Sem conexão', 'Para trocar a senha desta conta, é preciso internet.');
-
-        return;
-      }
     }
 
     if (!(await conferirResposta(selecionada, resposta))) {
@@ -440,7 +419,7 @@ export default function LoginScreen(props) {
               <Text style={styles.textoBotao}>Criar conta</Text>
             </Pressable>
 
-            {temServidor() && (
+            {temFirebase() && (
               <Pressable
                 style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                 onPress={() => setComEmail(true)}
@@ -616,7 +595,7 @@ export default function LoginScreen(props) {
               <Text style={styles.textoLink}>Criar outra conta neste aparelho</Text>
             </Pressable>
 
-            {temServidor() && (
+            {temFirebase() && (
               <Pressable
                 style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                 onPress={() => setComEmail(true)}

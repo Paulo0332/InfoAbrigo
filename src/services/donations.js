@@ -1,4 +1,4 @@
-import { gravarComPedido, gravarLista, lerRegistros } from './bancoLocal';
+import { gravarLista, lerRegistros } from './bancoLocal';
 import { avisarMudanca, garantirAtualizado } from './sincronizacao';
 
 const COLECAO = 'doacoes';
@@ -161,9 +161,9 @@ export async function atualizarSituacao(id, situacao) {
     });
 
     // A doação pode ser de outra pessoa, e nem estar neste aparelho: é o abrigo
-    // confirmando o que recebeu. Por isso vai como um pedido próprio, e não como
-    // uma regravação do documento, que o servidor recusaria.
-    await gravarComPedido(COLECAO, nova, 'situacao', id, { situacao: situacao });
+    // confirmando o que recebeu. Nesse caso nada muda aqui, porque ela é privada.
+    // Quem doou lê a entrega marcada na necessidade, e atualiza a própria cópia.
+    await gravarLista(COLECAO, nova);
     avisarMudanca();
 
     return nova;

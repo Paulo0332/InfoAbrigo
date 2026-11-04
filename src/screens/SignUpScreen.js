@@ -23,7 +23,7 @@ import {
   consultarCnpj,
   formatarCnpj,
 } from '../services/cnpj';
-import { temServidor } from '../services/api';
+import { temFirebase } from '../services/firebase';
 import { EMAIL_EM_USO, RECUSADA, registrar } from '../services/contaRemota';
 import { carregarContas, emailJaUsado, salvarConta } from '../services/auth';
 import { novoSal, resumir, resumirResposta } from '../services/senha';
@@ -131,7 +131,8 @@ export default function SignUpScreen(props) {
       return;
     }
 
-    if (resposta.trim().length < 2) {
+    // Com o Firebase, a senha esquecida é recuperada por e-mail.
+    if (!temFirebase() && resposta.trim().length < 2) {
       Alert.alert(
         'Atenção',
         'Responda à pergunta de segurança. É por ela que você recupera a conta se esquecer a senha.'
@@ -185,8 +186,8 @@ export default function SignUpScreen(props) {
       email: emailLimpo,
       sal: sal,
       senhaResumo: await resumir(senha, sal),
-      pergunta: pergunta,
-      respostaResumo: await resumirResposta(resposta, sal),
+      pergunta: temFirebase() ? '' : pergunta,
+      respostaResumo: temFirebase() ? '' : await resumirResposta(resposta, sal),
       perfil: perfil,
       instituicao:
         perfil === 'gestor'
@@ -207,7 +208,7 @@ export default function SignUpScreen(props) {
 
     try {
       // Sem internet a conta nasce só aqui, e sobe no primeiro login conectado.
-      const remoto = await registrar(conta);
+      const remoto = await registrar(conta, senha);
 
       if (remoto.situacao === EMAIL_EM_USO) {
         Alert.alert(
@@ -389,6 +390,8 @@ export default function SignUpScreen(props) {
           </Pressable>
         </View>
 
+        {!temFirebase() && (
+        <View>
         <Text style={styles.rotulo}>Pergunta de segurança</Text>
 
         <Text style={styles.ajudaPergunta}>
@@ -425,6 +428,8 @@ export default function SignUpScreen(props) {
           autoCapitalize="none"
           maxLength={60}
         />
+        </View>
+        )}
 
         <Text style={styles.rotulo}>Como você vai usar o aplicativo</Text>
 
@@ -553,8 +558,8 @@ export default function SignUpScreen(props) {
         </Pressable>
 
         <Text style={styles.nota}>
-          {temServidor()
-            ? 'Sua conta fica guardada no servidor do InfoAbrigo, e você pode entrar nela de outro celular.'
+          {temFirebase()
+            ? 'Sua conta fica guardada no Firebase, e você pode entrar nela de outro celular.'
             : 'A conta fica salva apenas neste aparelho: desinstalar o aplicativo apaga a conta.'}
         </Text>
 

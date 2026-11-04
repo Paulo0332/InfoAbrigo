@@ -26,8 +26,16 @@ import {
   salvarConta,
 } from '../services/auth';
 import CameraFoto from '../components/CameraFoto';
-import { temServidor } from '../services/api';
-import { apagarDoServidor, limparRastros } from '../services/contaRemota';
+import { temFirebase } from '../services/firebase';
+import {
+  CONECTADA,
+  ENTRAR_DE_NOVO,
+  SENHA_ERRADA,
+  apagarDoServidor,
+  limparRastros,
+  temSessao,
+  trocarSenha,
+} from '../services/contaRemota';
 import { apagarDadosDaConta } from '../services/limpeza';
 import { estadoDaSincronizacao } from '../services/sincronizacao';
 import { buscarPerfil } from '../data/perfis';
@@ -54,13 +62,15 @@ function textoDaSincronia(estado) {
     return 'Há alterações esperando conexão para chegar ao servidor.';
   }
 
-  return 'Seus dados estão guardados no servidor do InfoAbrigo.';
+  return 'Seus dados estão guardados no Firebase.';
 }
 
 export default function ProfileScreen(props) {
 
   const [conta, setConta] = useState(null);
   const [sincronia, setSincronia] = useState(null);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  const [senhaDaExclusao, setSenhaDaExclusao] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [temBiometria, setTemBiometria] = useState(false);
   const [permissaoLocalizacao, setPermissaoLocalizacao] = useState(false);
@@ -213,9 +223,9 @@ export default function ProfileScreen(props) {
 
   function confirmarExclusao() {
     Alert.alert(
-      temServidor() ? 'Apagar a conta' : 'Apagar a conta deste aparelho',
-      temServidor()
-        ? 'Some o seu nome, e-mail e senha, as suas doações, os seus compromissos, os itens que você prometeu levar e os abrigos que você cadastrou, aqui e no servidor. Não há como recuperar.'
+      temFirebase() ? 'Apagar a conta' : 'Apagar a conta deste aparelho',
+      temFirebase()
+        ? 'Some o seu nome, e-mail e senha, as suas doações, os seus compromissos, os itens que você prometeu levar e os abrigos que você cadastrou, aqui e no Firebase. Não há como recuperar.'
         : 'Some o seu nome, e-mail e senha, e também as suas doações, os seus compromissos e os itens que você prometeu levar. Não há como recuperar.',
       [
         {
@@ -225,7 +235,14 @@ export default function ProfileScreen(props) {
         {
           text: 'Apagar',
           style: 'destructive',
-          onPress: apagar,
+          onPress: () => {
+            if (temFirebase()) {
+              setSenhaDaExclusao('');
+              setConfirmandoExclusao(true);
+            } else {
+              apagar();
+            }
+          },
         },
       ]
     );
@@ -236,9 +253,35 @@ export default function ProfileScreen(props) {
       // Os dados saem antes do cadastro: apagando a conta primeiro, o
       // e-mail que identifica o que é dela já teria sumido.
       if (conta) {
-        // O servidor vem primeiro: sem conexão, nada é apagado daqui, e a pessoa
+        // O Firebase vem primeiro: sem conexão, nada é apagado daqui, e a pessoa
         // não fica achando que os dados sumiram quando continuam lá.
-        await apagarDoServidor(conta);
+        if (temFirebase()) {
+          const remoto = await apagarDoServidor(conta, senhaDaExclusao);
+
+          if (remoto.situacao === SENHA_ERRADA) {
+            deuErrado();
+            Alert.alert('Senha incorreta', 'A sua senha não confere.');
+
+            return;
+          }
+
+          if (remoto.situacao === ENTRAR_DE_NOVO) {
+            Alert.alert(
+              'Entre de novo',
+              'Saia e entre com a senha, com internet, antes de apagar a conta.'
+            );
+
+            return;
+          }
+
+          if (remoto.situacao !== CONECTADA) {
+            Alert.alert('Sem conexão', 'Para apagar a conta, é preciso internet.');
+
+            return;
+          }
+        }
+
+        setConfirmandoExclusao(false);
         await apagarDadosDaConta(conta.email);
         await limparRastros(conta);
       } else {
@@ -314,6 +357,21 @@ export default function ProfileScreen(props) {
       Alert.alert('Atenção', 'A senha nova precisa ter pelo menos 6 caracteres.');
 
       return;
+    }
+
+    // Com o Firebase, a senha precisa mudar por lá, senão a antiga continuaria
+    // valendo nos outros celulares. Sem internet, recusa em vez de mudar só aqui.
+    if (temFirebase() && (await temSessao(conta))) {
+      const remoto = await trocarSenha(senhaAtual, senhaNova);
+
+      if (remoto.situacao !== CONECTADA) {
+        Alert.alert(
+          'Não foi possível trocar a senha',
+          remoto.mensagem || 'Para trocar a senha, é preciso internet.'
+        );
+
+        return;
+      }
     }
 
     // O sal continua o mesmo: ele também tempera a resposta da pergunta
@@ -571,8 +629,9 @@ export default function ProfileScreen(props) {
                 <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
               </Pressable>
 
-              <View style={styles.divisoria} />
+              {!temFirebase() && <View style={styles.divisoria} />}
 
+              {!temFirebase() && (
               <Pressable
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirPergunta}
@@ -597,6 +656,7 @@ export default function ProfileScreen(props) {
                   <Ionicons name="alert-circle" size={20} color={colors.supportPink} />
                 )}
               </Pressable>
+              )}
 
               <View style={styles.divisoria} />
 
@@ -781,7 +841,7 @@ export default function ProfileScreen(props) {
 
                 <View style={styles.linhaTexto}>
                   <Text style={styles.linhaTituloSair}>
-                    {temServidor() ? 'Apagar a conta' : 'Apagar a conta deste aparelho'}
+                    {temFirebase() ? 'Apagar a conta' : 'Apagar a conta deste aparelho'}
                   </Text>
 
                   <Text style={styles.linhaDescricao}>
@@ -839,6 +899,52 @@ export default function ProfileScreen(props) {
             <Pressable
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setEditandoNome(false)}
+            >
+              <Text style={styles.textoLink}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ------------------------------------------- confirmar a exclusão */}
+      <Modal
+        visible={confirmandoExclusao}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setConfirmandoExclusao(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.fundoModal}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.painel}>
+            <Text style={styles.painelTitulo}>Confirme com a sua senha</Text>
+
+            <Text style={styles.painelTexto}>
+              A senha é pedida para ninguém apagar a sua conta num aparelho
+              desbloqueado que você deixou na mesa.
+            </Text>
+
+            <TextInput
+              style={styles.campo}
+              placeholder="Sua senha"
+              placeholderTextColor="#9A8F7E"
+              value={senhaDaExclusao}
+              onChangeText={setSenhaDaExclusao}
+              secureTextEntry
+              maxLength={40}
+            />
+
+            <Pressable
+              style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
+              onPress={apagar}
+            >
+              <Text style={styles.textoBotao}>Apagar a conta</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+              onPress={() => setConfirmandoExclusao(false)}
             >
               <Text style={styles.textoLink}>Cancelar</Text>
             </Pressable>

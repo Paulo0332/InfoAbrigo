@@ -228,19 +228,6 @@ export function gravarLista(colecao, lista) {
   });
 }
 
-// Troca o registro aqui e deixa o pedido na fila, em vez de enviar o documento
-// inteiro. É o caso do abrigo confirmando a entrega de uma doação de outra pessoa.
-export function gravarComPedido(colecao, lista, acao, id, dados) {
-  return emOrdem(async (banco) => {
-    await banco.withTransactionAsync(async () => {
-      await reescrever(banco, colecao, lista);
-      await enfileirar(banco, colecao, acao, String(id), dados);
-    });
-
-    guardarInstantaneo(colecao, lista);
-  });
-}
-
 export function pedirEnvio(colecao, acao, id, dados, conta) {
   return emOrdem((banco) => enfileirar(banco, colecao, acao, String(id), dados, conta));
 }
