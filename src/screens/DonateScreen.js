@@ -20,6 +20,7 @@ import * as Clipboard from 'expo-clipboard';
 import BiometricButton from '../components/BiometricButton';
 import { contatosDoAbrigo, linkEmail, linkWhatsapp } from '../services/contato';
 import PixQrCode from '../components/PixQrCode';
+import SeloAbrigo from '../components/SeloAbrigo';
 import { carregarConta } from '../services/auth';
 import {
   DINHEIRO,
@@ -622,6 +623,8 @@ export default function DonateScreen(props) {
             <View style={styles.cartao}>
               <Text style={styles.rotulo}>Abrigo</Text>
               <Text style={styles.valorRotulo}>{abrigo}</Text>
+
+              {abrigoCompleto ? <SeloAbrigo abrigo={abrigoCompleto} /> : null}
 
               {abrigoCompleto && abrigoCompleto.chavePix ? (
                 <View style={styles.seloPix}>

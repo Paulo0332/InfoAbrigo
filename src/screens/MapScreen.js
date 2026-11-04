@@ -15,7 +15,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import DenunciarAbrigo from '../components/DenunciarAbrigo';
+import SeloAbrigo from '../components/SeloAbrigo';
 import { CLUSTER_CSS, CLUSTER_JS, LEAFLET_CSS, LEAFLET_JS } from '../mapa/leaflet';
+import { apiDisponivel } from '../services/servicosApi';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -411,6 +414,7 @@ export default function MapScreen(props) {
 
   const [localizacao, setLocalizacao] = useState(null);
   const [centro, setCentro] = useState(null);
+  const [denunciando, setDenunciando] = useState(false);
   const [abrigosLidos, setAbrigosLidos] = useState(false);
   const [erro, setErro] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
@@ -954,6 +958,8 @@ export default function MapScreen(props) {
         <View style={styles.itemTexto}>
           <Text style={styles.itemNome}>{item.nome}</Text>
 
+          <SeloAbrigo abrigo={item} />
+
           {item.endereco ? (
             <Text style={styles.itemEndereco} numberOfLines={1}>
               {item.endereco}
@@ -1347,6 +1353,8 @@ export default function MapScreen(props) {
               </Pressable>
             </View>
 
+            <SeloAbrigo abrigo={abrigoSelecionado} />
+
             {abrigoSelecionado.endereco ? (
               <Text style={styles.endereco}>{abrigoSelecionado.endereco}</Text>
             ) : null}
@@ -1389,6 +1397,17 @@ export default function MapScreen(props) {
                   </Pressable>
                 ))}
               </View>
+            )}
+
+            {apiDisponivel() && !souDono(abrigoSelecionado) && (
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.linkDenuncia, pressed && styles.pressionado]}
+                onPress={() => setDenunciando(true)}
+              >
+                <Ionicons name="flag-outline" size={14} color="#9A8F7E" />
+                <Text style={styles.textoDenuncia}>Denunciar este abrigo</Text>
+              </Pressable>
             )}
 
             <View style={styles.acoes}>
@@ -1580,11 +1599,32 @@ export default function MapScreen(props) {
 
       </View>
 
+      {abrigoSelecionado && (
+        <DenunciarAbrigo
+          visivel={denunciando}
+          abrigo={abrigoSelecionado}
+          aoFechar={() => setDenunciando(false)}
+        />
+      )}
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  linkDenuncia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingVertical: 8,
+  },
+
+  textoDenuncia: {
+    fontSize: 12,
+    color: '#9A8F7E',
+  },
+
   safeArea: {
     flex: 1,
     backgroundColor: colors.primary,

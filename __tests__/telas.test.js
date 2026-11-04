@@ -5,6 +5,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import HomeScreen from '../src/screens/HomeScreen';
 import AvisoConexao, { textoDoAviso } from '../src/components/AvisoConexao';
 import CameraFoto from '../src/components/CameraFoto';
+import DenunciarAbrigo from '../src/components/DenunciarAbrigo';
+import OndeAjudar from '../src/components/OndeAjudar';
+import SeloAbrigo from '../src/components/SeloAbrigo';
+import PainelScreen from '../src/screens/PainelScreen';
+import * as servicosApi from '../src/services/servicosApi';
 import LoginScreen from '../src/screens/LoginScreen';
 import MapScreen from '../src/screens/MapScreen';
 import ProfileScreen from '../src/screens/ProfileScreen';
@@ -28,6 +33,24 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 jest.mock('../src/services/firebase', () => ({
   ...jest.requireActual('../src/services/firebase'),
   temFirebase: jest.fn(() => false),
+}));
+
+jest.mock('../src/services/servicosApi', () => ({
+  ...jest.requireActual('../src/services/servicosApi'),
+  apiDisponivel: jest.fn(() => true),
+  buscarRecomendacoes: jest.fn(async () => []),
+  denunciarAbrigo: jest.fn(async () => ({ ok: true })),
+  buscarRelatorio: jest.fn(async () => ({
+    necessidades: 2,
+    atendidas: 1,
+    doadores: 3,
+    prometido: 9,
+    recebido: 5,
+    itens: [{ titulo: 'Fraldas', unidade: 'pacotes', meta: 10, prometido: 7, recebido: 3, atendida: false }],
+  })),
+  buscarDenuncias: jest.fn(async () => [
+    { motivo: 'chave-pix-suspeita', detalhe: 'Nome diferente', em: '2030-01-01T00:00:00' },
+  ]),
 }));
 
 jest.mock('expo-camera', () => {
@@ -224,6 +247,73 @@ describe('telas', () => {
     await fireEvent.press(screen.getByLabelText('Alternar entre a câmera frontal e a traseira'));
 
     expect(screen.getByTestId('camera').props.facing).toBe('front');
+  });
+
+  test('as recomendações levam ao abrigo, e somem sem a API', async () => {
+    servicosApi.buscarRecomendacoes.mockResolvedValueOnce([
+      {
+        necessidadeId: 'n1',
+        abrigoId: 'a1',
+        abrigoNome: 'Casa Lar',
+        titulo: 'Arroz',
+        faltam: 10,
+        unidade: 'kg',
+        urgente: true,
+        motivo: 'urgente, a 1.2 km de você',
+      },
+    ]);
+
+    const aoEscolher = jest.fn();
+
+    await abrir(OndeAjudar, undefined, { aoEscolher: aoEscolher });
+    await fireEvent.press(await screen.findByText('Arroz: faltam 10 kg'));
+
+    expect(aoEscolher).toHaveBeenCalledWith(expect.objectContaining({ abrigoId: 'a1' }));
+  });
+
+  test('sem a API, as recomendações não aparecem nem atrapalham', async () => {
+    servicosApi.buscarRecomendacoes.mockRejectedValueOnce(new Error('fora do ar'));
+
+    await abrir(OndeAjudar, undefined, { aoEscolher: jest.fn() });
+
+    expect(screen.queryByText('Onde sua ajuda vale mais')).toBeNull();
+  });
+
+  test('o selo aparece só com a conferência, e o aviso de denúncia vem antes', async () => {
+    await abrir(SeloAbrigo, undefined, { abrigo: { verificacao: { verificado: true } } });
+
+    expect(screen.getByText('CNPJ ativo na Receita Federal')).toBeTruthy();
+
+    await abrir(SeloAbrigo, undefined, {
+      abrigo: { verificacao: { verificado: true }, alerta: { denuncias: 3 } },
+    });
+
+    expect(screen.getByText(/denunciado por outras pessoas/)).toBeTruthy();
+    expect(screen.queryByText('CNPJ ativo na Receita Federal')).toBeNull();
+  });
+
+  test('a denúncia exige um motivo e envia o que foi escolhido', async () => {
+    const aoFechar = jest.fn();
+
+    await abrir(DenunciarAbrigo, undefined, { visivel: true, abrigo: { id: 'a1' }, aoFechar: aoFechar });
+    await fireEvent.press(screen.getByText('Enviar denúncia'));
+
+    expect(servicosApi.denunciarAbrigo).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByText('A chave Pix parece não ser do abrigo'));
+    await fireEvent.press(screen.getByText('Enviar denúncia'));
+
+    await waitFor(() => expect(aoFechar).toHaveBeenCalled());
+    expect(servicosApi.denunciarAbrigo).toHaveBeenCalledWith('a1', 'chave-pix-suspeita', '');
+  });
+
+  test('o painel mostra o impacto e as denúncias do abrigo', async () => {
+    await abrir(PainelScreen, { abrigo: { id: 'a1', nome: 'Casa Lar' } });
+
+    expect(await screen.findByText('Itens recebidos')).toBeTruthy();
+    expect(screen.getByText('Fraldas')).toBeTruthy();
+    expect(screen.getByText('A chave Pix parece não ser do abrigo')).toBeTruthy();
+    expect(screen.getByText('Nome diferente')).toBeTruthy();
   });
 
   test('perfil abre e diz onde os dados estão', async () => {

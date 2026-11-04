@@ -1,5 +1,5 @@
-# Publicação da API no Render, pelo Dockerfile. MYSQL_* são preenchidos no painel,
-# com os dados de um MySQL hospedado; nunca devem entrar no repositório.
+# Publicação da API no Render, pelo Dockerfile. Os segredos são preenchidos no painel;
+# nunca devem entrar no repositório.
 services:
   - type: web
     name: infoabrigo-api
@@ -19,5 +19,9 @@ services:
         sync: false
       - key: MYSQL_DB
         value: infoabrigo
-      - key: JWT_SEGREDO
-        generateValue: true
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: FIREBASE_CREDENCIAIS
+        value: /etc/secrets/conta-de-servico.json

@@ -24,6 +24,7 @@ import {
   quandoAcontece,
 } from '../services/agenda';
 import { carregarVistos, marcarVistos } from '../services/avisos';
+import OndeAjudar from '../components/OndeAjudar';
 import { atualizarBadge } from '../services/recursosNativos';
 import { faltam, temMeta, textoDoQueFalta } from '../services/necessidades';
 import {
@@ -496,6 +497,17 @@ export default function HomeScreen(props) {
               <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
             </Pressable>
           )}
+
+          <OndeAjudar
+            localizacao={localizacao}
+            atualizarEm={necessidades.length}
+            aoEscolher={(item) =>
+              props.navigation.navigate('Doações', {
+                abrigoId: item.abrigoId,
+                momento: Date.now(),
+              })
+            }
+          />
 
           {/* Sem abrigo nenhum cadastrado a tela mostrava três zeros e não
               dizia o que fazer com eles. */}

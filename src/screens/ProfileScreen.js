@@ -37,6 +37,7 @@ import {
   trocarSenha,
 } from '../services/contaRemota';
 import { apagarDadosDaConta } from '../services/limpeza';
+import { apiDisponivel } from '../services/servicosApi';
 import { estadoDaSincronizacao } from '../services/sincronizacao';
 import { buscarPerfil } from '../data/perfis';
 import { PERGUNTAS } from '../data/perguntas';
@@ -707,6 +708,25 @@ export default function ProfileScreen(props) {
                     <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
                   </Pressable>
                 </View>
+              ))}
+
+              {apiDisponivel() && meusAbrigos.map((abrigo) => (
+                <Pressable
+                  key={'painel-' + abrigo.id}
+                  style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
+                  onPress={() => props.navigation.navigate('Painel', { abrigo: abrigo })}
+                >
+                  <View style={styles.icone}>
+                    <Ionicons name="bar-chart-outline" size={20} color={colors.primary} />
+                  </View>
+
+                  <View style={styles.linhaTexto}>
+                    <Text style={styles.linhaTitulo}>Painel de impacto</Text>
+                    <Text style={styles.linhaDescricao}>{abrigo.nome}</Text>
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+                </Pressable>
               ))}
 
               {meusAbrigos.length > 0 ? <View style={styles.divisoria} /> : null}

@@ -6,11 +6,12 @@ Trabalho da disciplina **Laboratório de Desenvolvimento de Aplicativos Híbrido
 
 ## O que tem aqui
 
-| Pasta | O que é |
+| Pasta ou arquivo | O que é |
 |---|---|
 | `src/` | O aplicativo: React Native com Expo SDK 58, em JavaScript |
+| `database.rules.json` | As regras de segurança do banco no Firebase |
 | `backend/` | A API REST: Python, Flask e MySQL, com Swagger e Docker |
-| `__tests__/` | Testes do aplicativo, com Jest |
+| `__tests__/` | Testes do aplicativo e das regras do Firebase, com Jest |
 | `backend/tests/` | Testes da API, com pytest |
 | `docs/` | Um documento por módulo, com o conceito da aula aplicado e como testar |
 
@@ -23,10 +24,37 @@ Trabalho da disciplina **Laboratório de Desenvolvimento de Aplicativos Híbrido
 | `LPAH-20221-Camera` | `src/components/CameraFoto.js` e `src/services/galeria.js` |
 | `async-storage` | `src/services/auth.js` e `src/services/avisos.js` |
 | `LPAH-2024-SQLITE` | `src/services/bancoLocal.js` |
+| `LPAH-2024-Firebase` | `src/services/firebase.js` e `src/services/bancoRemoto.js` |
+| `LPAH-2026-SQLITE-FIREBASE` | `src/services/sincronizacao.js`, com fila e NetInfo |
 | `API-Tasks` | `backend/` |
-| `Task-Manager-API` | `src/services/api.js`, com axios |
-| `LPAH-2024-Firebase` | `src/services/tempoReal.js` |
-| `LPAH-2026-SQLITE-FIREBASE` | `src/services/sincronizacao.js`, com NetInfo |
+| `Task-Manager-API` | `src/services/api.js` e `src/services/servicosApi.js`, com axios |
+
+## Como funciona
+
+As telas leem e gravam no banco SQLite do celular. Cada alteração entra numa fila, que vai para o Firebase quando há conexão, e o que mudou nos outros celulares chega em tempo real. Por isso o aplicativo continua funcionando sem internet.
+
+A API cuida do que o aplicativo não pode decidir sozinho, e do que o plano gratuito do Firebase não oferece.
+
+```mermaid
+flowchart LR
+    T[Telas] --> S[Serviços]
+    S --> L[(SQLite no celular)]
+    S --> F[Fila de envio]
+    F -->|com internet| R[(Firebase: contas e dados)]
+    R -->|tempo real| S
+    S -->|axios| A[API Flask]
+    A --> M[(MySQL: fotos, verificações e denúncias)]
+    A -->|selo e aviso| R
+```
+
+| Quem | Responde por |
+|---|---|
+| **Firebase Authentication** | Contas, senhas e recuperação de senha por e-mail |
+| **Firebase Realtime Database** | Abrigos, necessidades, doações e agenda |
+| **SQLite** | Cópia no celular, para funcionar sem internet |
+| **API + MySQL** | Fotos, selo de instituição verificada, recomendações, painel do gestor e denúncias |
+
+As permissões do banco estão nas regras do Firebase: só o dono altera o abrigo, só quem administra marca uma entrega, doações e agenda são privadas, e o selo só pode ser escrito pela API. Os detalhes estão em [docs/modulo-11-servidor-e-banco.md](docs/modulo-11-servidor-e-banco.md).
 
 ## Como rodar
 
@@ -34,7 +62,7 @@ São precisos o [Node.js](https://nodejs.org) 22 ou mais novo e o aplicativo **E
 
 ### Só o aplicativo
 
-Sem servidor, os dados ficam só no celular.
+Sem o `.env`, os dados ficam só no celular.
 
 ```bash
 npm install
@@ -46,26 +74,22 @@ npx expo start
 
 Abra o QR Code no Expo Go.
 
-### Aplicativo com a API
+### Com o Firebase e a API
 
-Com o Docker instalado, suba a API e o banco:
+1. Crie o projeto no [console do Firebase](https://console.firebase.google.com), como explica o [guia de publicação](docs/modulo-12-recursos-nativos-e-publicacao.md).
+2. Copie o `.env.example` para `.env` e preencha as chaves.
+3. Suba a API, com o [README dela](backend/README.md).
+4. Rode `npx expo start` de novo.
+
+Para testar sem criar um projeto, é possível usar o emulador do Firebase, que precisa do Java. O `.env.example` mostra como.
 
 ```bash
-cd backend
-docker compose -f docker-compose-mysql.yml up --build
+npm install -g firebase-tools
 ```
 
-Sem Docker, siga o [README da API](backend/README.md).
-
-Na raiz do projeto, crie o arquivo `.env` a partir do `.env.example` e aponte para o IP do computador. Nunca use `localhost`, porque para o celular `localhost` é ele mesmo. Celular e computador precisam estar na mesma rede:
-
+```bash
+npm run emulador
 ```
-EXPO_PUBLIC_API_URL=http://192.168.0.10:5001
-```
-
-A porta é `5001` com Docker e `5000` com `python app.py`. Depois, rode `npx expo start` de novo.
-
-A documentação das rotas fica em `/apidocs`, no endereço da API.
 
 ## Testes
 
@@ -73,31 +97,13 @@ A documentação das rotas fica em `/apidocs`, no endereço da API.
 npm test
 ```
 
-Por padrão, os testes de sincronização com a API real ficam de fora. Para incluí-los, deixe o MySQL no ar e defina `TESTE_API=1` e `API_PYTHON` com o Python em que as dependências do backend estão instaladas.
+Os testes de sincronização e das regras de segurança ficam de fora, a menos que o emulador esteja no ar e a variável `TESTE_FIREBASE=1` esteja definida.
 
-Testes da API, com o MySQL no ar:
+Testes da API, com o MySQL e o emulador no ar:
 
 ```bash
 cd backend && python -m pytest tests
 ```
-
-## Como funciona
-
-As telas leem e gravam no banco SQLite do celular. Cada alteração entra numa fila, que é enviada à API quando há conexão, e o que mudou no servidor volta na mesma rodada. Por isso o aplicativo continua funcionando sem internet. O Firebase avisa os outros celulares de que há novidade, e eles vão buscar na API.
-
-```mermaid
-flowchart LR
-    T[Telas] --> S[Serviços]
-    S --> L[(SQLite no celular)]
-    S --> F[Fila de envio]
-    F -->|com internet| A[API Flask]
-    A --> M[(MySQL)]
-    A -->|novidades| L
-    S -->|aviso| R[Firebase]
-    R -->|aviso| S
-```
-
-Quem decide as permissões é o servidor: só o dono altera o abrigo, só quem administra o abrigo marca uma entrega, e doações e agenda são privadas. Os detalhes estão em [docs/modulo-11-servidor-e-banco.md](docs/modulo-11-servidor-e-banco.md).
 
 ## Publicação
 
@@ -107,8 +113,10 @@ O passo a passo está em [docs/modulo-12-recursos-nativos-e-publicacao.md](docs/
 
 - **Mapa:** usa Leaflet com WebView, e não `react-native-maps`, que deu tela preta no Expo Go (veja `docs/modulo-04-mapa.md`).
 - **Expo Go:** badge, lembretes e o calendário nativo só funcionam no aplicativo instalado por build próprio. No Expo Go o aplicativo abre normalmente, sem badge nem lembrete, e o botão de calendário abre a Agenda do Google.
+- **Sem a API no ar:** contas e dados continuam funcionando. Selo, recomendações, painel e denúncias ficam indisponíveis, e as fotos novas ficam guardadas em texto junto do abrigo.
 - **Pagamento:** o aplicativo monta o código Pix, mas quem paga é o banco da pessoa. Nada confere se o pagamento aconteceu.
-- **Gestor:** o CNPJ prova que a instituição existe, não que a pessoa trabalha lá. Isso exigiria revisão de documentos.
-- **Fotos:** só a foto do abrigo vai para o servidor. As fotos de registro da agenda e a foto de perfil ficam no celular em que foram tiradas.
-- **Recuperação de senha:** é feita pela pergunta de segurança, porque a API não envia e-mail.
+- **Selo:** prova que a instituição existe e está ativa, não que a pessoa trabalha lá. Isso exigiria revisão de documentos.
+- **Fotos:** só a foto do abrigo sai do celular. As fotos de registro da agenda e a foto de perfil ficam no aparelho em que foram tiradas.
+- **Mais de uma conta no celular:** o Firebase mantém uma sessão por vez. Quem entra pela digital em outra conta precisa entrar uma vez com a senha para sincronizar.
+- **Plano gratuito do Firebase:** 100 conexões simultâneas, 1 GB guardado e 10 GB baixados por mês.
 - **Serviços públicos:** CEP, CNPJ, mapa e rota dependem de serviços gratuitos de terceiros (BrasilAPI, OpenStreetMap, Esri e Valhalla), sem garantia de disponibilidade.
