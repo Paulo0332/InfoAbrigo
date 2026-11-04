@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 mysql/
 tests/
+conta-de-servico.json
+*-firebase-adminsdk-*.json

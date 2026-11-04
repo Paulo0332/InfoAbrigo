@@ -3,76 +3,45 @@ CREATE DATABASE IF NOT EXISTS infoabrigo CHARACTER SET utf8mb4 COLLATE utf8mb4_u
 
 USE infoabrigo;
 
-CREATE TABLE IF NOT EXISTS contas (
-    email VARCHAR(200) PRIMARY KEY,
-    nome VARCHAR(120) NOT NULL,
-    perfil VARCHAR(20) NOT NULL,
-    instituicao JSON NULL,
-    telefone VARCHAR(40) NOT NULL DEFAULT '',
-    sal VARCHAR(100) NOT NULL,
-    senha_protegida VARCHAR(200) NOT NULL,
-    pergunta VARCHAR(200) NOT NULL DEFAULT '',
-    resposta_protegida VARCHAR(200) NOT NULL DEFAULT '',
-    versao_sessao INT NOT NULL DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+-- As contas, abrigos, necessidades, doações e compromissos ficam no Firebase. Aqui
+-- fica o que precisa ser decidido ou guardado fora do alcance do aplicativo.
 
--- Abrigos, necessidades, doações e compromissos têm muitos campos opcionais que
--- mudam junto com as telas. As colunas são o que o servidor usa para decidir
--- permissão e ordem; o registro inteiro fica em `dados`. O id é criado pelo
--- aplicativo, porque o registro nasce no celular, mesmo sem internet.
-CREATE TABLE IF NOT EXISTS abrigos (
-    id VARCHAR(64) PRIMARY KEY,
-    dono VARCHAR(200) NOT NULL,
-    nome VARCHAR(200) NOT NULL,
-    latitude DOUBLE NOT NULL,
-    longitude DOUBLE NOT NULL,
-    dados JSON NOT NULL,
-    created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
-    updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    deleted_at DATETIME DEFAULT NULL,
-    INDEX idx_abrigos_dono (dono)
-);
-
-CREATE TABLE IF NOT EXISTS necessidades (
-    id VARCHAR(64) PRIMARY KEY,
-    criado_por VARCHAR(200) NOT NULL,
-    abrigo_id VARCHAR(64) NULL,
-    dados JSON NOT NULL,
-    created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
-    updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    deleted_at DATETIME DEFAULT NULL,
-    INDEX idx_necessidades_abrigo (abrigo_id)
-);
-
-CREATE TABLE IF NOT EXISTS doacoes (
-    id VARCHAR(64) PRIMARY KEY,
-    conta VARCHAR(200) NOT NULL,
-    dados JSON NOT NULL,
-    created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
-    updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    deleted_at DATETIME DEFAULT NULL,
-    INDEX idx_doacoes_conta (conta)
-);
-
-CREATE TABLE IF NOT EXISTS compromissos (
-    id VARCHAR(64) PRIMARY KEY,
-    conta VARCHAR(200) NOT NULL,
-    dados JSON NOT NULL,
-    created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
-    updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    deleted_at DATETIME DEFAULT NULL,
-    INDEX idx_compromissos_conta (conta)
-);
-
--- O mapa precisa da foto sem enviar sessão, por isso ela é servida por um endereço
--- público com id aleatório.
+-- O plano gratuito do Firebase não inclui o Storage. A foto é servida por um endereço
+-- público com id aleatório, porque o mapa precisa abri-la sem enviar sessão.
 CREATE TABLE IF NOT EXISTS arquivos (
     id CHAR(32) PRIMARY KEY,
-    dono VARCHAR(200) NOT NULL,
+    uid VARCHAR(128) NOT NULL,
     mime VARCHAR(40) NOT NULL,
     dados MEDIUMBLOB NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_arquivos_dono (dono)
+    deleted_at DATETIME DEFAULT NULL,
+    INDEX idx_arquivos_uid (uid)
+);
+
+-- O histórico de cada conferência de CNPJ, feita sempre pelo servidor.
+CREATE TABLE IF NOT EXISTS verificacoes (
+    abrigo_id VARCHAR(64) PRIMARY KEY,
+    uid VARCHAR(128) NOT NULL,
+    cnpj CHAR(14) NOT NULL,
+    razao_social VARCHAR(200) NOT NULL DEFAULT '',
+    situacao VARCHAR(40) NOT NULL DEFAULT '',
+    verificado TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME DEFAULT NULL,
+    INDEX idx_verificacoes_cnpj (cnpj),
+    INDEX idx_verificacoes_uid (uid)
+);
+
+-- Uma denúncia por pessoa em cada abrigo: repetir não aumenta a contagem.
+CREATE TABLE IF NOT EXISTS denuncias (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    abrigo_id VARCHAR(64) NOT NULL,
+    uid VARCHAR(128) NOT NULL,
+    motivo VARCHAR(40) NOT NULL,
+    detalhe VARCHAR(500) NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME DEFAULT NULL,
+    UNIQUE KEY uq_denuncia (abrigo_id, uid),
+    INDEX idx_denuncias_uid (uid)
 );

@@ -1,17 +1,22 @@
 # app.py
 import base64
 import binascii
-import hashlib
-import hmac
+import csv
+import io
 import json
+import math
 import os
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+import urllib.error
+import urllib.request
 from functools import wraps
 
-import jwt
+import firebase_admin
 from dotenv import load_dotenv
+from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials
+from firebase_admin import db as firebase_db
 from flasgger import Swagger
 from flask import Flask, Response, g, jsonify, request
 from flask_cors import CORS
@@ -41,20 +46,22 @@ app.config['MYSQL_CHARSET'] = 'utf8mb4'
 
 # O envio de foto é o único pedido grande: os outros são recusados bem antes.
 app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024
-LIMITE_DE_CORPO = 256 * 1024
+LIMITE_DE_CORPO = 16 * 1024
 
 # Configuração Swagger
 app.config['SWAGGER'] = {
     'title': 'API do InfoAbrigo',
     'uiversion': 3,
-    'description': 'Serviço de API para abrigos, necessidades, doações e agenda',
-    'version': '1.0.0',
+    'description': 'O que o aplicativo não pode decidir sozinho: fotos, selo de '
+                   'instituição verificada, recomendações, relatórios e denúncias. '
+                   'Os dados do dia a dia ficam no Firebase.',
+    'version': '2.0.0',
     'securityDefinitions': {
         'Bearer': {
             'type': 'apiKey',
             'name': 'Authorization',
             'in': 'header',
-            'description': 'Digite: Bearer seguido do token recebido ao entrar',
+            'description': 'Digite: Bearer seguido do token de login do Firebase',
         }
     },
 }
@@ -63,26 +70,29 @@ swagger = Swagger(app)
 mysql = MySQL(app)
 
 limiter = Limiter(get_remote_address, app=app, storage_uri='memory://')
-LIMITE_DE_LOGIN = os.getenv('LIMITE_LOGIN', '30') + ' per 15 minutes'
+LIMITE_DE_ESCRITA = os.getenv('LIMITE_ESCRITA', '30') + ' per 15 minutes'
 
-SEGREDO = os.getenv('JWT_SEGREDO')
+# Configuração do Firebase. FIREBASE_CREDENCIAIS é o arquivo da conta de serviço, que
+# é secreto e nunca entra no repositório. No emulador, ele não é necessário.
+opcoes_do_firebase = {
+    'projectId': os.getenv('FIREBASE_PROJECT_ID', 'demo-infoabrigo'),
+    'databaseURL': os.getenv(
+        'FIREBASE_DATABASE_URL',
+        'http://127.0.0.1:9000/?ns=demo-infoabrigo-default-rtdb',
+    ),
+}
+arquivo_de_credenciais = os.getenv('FIREBASE_CREDENCIAIS')
 
-if not SEGREDO:
-    raise RuntimeError('Defina JWT_SEGREDO no ambiente ou no arquivo .env do backend.')
-
-VALIDADE_DA_SESSAO = timedelta(days=180)
-PERFIS = ('gestor', 'voluntario', 'doador', 'visitante')
-
-# As mesmas perguntas de src/data/perguntas.js do aplicativo.
-PERGUNTAS = (
-    'Qual era o nome do seu primeiro animal de estimação?',
-    'Em que cidade a sua mãe nasceu?',
-    'Qual foi o nome da sua primeira escola?',
-    'Qual é o seu prato preferido?',
+firebase_admin.initialize_app(
+    credentials.Certificate(arquivo_de_credenciais) if arquivo_de_credenciais else None,
+    opcoes_do_firebase,
 )
 
-EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-RESUMO = re.compile(r'^[0-9a-fA-F]{64}$')
+# Quantas pessoas diferentes precisam denunciar para o abrigo ganhar o aviso. Uma só
+# não basta: seria fácil demais prejudicar um abrigo de verdade.
+DENUNCIAS_PARA_ALERTA = 3
+MOTIVOS_DE_DENUNCIA = ('chave-pix-suspeita', 'abrigo-inexistente', 'dados-errados', 'outro')
+URL_DO_CNPJ = 'https://brasilapi.com.br/api/cnpj/v1/'
 
 
 # ---------------- Apoio ----------------
@@ -158,98 +168,32 @@ def salvar():
     mysql.connection.commit()
 
 
-def como_json(valor):
-    return json.dumps(valor, ensure_ascii=False)
-
-
-def de_json(valor):
-    return json.loads(valor) if isinstance(valor, (str, bytes)) else valor
-
-
-def ler_email(dados):
-    email = dados.get('email')
-
-    if not isinstance(email, str) or len(email) > 200 or not EMAIL.match(email.strip()):
-        raise Recusado(400, 'Informe um e-mail válido.')
-
-    return email.strip().lower()
-
-
-def ler_resumo(dados, campo):
-    valor = dados.get(campo)
-
-    if not isinstance(valor, str) or not RESUMO.match(valor):
-        raise Recusado(400, 'O campo ' + campo + ' é inválido.')
-
-    return valor
-
-
-def ler_texto(dados, campo, minimo=0, maximo=200):
-    valor = dados.get(campo)
-
-    if not isinstance(valor, str) or not minimo <= len(valor.strip()) <= maximo:
-        raise Recusado(400, 'O campo ' + campo + ' é inválido.')
-
-    return valor.strip()
-
-
-def ler_numero(dados, campo, minimo, maximo):
-    valor = dados.get(campo)
-
-    if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not minimo <= valor <= maximo:
-        raise Recusado(400, 'O campo ' + campo + ' é inválido.')
-
-    return valor
-
-
 def ler_id(valor):
-    if len(valor) > 64:
-        raise Recusado(400, 'Identificador grande demais.')
+    if not isinstance(valor, str) or not re.fullmatch(r'[^.#$/\[\]]{1,64}', valor):
+        raise Recusado(400, 'Identificador inválido.')
 
     return valor
 
 
-# ---------------- Senhas e sessão ----------------
+def ler_abrigo(abrigo_id):
+    abrigo = firebase_db.reference('abrigos/' + ler_id(abrigo_id)).get()
 
-def derivar(resumo, sal):
-    return hashlib.scrypt(resumo.encode(), salt=sal.encode(), n=16384, r=8, p=1, dklen=32)
+    if not abrigo:
+        raise Recusado(404, 'Abrigo não encontrado.')
 
-
-# A senha chega já resumida pelo aplicativo (sal + SHA-256) e aqui ganha uma
-# segunda camada, com scrypt. O resumo do aplicativo sozinho seria o mesmo que
-# guardar a senha: quem o lesse do banco conseguiria entrar enviando-o.
-def proteger(resumo):
-    sal = secrets.token_hex(16)
-
-    return sal + ':' + derivar(resumo, sal).hex()
+    return abrigo
 
 
-def confere(resumo, protegida):
-    if not resumo or not protegida:
-        return False
+def exigir_dono(abrigo_id):
+    abrigo = ler_abrigo(abrigo_id)
 
-    sal, guardada = protegida.split(':')
+    if abrigo.get('donoUid') != g.uid:
+        raise Recusado(403, 'Só quem cadastrou o abrigo pode fazer isso.')
 
-    return hmac.compare_digest(derivar(resumo, sal).hex(), guardada)
-
-
-def criar_token(conta):
-    agora = datetime.now(timezone.utc)
-
-    return jwt.encode(
-        {
-            'sub': conta['email'],
-            'versao': conta['versao_sessao'],
-            'iat': agora,
-            'exp': agora + VALIDADE_DA_SESSAO,
-        },
-        SEGREDO,
-        algorithm='HS256',
-    )
+    return abrigo
 
 
-# Além da assinatura, confere a versão da sessão na conta: trocar a senha precisa
-# derrubar quem estava entrando com a senha antiga.
+# O login é do Firebase: a API só confere o token que o aplicativo recebeu dele.
 def exigir_login(funcao):
     @wraps(funcao)
     def conferida(*args, **kwargs):
@@ -259,54 +203,21 @@ def exigir_login(funcao):
             raise Recusado(401, 'Faça login para continuar.')
 
         try:
-            dados = jwt.decode(token, SEGREDO, algorithms=['HS256'])
-        except jwt.InvalidTokenError:
+            dados = firebase_auth.verify_id_token(token)
+        except (ValueError, firebase_auth.InvalidIdTokenError, firebase_auth.ExpiredIdTokenError,
+                firebase_auth.RevokedIdTokenError, firebase_auth.UserDisabledError,
+                firebase_auth.CertificateFetchError):
             raise Recusado(401, 'Sessão expirada. Entre de novo.')
 
-        conta = consultar_um('SELECT versao_sessao FROM contas WHERE email = %s', (dados['sub'],))
-
-        if not conta or conta['versao_sessao'] != dados.get('versao'):
-            raise Recusado(401, 'Sessão expirada. Entre de novo.')
-
-        g.email = dados['sub']
+        g.uid = dados['uid']
+        g.email = dados.get('email', '')
 
         return funcao(*args, **kwargs)
 
     return conferida
 
 
-# O que o aplicativo pode saber da conta. A resposta da pergunta nunca sai daqui,
-# nem protegida.
-def sessao(conta):
-    return {
-        'token': criar_token(conta),
-        'conta': {
-            'email': conta['email'],
-            'nome': conta['nome'],
-            'perfil': conta['perfil'],
-            'instituicao': de_json(conta['instituicao']),
-            'telefone': conta['telefone'],
-            'sal': conta['sal'],
-            'pergunta': conta['pergunta'],
-        },
-    }
-
-
-def buscar_conta(email):
-    return consultar_um('SELECT * FROM contas WHERE email = %s', (email,))
-
-
-# Para e-mail que não existe, responde sal e pergunta falsos, porém sempre os
-# mesmos. Responder 404 entregaria quem tem conta para qualquer um que perguntasse.
-def falso_estavel(email):
-    return hmac.new(SEGREDO.encode(), email.encode(), hashlib.sha256).hexdigest()
-
-
-def pergunta_falsa(email):
-    return PERGUNTAS[int(falso_estavel(email)[36:44], 16) % len(PERGUNTAS)]
-
-
-# ---------------- Rotas: saúde e contas ----------------
+# ---------------- Rotas: saúde ----------------
 
 @app.route('/saude', methods=['GET'])
 def saude():
@@ -319,835 +230,6 @@ def saude():
         description: API no ar
     """
     return jsonify({'ok': True}), 200
-
-
-@app.route('/auth/sal', methods=['POST'])
-@limiter.limit(LIMITE_DE_LOGIN)
-def pedir_sal():
-    """
-    Devolve o sal e a pergunta de segurança de um e-mail
-    ---
-    tags: [Contas]
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [email]
-          properties:
-            email: {type: string}
-    responses:
-      200:
-        description: Sal e pergunta. Para e-mail desconhecido, valores falsos e estáveis
-    """
-    email = ler_email(corpo())
-    conta = buscar_conta(email)
-
-    return jsonify({
-        'sal': conta['sal'] if conta else falso_estavel(email)[:36],
-        'pergunta': conta['pergunta'] if conta else pergunta_falsa(email),
-    }), 200
-
-
-@app.route('/auth/cadastro', methods=['POST'])
-@limiter.limit(LIMITE_DE_LOGIN)
-def cadastrar():
-    """
-    Cria a conta
-    ---
-    tags: [Contas]
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [email, nome, perfil, sal, senhaResumo]
-          properties:
-            email: {type: string}
-            nome: {type: string}
-            perfil: {type: string, enum: [gestor, voluntario, doador, visitante]}
-            instituicao: {type: object}
-            telefone: {type: string}
-            sal: {type: string}
-            senhaResumo: {type: string}
-            pergunta: {type: string}
-            respostaResumo: {type: string}
-    responses:
-      201:
-        description: Conta criada, com o token da sessão
-      400:
-        description: Dados inválidos
-      409:
-        description: E-mail já cadastrado
-    """
-    dados = corpo()
-    email = ler_email(dados)
-    nome = ler_texto(dados, 'nome', 2, 120)
-    sal = ler_texto(dados, 'sal', 8, 100)
-    senha = ler_resumo(dados, 'senhaResumo')
-    perfil = dados.get('perfil')
-
-    if perfil not in PERFIS:
-        raise Recusado(400, 'O campo perfil é inválido.')
-
-    resposta = ler_resumo(dados, 'respostaResumo') if dados.get('respostaResumo') else None
-
-    if buscar_conta(email):
-        raise Recusado(409, 'Já existe uma conta com este e-mail.')
-
-    executar(
-        'INSERT INTO contas (email, nome, perfil, instituicao, telefone, sal, senha_protegida, '
-        'pergunta, resposta_protegida) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',
-        (
-            email,
-            nome,
-            perfil,
-            como_json(dados.get('instituicao')),
-            str(dados.get('telefone') or '')[:40],
-            sal,
-            proteger(senha),
-            str(dados.get('pergunta') or '')[:200],
-            proteger(resposta) if resposta else '',
-        ),
-    )
-    salvar()
-
-    return jsonify(sessao(buscar_conta(email))), 201
-
-
-@app.route('/auth/entrar', methods=['POST'])
-@limiter.limit(LIMITE_DE_LOGIN)
-def entrar():
-    """
-    Entra na conta
-    ---
-    tags: [Contas]
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [email, senhaResumo]
-          properties:
-            email: {type: string}
-            senhaResumo: {type: string}
-    responses:
-      200:
-        description: Token da sessão e dados da conta
-      401:
-        description: E-mail ou senha incorretos
-    """
-    dados = corpo()
-    conta = buscar_conta(ler_email(dados))
-
-    if not conta or not confere(ler_resumo(dados, 'senhaResumo'), conta['senha_protegida']):
-        raise Recusado(401, 'E-mail ou senha incorretos.')
-
-    return jsonify(sessao(conta)), 200
-
-
-@app.route('/auth/recuperar', methods=['POST'])
-@limiter.limit(LIMITE_DE_LOGIN)
-def recuperar():
-    """
-    Troca a senha pela resposta da pergunta de segurança
-    ---
-    tags: [Contas]
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [email, respostaResumo, senhaResumoNova]
-          properties:
-            email: {type: string}
-            respostaResumo: {type: string}
-            senhaResumoNova: {type: string}
-    responses:
-      200:
-        description: Senha trocada, com o novo token
-      401:
-        description: A resposta não confere
-    """
-    dados = corpo()
-    email = ler_email(dados)
-    conta = buscar_conta(email)
-
-    if not conta or not confere(ler_resumo(dados, 'respostaResumo'), conta['resposta_protegida']):
-        raise Recusado(401, 'A resposta não confere com a do cadastro.')
-
-    executar(
-        'UPDATE contas SET senha_protegida = %s, versao_sessao = versao_sessao + 1 WHERE email = %s',
-        (proteger(ler_resumo(dados, 'senhaResumoNova')), email),
-    )
-    salvar()
-
-    return jsonify(sessao(buscar_conta(email))), 200
-
-
-@app.route('/contas/eu', methods=['PUT'])
-@exigir_login
-def atualizar_conta():
-    """
-    Altera a própria conta
-    ---
-    tags: [Contas]
-    security:
-      - Bearer: []
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            nome: {type: string}
-            perfil: {type: string}
-            instituicao: {type: object}
-            telefone: {type: string}
-            senhaAtualResumo: {type: string, description: Obrigatória para trocar senha ou pergunta}
-            sal: {type: string}
-            senhaResumo: {type: string}
-            pergunta: {type: string}
-            respostaResumo: {type: string}
-    responses:
-      200:
-        description: Conta alterada, com o token atual
-      403:
-        description: A senha atual não confere
-    """
-    dados = corpo()
-    conta = buscar_conta(g.email)
-    credenciais = ('senhaResumo', 'respostaResumo', 'sal', 'pergunta')
-
-    # Trocar credencial exige provar a senha atual: sem isso, uma sessão esquecida
-    # num celular bastaria para tomar a conta.
-    if any(dados.get(campo) is not None for campo in credenciais):
-        atual = dados.get('senhaAtualResumo')
-
-        if not isinstance(atual, str) or not confere(atual, conta['senha_protegida']):
-            raise Recusado(403, 'A senha atual não confere.')
-
-    trocas = {}
-
-    if 'nome' in dados:
-        trocas['nome'] = ler_texto(dados, 'nome', 2, 120)
-
-    if 'perfil' in dados:
-        if dados['perfil'] not in PERFIS:
-            raise Recusado(400, 'O campo perfil é inválido.')
-
-        trocas['perfil'] = dados['perfil']
-
-    if 'instituicao' in dados:
-        trocas['instituicao'] = como_json(dados['instituicao'])
-
-    if 'telefone' in dados:
-        trocas['telefone'] = str(dados['telefone'] or '')[:40]
-
-    if dados.get('sal') is not None:
-        trocas['sal'] = ler_texto(dados, 'sal', 8, 100)
-
-    if dados.get('pergunta') is not None:
-        trocas['pergunta'] = ler_texto(dados, 'pergunta', 0, 200)
-
-    if dados.get('respostaResumo'):
-        trocas['resposta_protegida'] = proteger(ler_resumo(dados, 'respostaResumo'))
-
-    versao = ''
-
-    if dados.get('senhaResumo') and dados['senhaResumo'] != dados.get('senhaAtualResumo'):
-        trocas['senha_protegida'] = proteger(ler_resumo(dados, 'senhaResumo'))
-        versao = ', versao_sessao = versao_sessao + 1'
-
-    if trocas:
-        colunas = ', '.join(coluna + ' = %s' for coluna in trocas)
-
-        executar(
-            'UPDATE contas SET ' + colunas + versao + ' WHERE email = %s',
-            (*trocas.values(), g.email),
-        )
-        salvar()
-
-    return jsonify(sessao(buscar_conta(g.email))), 200
-
-
-# Apagar a conta leva o que é dela de verdade, sem exclusão lógica: dado pessoal
-# não pode ficar guardado depois de a pessoa pedir para sair. Inclui os abrigos,
-# porque abrigo sem dono ficaria no mapa sem ninguém que possa corrigir ou retirar.
-@app.route('/contas/eu', methods=['DELETE'])
-@exigir_login
-def apagar_conta():
-    """
-    Apaga a conta e tudo que é dela
-    ---
-    tags: [Contas]
-    security:
-      - Bearer: []
-    responses:
-      204:
-        description: Conta apagada
-    """
-    email = g.email
-
-    executar(
-        'DELETE FROM necessidades WHERE abrigo_id IN (SELECT id FROM abrigos WHERE dono = %s) '
-        "OR (criado_por = %s AND (abrigo_id IS NULL OR abrigo_id = ''))",
-        (email, email),
-    )
-
-    for linha in consultar(
-        "SELECT id, dados FROM necessidades WHERE JSON_CONTAINS(dados, JSON_OBJECT('por', %s), '$.contribuicoes')",
-        (email,),
-    ):
-        dados = de_json(linha['dados'])
-
-        dados['contribuicoes'] = [
-            uma for uma in dados.get('contribuicoes', []) if uma.get('por') != email
-        ]
-        executar('UPDATE necessidades SET dados = %s WHERE id = %s', (como_json(dados), linha['id']))
-
-    executar('DELETE FROM abrigos WHERE dono = %s', (email,))
-    executar('DELETE FROM doacoes WHERE conta = %s', (email,))
-    executar('DELETE FROM compromissos WHERE conta = %s', (email,))
-    executar('DELETE FROM arquivos WHERE dono = %s', (email,))
-    executar('DELETE FROM contas WHERE email = %s', (email,))
-    salvar()
-
-    return '', 204
-
-
-# ---------------- Rotas: abrigos ----------------
-
-def listar(tabela, onde='', parametros=()):
-    filtro = ' AND ' + onde if onde else ''
-    linhas = consultar(
-        'SELECT dados FROM ' + tabela + ' WHERE deleted_at IS NULL' + filtro
-        + ' ORDER BY created_at DESC, id DESC',
-        parametros,
-    )
-
-    return jsonify([de_json(linha['dados']) for linha in linhas]), 200
-
-
-@app.route('/abrigos', methods=['GET'])
-@exigir_login
-def listar_abrigos():
-    """
-    Lista todos os abrigos
-    ---
-    tags: [Abrigos]
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Lista de abrigos
-    """
-    return listar('abrigos')
-
-
-@app.route('/abrigos/<id>', methods=['PUT'])
-@exigir_login
-def gravar_abrigo(id):
-    """
-    Cria ou altera um abrigo. O dono vem da sessão, e só ele altera
-    ---
-    tags: [Abrigos]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [nome, latitude, longitude]
-          properties:
-            nome: {type: string}
-            latitude: {type: number}
-            longitude: {type: number}
-    responses:
-      200:
-        description: Abrigo gravado
-      400:
-        description: Dados inválidos
-      403:
-        description: O abrigo é de outra conta
-    """
-    ler_id(id)
-    dados = corpo()
-    nome = ler_texto(dados, 'nome', 1, 200)
-    latitude = ler_numero(dados, 'latitude', -90, 90)
-    longitude = ler_numero(dados, 'longitude', -180, 180)
-    atual = consultar_um('SELECT dono FROM abrigos WHERE id = %s', (id,))
-
-    if atual and atual['dono'] != g.email:
-        raise Recusado(403, 'Só quem cadastrou o abrigo pode alterá-lo.')
-
-    registro = {**dados, 'id': id, 'dono': g.email}
-
-    executar(
-        'INSERT INTO abrigos (id, dono, nome, latitude, longitude, dados) VALUES (%s, %s, %s, %s, %s, %s) '
-        'ON DUPLICATE KEY UPDATE nome = VALUES(nome), latitude = VALUES(latitude), '
-        'longitude = VALUES(longitude), dados = VALUES(dados), deleted_at = NULL',
-        (id, g.email, nome, latitude, longitude, como_json(registro)),
-    )
-    salvar()
-
-    return jsonify(registro), 200
-
-
-@app.route('/abrigos/<id>', methods=['DELETE'])
-@exigir_login
-def apagar_abrigo(id):
-    """
-    Exclui logicamente um abrigo e as necessidades dele. Só o dono exclui
-    ---
-    tags: [Abrigos]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-    responses:
-      204:
-        description: Abrigo excluído
-      403:
-        description: O abrigo é de outra conta
-    """
-    atual = consultar_um('SELECT dono FROM abrigos WHERE id = %s', (id,))
-
-    if atual and atual['dono'] != g.email:
-        raise Recusado(403, 'Só quem cadastrou o abrigo pode excluí-lo.')
-
-    executar('UPDATE necessidades SET deleted_at = NOW() WHERE abrigo_id = %s', (id,))
-    executar('UPDATE abrigos SET deleted_at = NOW() WHERE id = %s', (id,))
-    salvar()
-
-    return '', 204
-
-
-# ---------------- Rotas: necessidades ----------------
-
-def administra(abrigo_id, criado_por, email):
-    if abrigo_id:
-        abrigo = consultar_um('SELECT dono FROM abrigos WHERE id = %s AND deleted_at IS NULL', (abrigo_id,))
-
-        if abrigo:
-            return abrigo['dono'] == email
-
-    return (criado_por or email) == email
-
-
-# Junta as contribuições do que está gravado com o que chegou.
-#
-# O celular envia a necessidade inteira, com a lista como ele a conhecia. Se isso
-# substituísse o que está no banco, quem doou enquanto o outro estava sem internet
-# teria a promessa apagada sem saber. A regra: cada pessoa só mexe na própria
-# contribuição, e só quem administra marca que algo foi entregue.
-def juntar_contribuicoes(gravadas, recebidas, email, eh_gestor):
-    por_id = {str(item.get('id')): item for item in recebidas}
-    ids_gravados = {str(item.get('id')) for item in gravadas}
-    lista = []
-
-    for gravada in gravadas:
-        nova = por_id.get(str(gravada.get('id')))
-
-        if gravada.get('por') == email:
-            if nova:
-                entregue = nova.get('entregue') is True if eh_gestor else gravada.get('entregue') is True
-
-                lista.append({**nova, 'por': email, 'entregue': entregue})
-
-            continue
-
-        lista.append(
-            {**gravada, 'entregue': nova.get('entregue') is True} if eh_gestor and nova else gravada
-        )
-
-    for nova in recebidas:
-        if str(nova.get('id')) not in ids_gravados and nova.get('por') == email:
-            lista.append({**nova, 'entregue': eh_gestor and nova.get('entregue') is True})
-
-    return lista
-
-
-def ler_contribuicoes(dados):
-    recebidas = dados.get('contribuicoes') or []
-
-    if not isinstance(recebidas, list):
-        raise Recusado(400, 'O campo contribuicoes é inválido.')
-
-    lista = []
-
-    for item in recebidas:
-        if not isinstance(item, dict) or item.get('id') is None or not isinstance(item.get('por'), str):
-            raise Recusado(400, 'O campo contribuicoes é inválido.')
-
-        ler_numero(item, 'quantidade', 0, 10 ** 9)
-
-        # O id da doação sempre como texto: é por ele que o abrigo a encontra depois.
-        lista.append({**item, 'doacaoId': str(item['doacaoId'])} if item.get('doacaoId') is not None else item)
-
-    return lista
-
-
-@app.route('/necessidades', methods=['GET'])
-@exigir_login
-def listar_necessidades():
-    """
-    Lista todas as necessidades
-    ---
-    tags: [Necessidades]
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Lista de necessidades
-    """
-    return listar('necessidades')
-
-
-@app.route('/necessidades/<id>', methods=['PUT'])
-@exigir_login
-def gravar_necessidade(id):
-    """
-    Cria ou altera uma necessidade. Quem não administra só altera a própria contribuição
-    ---
-    tags: [Necessidades]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            title: {type: string}
-            abrigoId: {type: string}
-            alvo: {type: number}
-            unidade: {type: string}
-            done: {type: boolean}
-            contribuicoes: {type: array, items: {type: object}}
-    responses:
-      200:
-        description: Necessidade gravada
-      403:
-        description: Só quem administra o abrigo pode criar necessidades nele
-    """
-    ler_id(id)
-    dados = corpo()
-    recebidas = ler_contribuicoes(dados)
-    atual = consultar_um('SELECT * FROM necessidades WHERE id = %s AND deleted_at IS NULL', (id,))
-
-    if not atual:
-        if not administra(dados.get('abrigoId'), None, g.email):
-            raise Recusado(403, 'Só quem administra o abrigo pode criar necessidades nele.')
-
-        registro = {
-            **dados,
-            'id': id,
-            'criadoPor': g.email,
-            'contribuicoes': juntar_contribuicoes([], recebidas, g.email, True),
-        }
-        criado_por = g.email
-        abrigo_id = dados.get('abrigoId') or None
-    else:
-        gravado = de_json(atual['dados'])
-        eh_gestor = administra(atual['abrigo_id'], atual['criado_por'], g.email)
-        contribuicoes = juntar_contribuicoes(
-            gravado.get('contribuicoes') or [], recebidas, g.email, eh_gestor
-        )
-        criado_por = atual['criado_por']
-        abrigo_id = atual['abrigo_id'] or dados.get('abrigoId') or None
-
-        # Quem não administra só altera a própria contribuição: título, meta e
-        # situação da necessidade continuam como estão no banco.
-        base = {**dados, 'abrigoId': abrigo_id} if eh_gestor else gravado
-        registro = {**base, 'id': id, 'criadoPor': criado_por, 'contribuicoes': contribuicoes}
-
-    executar(
-        'INSERT INTO necessidades (id, criado_por, abrigo_id, dados) VALUES (%s, %s, %s, %s) '
-        'ON DUPLICATE KEY UPDATE abrigo_id = VALUES(abrigo_id), dados = VALUES(dados), deleted_at = NULL',
-        (id, criado_por, abrigo_id, como_json(registro)),
-    )
-    salvar()
-
-    return jsonify(registro), 200
-
-
-@app.route('/necessidades/<id>', methods=['DELETE'])
-@exigir_login
-def apagar_necessidade(id):
-    """
-    Exclui logicamente uma necessidade. Só quem administra exclui
-    ---
-    tags: [Necessidades]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-    responses:
-      204:
-        description: Necessidade excluída
-      403:
-        description: Só quem administra o abrigo pode excluir
-    """
-    atual = consultar_um('SELECT * FROM necessidades WHERE id = %s', (id,))
-
-    if atual and not administra(atual['abrigo_id'], atual['criado_por'], g.email):
-        raise Recusado(403, 'Só quem administra o abrigo pode excluir a necessidade.')
-
-    executar('UPDATE necessidades SET deleted_at = NOW() WHERE id = %s', (id,))
-    salvar()
-
-    return '', 204
-
-
-# ---------------- Rotas: registros privados (doações e compromissos) ----------------
-
-def gravar_privado(tabela, id, dados, mensagem):
-    ler_id(id)
-    atual = consultar_um('SELECT conta FROM ' + tabela + ' WHERE id = %s', (id,))
-
-    if atual and atual['conta'] != g.email:
-        raise Recusado(403, mensagem)
-
-    registro = {**dados, 'id': id, 'conta': g.email}
-
-    executar(
-        'INSERT INTO ' + tabela + ' (id, conta, dados) VALUES (%s, %s, %s) '
-        'ON DUPLICATE KEY UPDATE dados = VALUES(dados), deleted_at = NULL',
-        (id, g.email, como_json(registro)),
-    )
-    salvar()
-
-    return jsonify(registro), 200
-
-
-def apagar_privado(tabela, id, mensagem):
-    atual = consultar_um('SELECT conta FROM ' + tabela + ' WHERE id = %s', (id,))
-
-    if atual and atual['conta'] != g.email:
-        raise Recusado(403, mensagem)
-
-    executar('UPDATE ' + tabela + ' SET deleted_at = NOW() WHERE id = %s', (id,))
-    salvar()
-
-    return '', 204
-
-
-@app.route('/doacoes', methods=['GET'])
-@exigir_login
-def listar_doacoes():
-    """
-    Lista as doações da própria conta
-    ---
-    tags: [Doações]
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Lista de doações
-    """
-    return listar('doacoes', 'conta = %s', (g.email,))
-
-
-@app.route('/doacoes/<id>', methods=['PUT'])
-@exigir_login
-def gravar_doacao(id):
-    """
-    Cria ou altera uma doação própria
-    ---
-    tags: [Doações]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            tipo: {type: string}
-            valor: {type: number}
-            situacao: {type: string}
-    responses:
-      200:
-        description: Doação gravada
-      403:
-        description: A doação é de outra pessoa
-    """
-    dados = corpo()
-
-    if 'valor' in dados:
-        ler_numero(dados, 'valor', 0, 10 ** 12)
-
-    return gravar_privado('doacoes', id, dados, 'Esta doação é de outra pessoa.')
-
-
-@app.route('/doacoes/<id>', methods=['DELETE'])
-@exigir_login
-def apagar_doacao(id):
-    """
-    Exclui logicamente uma doação própria
-    ---
-    tags: [Doações]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-    responses:
-      204:
-        description: Doação excluída
-      403:
-        description: A doação é de outra pessoa
-    """
-    return apagar_privado('doacoes', id, 'Esta doação é de outra pessoa.')
-
-
-# A situação pode ser mudada por quem doou ou por quem recebeu: é o abrigo que sabe
-# que o item chegou. Quem recebeu é descoberto pela necessidade que tem aquela
-# doação como contribuição.
-@app.route('/doacoes/<id>/situacao', methods=['PATCH'])
-@exigir_login
-def mudar_situacao(id):
-    """
-    Muda a situação de uma doação. Quem doou ou o abrigo que recebeu
-    ---
-    tags: [Doações]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [situacao]
-          properties:
-            situacao: {type: string, enum: [pendente, confirmada]}
-    responses:
-      204:
-        description: Situação alterada
-      403:
-        description: Sem permissão
-    """
-    situacao = corpo().get('situacao')
-
-    if situacao not in ('pendente', 'confirmada'):
-        raise Recusado(400, 'O campo situacao é inválido.')
-
-    atual = consultar_um('SELECT * FROM doacoes WHERE id = %s AND deleted_at IS NULL', (id,))
-
-    if not atual:
-        return '', 204
-
-    if atual['conta'] != g.email:
-        necessidade = consultar_um(
-            "SELECT abrigo_id, criado_por FROM necessidades WHERE deleted_at IS NULL "
-            "AND JSON_CONTAINS(dados, JSON_OBJECT('doacaoId', %s), '$.contribuicoes')",
-            (id,),
-        )
-
-        if not necessidade or not administra(necessidade['abrigo_id'], necessidade['criado_por'], g.email):
-            raise Recusado(403, 'Só quem doou ou o abrigo podem mudar esta situação.')
-
-    dados = de_json(atual['dados'])
-
-    dados['situacao'] = situacao
-
-    if situacao == 'confirmada':
-        dados['recebidaEm'] = datetime.now(timezone.utc).isoformat()
-    else:
-        dados.pop('recebidaEm', None)
-
-    executar('UPDATE doacoes SET dados = %s WHERE id = %s', (como_json(dados), id))
-    salvar()
-
-    return '', 204
-
-
-@app.route('/compromissos', methods=['GET'])
-@exigir_login
-def listar_compromissos():
-    """
-    Lista a agenda da própria conta
-    ---
-    tags: [Agenda]
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Lista de compromissos
-    """
-    return listar('compromissos', 'conta = %s', (g.email,))
-
-
-@app.route('/compromissos/<id>', methods=['PUT'])
-@exigir_login
-def gravar_compromisso(id):
-    """
-    Cria ou altera um compromisso próprio
-    ---
-    tags: [Agenda]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [quando]
-          properties:
-            quando: {type: string, format: date-time}
-            tipo: {type: string}
-    responses:
-      200:
-        description: Compromisso gravado
-      400:
-        description: Data inválida
-      403:
-        description: O compromisso é de outra pessoa
-    """
-    dados = corpo()
-
-    try:
-        datetime.fromisoformat(str(dados.get('quando')))
-    except ValueError:
-        raise Recusado(400, 'O campo quando é inválido.')
-
-    return gravar_privado('compromissos', id, dados, 'Este compromisso é de outra pessoa.')
-
-
-@app.route('/compromissos/<id>', methods=['DELETE'])
-@exigir_login
-def apagar_compromisso(id):
-    """
-    Exclui logicamente um compromisso próprio
-    ---
-    tags: [Agenda]
-    security:
-      - Bearer: []
-    parameters:
-      - {name: id, in: path, type: string, required: true}
-    responses:
-      204:
-        description: Compromisso excluído
-      403:
-        description: O compromisso é de outra pessoa
-    """
-    return apagar_privado('compromissos', id, 'Este compromisso é de outra pessoa.')
 
 
 # ---------------- Rotas: fotos ----------------
@@ -1201,8 +283,8 @@ def enviar_arquivo():
     id = secrets.token_hex(16)
 
     executar(
-        'INSERT INTO arquivos (id, dono, mime, dados) VALUES (%s, %s, %s, %s)',
-        (id, g.email, mime, dados),
+        'INSERT INTO arquivos (id, uid, mime, dados) VALUES (%s, %s, %s, %s)',
+        (id, g.uid, mime, dados),
     )
     salvar()
 
@@ -1225,7 +307,7 @@ def ver_arquivo(id):
         description: Imagem não encontrada
     """
     arquivo = (
-        consultar_um('SELECT mime, dados FROM arquivos WHERE id = %s', (id,))
+        consultar_um('SELECT mime, dados FROM arquivos WHERE id = %s AND deleted_at IS NULL', (id,))
         if re.fullmatch(r'[0-9a-f]{32}', id)
         else None
     )
@@ -1238,6 +320,484 @@ def ver_arquivo(id):
         mimetype=arquivo['mime'],
         headers={'Cache-Control': 'public, max-age=86400'},
     )
+
+
+# ---------------- Rotas: selo de instituição verificada ----------------
+
+def cnpj_tem_digitos_validos(cnpj):
+    if not re.fullmatch(r'\d{14}', cnpj) or len(set(cnpj)) == 1:
+        return False
+
+    def digito(parte):
+        pesos = list(range(len(parte) - 7, 1, -1)) + list(range(9, 1, -1))
+        resto = sum(int(n) * p for n, p in zip(parte, pesos)) % 11
+
+        return '0' if resto < 2 else str(11 - resto)
+
+    return cnpj[12] == digito(cnpj[:12]) and cnpj[13] == digito(cnpj[:13])
+
+
+# Separada para os testes conseguirem simular a Receita. Devolve None se o CNPJ não
+# existir, e dispara erro de rede se o serviço estiver fora do ar.
+def consultar_cnpj(cnpj):
+    pedido = urllib.request.Request(URL_DO_CNPJ + cnpj, headers={'User-Agent': 'InfoAbrigo'})
+
+    try:
+        with urllib.request.urlopen(pedido, timeout=10) as resposta:
+            return json.load(resposta)
+    except urllib.error.HTTPError as erro:
+        if erro.code in (400, 404):
+            return None
+
+        raise
+
+
+# Se a conferência estivesse no celular, bastaria alterar o aplicativo para ganhar o
+# selo. Aqui, quem confere é o servidor, e o selo vai para um lugar do Firebase que
+# só a API pode escrever.
+#
+# O limite é o de sempre: o selo prova que a instituição existe e está ativa, não que
+# a pessoa trabalha lá. O que dá para evitar é outra conta usar o mesmo CNPJ.
+@app.route('/verificacoes', methods=['POST'])
+@exigir_login
+@limiter.limit(LIMITE_DE_ESCRITA)
+def verificar_instituicao():
+    """
+    Confere o CNPJ na Receita e concede o selo ao abrigo
+    ---
+    tags: [Verificação]
+    security:
+      - Bearer: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required: [abrigoId, cnpj]
+          properties:
+            abrigoId: {type: string}
+            cnpj: {type: string}
+    responses:
+      200:
+        description: Resultado da conferência
+      400:
+        description: CNPJ inválido
+      403:
+        description: O abrigo é de outra conta
+      409:
+        description: O CNPJ já é usado por outra conta
+      503:
+        description: A consulta à Receita está fora do ar
+    """
+    dados = corpo()
+    abrigo_id = ler_id(dados.get('abrigoId'))
+    cnpj = re.sub(r'\D', '', str(dados.get('cnpj') or ''))
+
+    if not cnpj_tem_digitos_validos(cnpj):
+        raise Recusado(400, 'CNPJ inválido.')
+
+    exigir_dono(abrigo_id)
+
+    de_outra_conta = consultar_um(
+        'SELECT uid FROM verificacoes WHERE cnpj = %s AND uid <> %s AND verificado = 1 AND deleted_at IS NULL',
+        (cnpj, g.uid),
+    )
+
+    if de_outra_conta:
+        raise Recusado(409, 'Este CNPJ já está vinculado a outra conta.')
+
+    try:
+        receita = consultar_cnpj(cnpj)
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        raise Recusado(503, 'A consulta à Receita está fora do ar. Tente mais tarde.')
+
+    situacao = str((receita or {}).get('descricao_situacao_cadastral') or 'INEXISTENTE').upper()
+    razao_social = str((receita or {}).get('razao_social') or '')[:200]
+    verificado = situacao == 'ATIVA'
+
+    executar(
+        'INSERT INTO verificacoes (abrigo_id, uid, cnpj, razao_social, situacao, verificado) '
+        'VALUES (%s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE uid = VALUES(uid), cnpj = VALUES(cnpj), '
+        'razao_social = VALUES(razao_social), situacao = VALUES(situacao), '
+        'verificado = VALUES(verificado), deleted_at = NULL',
+        (abrigo_id, g.uid, cnpj, razao_social, situacao, verificado),
+    )
+    salvar()
+
+    selo = firebase_db.reference('verificacoes/' + abrigo_id)
+
+    if verificado:
+        selo.set({'verificado': True, 'razaoSocial': razao_social})
+    else:
+        selo.delete()
+
+    return jsonify({'verificado': verificado, 'situacao': situacao, 'razaoSocial': razao_social}), 200
+
+
+@app.route('/verificacoes/<abrigo_id>', methods=['GET'])
+@exigir_login
+def ver_verificacao(abrigo_id):
+    """
+    Mostra a última conferência de um abrigo
+    ---
+    tags: [Verificação]
+    security:
+      - Bearer: []
+    parameters:
+      - {name: abrigo_id, in: path, type: string, required: true}
+    responses:
+      200:
+        description: A conferência
+      404:
+        description: O abrigo ainda não foi conferido
+    """
+    linha = consultar_um(
+        'SELECT razao_social, situacao, verificado, updated_at FROM verificacoes '
+        'WHERE abrigo_id = %s AND deleted_at IS NULL',
+        (ler_id(abrigo_id),),
+    )
+
+    if not linha:
+        raise Recusado(404, 'Este abrigo ainda não foi conferido.')
+
+    return jsonify({
+        'razaoSocial': linha['razao_social'],
+        'situacao': linha['situacao'],
+        'verificado': bool(linha['verificado']),
+        'conferidoEm': linha['updated_at'].isoformat(),
+    }), 200
+
+
+# ---------------- Rotas: denúncias ----------------
+
+@app.route('/denuncias', methods=['POST'])
+@exigir_login
+@limiter.limit(LIMITE_DE_ESCRITA)
+def denunciar():
+    """
+    Denuncia um abrigo suspeito. Com 3 pessoas diferentes, o abrigo ganha um aviso
+    ---
+    tags: [Denúncias]
+    security:
+      - Bearer: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required: [abrigoId, motivo]
+          properties:
+            abrigoId: {type: string}
+            motivo: {type: string, enum: [chave-pix-suspeita, abrigo-inexistente, dados-errados, outro]}
+            detalhe: {type: string}
+    responses:
+      201:
+        description: Denúncia registrada
+      400:
+        description: Dados inválidos, ou o abrigo é da própria conta
+    """
+    dados = corpo()
+    abrigo_id = ler_id(dados.get('abrigoId'))
+    motivo = dados.get('motivo')
+
+    if motivo not in MOTIVOS_DE_DENUNCIA:
+        raise Recusado(400, 'Escolha um dos motivos da lista.')
+
+    if ler_abrigo(abrigo_id).get('donoUid') == g.uid:
+        raise Recusado(400, 'Não é possível denunciar o próprio abrigo.')
+
+    executar(
+        'INSERT INTO denuncias (abrigo_id, uid, motivo, detalhe) VALUES (%s, %s, %s, %s) '
+        'ON DUPLICATE KEY UPDATE motivo = VALUES(motivo), detalhe = VALUES(detalhe), deleted_at = NULL',
+        (abrigo_id, g.uid, motivo, str(dados.get('detalhe') or '')[:500]),
+    )
+    salvar()
+
+    atualizar_alerta(abrigo_id)
+
+    return jsonify({'ok': True}), 201
+
+
+def atualizar_alerta(abrigo_id):
+    total = consultar_um(
+        'SELECT COUNT(*) AS total FROM denuncias WHERE abrigo_id = %s AND deleted_at IS NULL',
+        (abrigo_id,),
+    )['total']
+    alerta = firebase_db.reference('alertas/' + abrigo_id)
+
+    if total >= DENUNCIAS_PARA_ALERTA:
+        alerta.set({'denuncias': total})
+    else:
+        alerta.delete()
+
+
+@app.route('/abrigos/<abrigo_id>/denuncias', methods=['GET'])
+@exigir_login
+def ver_denuncias(abrigo_id):
+    """
+    Lista as denúncias do próprio abrigo, sem identificar quem denunciou
+    ---
+    tags: [Denúncias]
+    security:
+      - Bearer: []
+    parameters:
+      - {name: abrigo_id, in: path, type: string, required: true}
+    responses:
+      200:
+        description: Lista de denúncias
+      403:
+        description: O abrigo é de outra conta
+    """
+    exigir_dono(abrigo_id)
+
+    linhas = consultar(
+        'SELECT motivo, detalhe, created_at FROM denuncias WHERE abrigo_id = %s AND deleted_at IS NULL '
+        'ORDER BY created_at DESC',
+        (abrigo_id,),
+    )
+
+    return jsonify([
+        {'motivo': linha['motivo'], 'detalhe': linha['detalhe'], 'em': linha['created_at'].isoformat()}
+        for linha in linhas
+    ]), 200
+
+
+# ---------------- Rotas: recomendações ----------------
+
+def como_lista(valor):
+    if not valor:
+        return []
+
+    return [item for item in (valor.values() if isinstance(valor, dict) else valor) if item]
+
+
+def distancia_km(lat_a, lng_a, lat_b, lng_b):
+    fi_a, fi_b = math.radians(lat_a), math.radians(lat_b)
+    delta_fi = math.radians(lat_b - lat_a)
+    delta_lambda = math.radians(lng_b - lng_a)
+    a = math.sin(delta_fi / 2) ** 2 + math.cos(fi_a) * math.cos(fi_b) * math.sin(delta_lambda / 2) ** 2
+
+    return 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def contribuicoes_de(necessidade):
+    return como_lista(necessidade.get('contribuicoes'))
+
+
+def numero(valor):
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# A nota junta três coisas: o abrigo marcou como urgente, falta muito do que foi
+# pedido e o abrigo está perto. O peso maior é da urgência, porque é o próprio abrigo
+# dizendo o que não pode esperar. Separada das rotas para ser fácil de testar.
+def nota_da_necessidade(necessidade, km):
+    alvo = numero(necessidade.get('alvo'))
+    prometido = sum(numero(uma.get('quantidade')) for uma in contribuicoes_de(necessidade))
+    falta = max(0.0, alvo - prometido) if alvo > 0 else None
+
+    if falta == 0:
+        return None
+
+    nota = 50 if necessidade.get('urgente') else 0
+    nota += 30 * (falta / alvo) if alvo > 0 else 15
+
+    if km is not None:
+        nota += 20 / (1 + km / 10)
+
+    return nota, falta
+
+
+def explicar(necessidade, km):
+    partes = []
+
+    if necessidade.get('urgente'):
+        partes.append('urgente')
+
+    if km is not None:
+        partes.append('a %.1f km de você' % km if km >= 1 else 'muito perto de você')
+
+    if not contribuicoes_de(necessidade):
+        partes.append('ninguém se ofereceu ainda')
+
+    return ', '.join(partes)
+
+
+@app.route('/recomendacoes', methods=['GET'])
+@exigir_login
+def recomendar():
+    """
+    Mostra onde a ajuda vale mais agora, juntando urgência, o que falta e distância
+    ---
+    tags: [Recomendações]
+    security:
+      - Bearer: []
+    parameters:
+      - {name: lat, in: query, type: number, required: false}
+      - {name: lng, in: query, type: number, required: false}
+      - {name: limite, in: query, type: integer, required: false, default: 5}
+    responses:
+      200:
+        description: Necessidades em ordem de prioridade
+    """
+    lat = request.args.get('lat', type=float)
+    lng = request.args.get('lng', type=float)
+    limite = min(max(request.args.get('limite', default=5, type=int), 1), 20)
+
+    abrigos = {str(item.get('id')): item for item in como_lista(firebase_db.reference('abrigos').get())}
+    alertas = firebase_db.reference('alertas').get() or {}
+    lista = []
+
+    for necessidade in como_lista(firebase_db.reference('necessidades').get()):
+        abrigo = abrigos.get(str(necessidade.get('abrigoId')))
+
+        # Abrigo com aviso de denúncia não é recomendado: continua no mapa, mas o
+        # aplicativo não deve empurrar doação para ele.
+        if necessidade.get('done') or not abrigo or abrigo.get('id') in alertas:
+            continue
+
+        km = None
+
+        if lat is not None and lng is not None:
+            km = distancia_km(lat, lng, numero(abrigo.get('latitude')), numero(abrigo.get('longitude')))
+
+        avaliada = nota_da_necessidade(necessidade, km)
+
+        if avaliada is None:
+            continue
+
+        nota, falta = avaliada
+
+        lista.append({
+            'necessidadeId': necessidade.get('id'),
+            'abrigoId': abrigo.get('id'),
+            'abrigoNome': abrigo.get('nome'),
+            'titulo': necessidade.get('title'),
+            'faltam': falta,
+            'unidade': necessidade.get('unidade') or '',
+            'urgente': bool(necessidade.get('urgente')),
+            'distanciaKm': round(km, 1) if km is not None else None,
+            'motivo': explicar(necessidade, km),
+            'nota': round(nota, 1),
+        })
+
+    lista.sort(key=lambda item: item['nota'], reverse=True)
+
+    return jsonify(lista[:limite]), 200
+
+
+# ---------------- Rotas: relatório do gestor ----------------
+
+def montar_relatorio(abrigo_id):
+    necessidades = [
+        item for item in como_lista(firebase_db.reference('necessidades').get())
+        if str(item.get('abrigoId')) == str(abrigo_id)
+    ]
+    itens = []
+    doadores = set()
+
+    for necessidade in necessidades:
+        contribuicoes = contribuicoes_de(necessidade)
+        prometido = sum(numero(uma.get('quantidade')) for uma in contribuicoes)
+        recebido = sum(numero(uma.get('quantidade')) for uma in contribuicoes if uma.get('entregue'))
+
+        doadores.update(uma.get('porUid') for uma in contribuicoes)
+        itens.append({
+            'titulo': necessidade.get('title') or '',
+            'unidade': necessidade.get('unidade') or '',
+            'meta': numero(necessidade.get('alvo')),
+            'prometido': prometido,
+            'recebido': recebido,
+            'atendida': bool(necessidade.get('done')),
+        })
+
+    return {
+        'necessidades': len(itens),
+        'atendidas': sum(1 for item in itens if item['atendida']),
+        'doadores': len(doadores),
+        'prometido': sum(item['prometido'] for item in itens),
+        'recebido': sum(item['recebido'] for item in itens),
+        'itens': itens,
+    }
+
+
+@app.route('/abrigos/<abrigo_id>/relatorio', methods=['GET'])
+@exigir_login
+def relatorio(abrigo_id):
+    """
+    Mostra o impacto do abrigo, para o gestor. Com formato=csv, devolve a planilha
+    ---
+    tags: [Relatórios]
+    security:
+      - Bearer: []
+    parameters:
+      - {name: abrigo_id, in: path, type: string, required: true}
+      - {name: formato, in: query, type: string, required: false, enum: [json, csv]}
+    responses:
+      200:
+        description: Totais e itens do abrigo
+      403:
+        description: O abrigo é de outra conta
+    """
+    exigir_dono(abrigo_id)
+
+    dados = montar_relatorio(abrigo_id)
+
+    if request.args.get('formato') != 'csv':
+        return jsonify(dados), 200
+
+    saida = io.StringIO()
+    escritor = csv.writer(saida, delimiter=';')
+
+    escritor.writerow(['Necessidade', 'Unidade', 'Meta', 'Prometido', 'Recebido', 'Atendida'])
+
+    for item in dados['itens']:
+        escritor.writerow([
+            item['titulo'], item['unidade'], item['meta'], item['prometido'], item['recebido'],
+            'sim' if item['atendida'] else 'não',
+        ])
+
+    # O BOM faz o Excel abrir com os acentos certos.
+    return Response('﻿' + saida.getvalue(), mimetype='text/csv; charset=utf-8'), 200
+
+
+# ---------------- Rotas: conta ----------------
+
+# Apagar a conta remove de verdade o que a API guarda dela, sem exclusão lógica: dado
+# pessoal não pode ficar guardado depois de a pessoa pedir para sair.
+@app.route('/contas/eu', methods=['DELETE'])
+@exigir_login
+def apagar_dados_da_conta():
+    """
+    Apaga o que a API guarda desta conta
+    ---
+    tags: [Conta]
+    security:
+      - Bearer: []
+    responses:
+      204:
+        description: Dados apagados
+    """
+    denunciados = consultar('SELECT abrigo_id FROM denuncias WHERE uid = %s', (g.uid,))
+    meus = consultar('SELECT abrigo_id FROM verificacoes WHERE uid = %s', (g.uid,))
+
+    executar('DELETE FROM arquivos WHERE uid = %s', (g.uid,))
+    executar('DELETE FROM denuncias WHERE uid = %s', (g.uid,))
+    executar('DELETE FROM verificacoes WHERE uid = %s', (g.uid,))
+    salvar()
+
+    for linha in meus:
+        firebase_db.reference('verificacoes/' + linha['abrigo_id']).delete()
+
+    for linha in denunciados:
+        atualizar_alerta(linha['abrigo_id'])
+
+    return '', 204
 
 
 if __name__ == '__main__':

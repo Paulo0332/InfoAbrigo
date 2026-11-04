@@ -1,6 +1,9 @@
+# Precisa do MySQL e do emulador do Firebase no ar.
 import base64
+import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -8,30 +11,52 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+PROJETO = 'demo-infoabrigo'
+AUTH = '127.0.0.1:9099'
+BANCO = '127.0.0.1:9000'
+
 os.environ['MYSQL_HOST'] = os.getenv('MYSQL_HOST', '127.0.0.1')
 os.environ['MYSQL_DB'] = 'infoabrigo_pytest'
-os.environ['JWT_SEGREDO'] = 'segredo-de-teste'
-os.environ['LIMITE_LOGIN'] = '1000'
+os.environ['LIMITE_ESCRITA'] = '1000'
+os.environ['FIREBASE_PROJECT_ID'] = PROJETO
+os.environ['FIREBASE_DATABASE_URL'] = f'http://{BANCO}/?ns={PROJETO}-api-teste'
+os.environ['FIREBASE_AUTH_EMULATOR_HOST'] = AUTH
+os.environ['FIREBASE_DATABASE_EMULATOR_HOST'] = BANCO
+os.environ.pop('FIREBASE_CREDENCIAIS', None)
 
 from servidor_teste import preparar_banco  # noqa: E402
 
 preparar_banco('infoabrigo_pytest')
 
-from app import app, juntar_contribuicoes  # noqa: E402
+import app as modulo  # noqa: E402
+from app import app, nota_da_necessidade  # noqa: E402
+from firebase_admin import db  # noqa: E402
+
+# CNPJs com dígitos válidos, inventados para os testes.
+CNPJ_ATIVO = '11222333000181'
+CNPJ_BAIXADO = '11444777000161'
 
 
-def R(letra):
-    return letra * 64
+def pedir_ao_emulador(caminho, dados, cabecalhos=None):
+    pedido = urllib.request.Request(
+        f'http://{AUTH}{caminho}',
+        data=json.dumps(dados).encode() if dados is not None else None,
+        headers={'Content-Type': 'application/json', **(cabecalhos or {})},
+    )
 
-
-ABRIGO = {'nome': 'Casa Lar', 'latitude': -22.4, 'longitude': -43.6, 'dono': 'golpe@teste.com'}
-NEED = {'title': 'Fraldas', 'abrigoId': '1', 'alvo': 10, 'unidade': 'pacotes', 'done': False}
-QUANDO = '2030-01-10T13:00:00.000Z'
+    with urllib.request.urlopen(pedido) as resposta:
+        return json.load(resposta)
 
 
 class Pessoa:
-    def __init__(self, token):
-        self.token = token
+    def __init__(self, email):
+        resposta = pedir_ao_emulador(
+            '/identitytoolkit.googleapis.com/v1/accounts:signUp?key=falsa',
+            {'email': email, 'password': 'senha-de-teste', 'returnSecureToken': True},
+        )
+
+        self.uid = resposta['localId']
+        self.token = resposta['idToken']
         self.cliente = app.test_client()
 
     def _cabecalho(self):
@@ -40,14 +65,8 @@ class Pessoa:
     def get(self, url):
         return self.cliente.get(url, headers=self._cabecalho())
 
-    def put(self, url, dados):
-        return self.cliente.put(url, json=dados, headers=self._cabecalho())
-
     def post(self, url, dados):
         return self.cliente.post(url, json=dados, headers=self._cabecalho())
-
-    def patch(self, url, dados):
-        return self.cliente.patch(url, json=dados, headers=self._cabecalho())
 
     def delete(self, url):
         return self.cliente.delete(url, headers=self._cabecalho())
@@ -57,232 +76,61 @@ def publico():
     return app.test_client()
 
 
-def criar_conta(email, perfil, senha):
-    resposta = publico().post('/auth/cadastro', json={
-        'email': email,
-        'nome': 'Pessoa ' + perfil,
-        'perfil': perfil,
-        'sal': 'sal-da-conta-' + perfil,
-        'senhaResumo': R(senha),
-        'pergunta': 'Qual é o seu prato preferido?',
-        'respostaResumo': R('f'),
+def criar_abrigo(id, dono, **extras):
+    db.reference('abrigos/' + id).set({
+        'id': id,
+        'nome': 'Abrigo ' + id,
+        'latitude': -22.4,
+        'longitude': -43.66,
+        'dono': 'dono@teste.com',
+        'donoUid': dono.uid,
+        **extras,
     })
 
-    assert resposta.status_code == 201
 
-    return Pessoa(resposta.json['token'])
+@pytest.fixture(scope='module', autouse=True)
+def limpar():
+    pedido = urllib.request.Request(
+        f'http://{AUTH}/emulator/v1/projects/{PROJETO}/accounts',
+        method='DELETE',
+        headers={'Authorization': 'Bearer owner'},
+    )
+
+    urllib.request.urlopen(pedido)
+    db.reference('/').delete()
 
 
 @pytest.fixture(scope='module')
 def gestor():
-    return criar_conta('gestor@teste.com', 'gestor', 'a')
+    return Pessoa('gestor@teste.com')
 
 
 @pytest.fixture(scope='module')
 def doador():
-    return criar_conta('doador@teste.com', 'doador', 'b')
+    return Pessoa('doador@teste.com')
 
 
-def test_rota_de_dados_exige_login():
-    assert publico().get('/abrigos').status_code == 401
-    assert publico().get('/abrigos', headers={'Authorization': 'Bearer invalido'}).status_code == 401
+@pytest.fixture()
+def receita(monkeypatch):
+    def simular(cnpj):
+        if cnpj == CNPJ_ATIVO:
+            return {'razao_social': 'Casa Lar Ltda', 'descricao_situacao_cadastral': 'ATIVA'}
 
+        if cnpj == CNPJ_BAIXADO:
+            return {'razao_social': 'Fechada', 'descricao_situacao_cadastral': 'BAIXADA'}
 
-def test_conta_nao_e_duplicada_nem_com_maiuscula_diferente(gestor):
-    resposta = publico().post('/auth/cadastro', json={
-        'email': 'GESTOR@teste.com',
-        'nome': 'Outra',
-        'perfil': 'doador',
-        'sal': 'outro-sal-qualquer',
-        'senhaResumo': R('c'),
-    })
+        return None
 
-    assert resposta.status_code == 409
+    monkeypatch.setattr(modulo, 'consultar_cnpj', simular)
 
 
-def test_cadastro_recusa_dados_invalidos():
-    base = {'email': 'novo@teste.com', 'nome': 'Nova', 'perfil': 'doador', 'sal': 'sal-qualquer', 'senhaResumo': R('c')}
+def test_saude_nao_exige_login():
+    assert publico().get('/saude').json == {'ok': True}
 
-    assert publico().post('/auth/cadastro', json={**base, 'email': 'sem-arroba'}).status_code == 400
-    assert publico().post('/auth/cadastro', json={**base, 'perfil': 'rei'}).status_code == 400
-    assert publico().post('/auth/cadastro', json={**base, 'senhaResumo': 'curta'}).status_code == 400
 
-
-def test_login_confere_a_senha_e_nunca_devolve_credencial(gestor):
-    certa = publico().post('/auth/entrar', json={'email': 'gestor@teste.com', 'senhaResumo': R('a')})
-
-    assert certa.status_code == 200
-    assert certa.json['token']
-    assert 'senha_protegida' not in certa.json['conta']
-    assert 'resposta_protegida' not in certa.json['conta']
-
-    errada = publico().post('/auth/entrar', json={'email': 'gestor@teste.com', 'senhaResumo': R('9')})
-
-    assert errada.status_code == 401
-
-
-def test_email_inexistente_tem_sal_e_pergunta_estaveis(gestor):
-    def pedir(email):
-        return publico().post('/auth/sal', json={'email': email})
-
-    um = pedir('ninguem@teste.com')
-
-    assert um.status_code == 200
-    assert um.json['sal']
-    assert um.json['pergunta']
-    assert um.json == pedir('ninguem@teste.com').json
-    assert pedir('gestor@teste.com').json['sal'] == 'sal-da-conta-gestor'
-
-
-def test_trocar_a_senha_exige_a_atual_e_derruba_a_sessao_antiga():
-    conta = criar_conta('troca@teste.com', 'doador', 'c')
-
-    assert conta.put('/contas/eu', {'senhaResumo': R('d')}).status_code == 403
-
-    com_prova = conta.put('/contas/eu', {'senhaResumo': R('d'), 'senhaAtualResumo': R('c')})
-
-    assert com_prova.status_code == 200
-    assert conta.get('/abrigos').status_code == 401
-    assert Pessoa(com_prova.json['token']).get('/abrigos').status_code == 200
-
-    nova = publico().post('/auth/entrar', json={'email': 'troca@teste.com', 'senhaResumo': R('d')})
-
-    assert nova.status_code == 200
-
-
-def test_mudar_o_nome_nao_exige_senha():
-    conta = criar_conta('nome@teste.com', 'doador', 'c')
-    resposta = conta.put('/contas/eu', {'nome': 'Nome Novo'})
-
-    assert resposta.status_code == 200
-    assert resposta.json['conta']['nome'] == 'Nome Novo'
-
-
-def test_recuperar_troca_a_senha_so_com_a_resposta_certa():
-    criar_conta('esqueci@teste.com', 'doador', 'c')
-
-    errada = publico().post('/auth/recuperar', json={
-        'email': 'esqueci@teste.com', 'respostaResumo': R('0'), 'senhaResumoNova': R('e'),
-    })
-
-    assert errada.status_code == 401
-
-    certa = publico().post('/auth/recuperar', json={
-        'email': 'esqueci@teste.com', 'respostaResumo': R('f'), 'senhaResumoNova': R('e'),
-    })
-
-    assert certa.status_code == 200
-
-
-def test_abrigo_o_dono_vem_da_sessao_e_outra_conta_nao_altera(gestor, doador):
-    criado = gestor.put('/abrigos/1', ABRIGO)
-
-    assert criado.status_code == 200
-    assert criado.json['dono'] == 'gestor@teste.com'
-
-    assert doador.put('/abrigos/1', ABRIGO).status_code == 403
-    assert doador.delete('/abrigos/1').status_code == 403
-
-    lista = doador.get('/abrigos')
-
-    assert len(lista.json) == 1
-    assert lista.json[0]['nome'] == 'Casa Lar'
-
-
-def test_abrigo_sem_coordenadas_e_recusado(gestor):
-    assert gestor.put('/abrigos/2', {'nome': 'Sem mapa'}).status_code == 400
-
-
-def test_campo_removido_some_do_banco(gestor):
-    gestor.put('/abrigos/3', {**ABRIGO, 'foto': 'x'})
-
-    assert 'foto' not in gestor.put('/abrigos/3', ABRIGO).json
-
-    gestor.delete('/abrigos/3')
-
-
-def test_abrigo_excluido_some_da_lista_e_pode_voltar(gestor):
-    gestor.put('/abrigos/4', ABRIGO)
-    gestor.delete('/abrigos/4')
-
-    assert not any(item['id'] == '4' for item in gestor.get('/abrigos').json)
-
-    gestor.put('/abrigos/4', ABRIGO)
-
-    assert any(item['id'] == '4' for item in gestor.get('/abrigos').json)
-
-    gestor.delete('/abrigos/4')
-
-
-def test_necessidade_so_quem_administra_cria_e_quem_doa_nao_muda_titulo(gestor, doador):
-    gestor.put('/abrigos/1', ABRIGO)
-
-    assert doador.put('/necessidades/n1', NEED).status_code == 403
-    assert gestor.put('/necessidades/n1', NEED).status_code == 200
-
-    promessa = doador.put('/necessidades/n1', {
-        **NEED,
-        'title': 'Título trocado',
-        'done': True,
-        'contribuicoes': [
-            {'id': 'c1', 'por': 'doador@teste.com', 'quantidade': 3, 'doacaoId': 'd1', 'entregue': True},
-        ],
-    })
-
-    assert promessa.status_code == 200
-    assert promessa.json['title'] == 'Fraldas'
-    assert promessa.json['done'] is False
-    assert len(promessa.json['contribuicoes']) == 1
-    assert promessa.json['contribuicoes'][0]['entregue'] is False
-
-
-def test_lista_velha_nao_apaga_a_promessa_de_outra_pessoa(gestor):
-    velha = gestor.put('/necessidades/n1', {**NEED, 'title': 'Fraldas P', 'contribuicoes': []})
-
-    assert velha.json['title'] == 'Fraldas P'
-    assert len(velha.json['contribuicoes']) == 1
-
-
-def test_gestor_marca_a_entrega_e_a_situacao_da_doacao_acompanha(gestor, doador):
-    doador.put('/doacoes/d1', {'tipo': 'item', 'situacao': 'pendente', 'valor': 0, 'conta': 'golpe@teste.com'})
-
-    marcada = gestor.put('/necessidades/n1', {
-        **NEED,
-        'contribuicoes': [
-            {'id': 'c1', 'por': 'doador@teste.com', 'quantidade': 3, 'doacaoId': 'd1', 'entregue': True},
-        ],
-    })
-
-    assert marcada.json['contribuicoes'][0]['entregue'] is True
-    assert gestor.patch('/doacoes/d1/situacao', {'situacao': 'confirmada'}).status_code == 204
-
-    doacao = doador.get('/doacoes').json[0]
-
-    assert doacao['conta'] == 'doador@teste.com'
-    assert doacao['situacao'] == 'confirmada'
-    assert doacao['recebidaEm']
-
-
-def test_doacao_e_compromisso_sao_privados(gestor, doador):
-    assert gestor.get('/doacoes').json == []
-    assert gestor.put('/doacoes/d1', {'tipo': 'item'}).status_code == 403
-    assert gestor.delete('/doacoes/d1').status_code == 403
-
-    doador.put('/compromissos/a1', {'quando': QUANDO, 'tipo': 'visita'})
-
-    assert gestor.get('/compromissos').json == []
-    assert len(doador.get('/compromissos').json) == 1
-    assert gestor.put('/compromissos/a1', {'quando': QUANDO}).status_code == 403
-
-
-def test_compromisso_com_data_invalida_e_recusado(doador):
-    assert doador.put('/compromissos/a2', {'quando': 'amanhã'}).status_code == 400
-
-
-def test_terceiro_nao_muda_a_situacao_de_doacao_alheia(doador):
-    outro = criar_conta('outro@teste.com', 'visitante', 'c')
-
-    assert outro.patch('/doacoes/d1/situacao', {'situacao': 'pendente'}).status_code == 403
+def test_rotas_exigem_login_do_firebase():
+    assert publico().get('/recomendacoes').status_code == 401
+    assert publico().get('/recomendacoes', headers={'Authorization': 'Bearer invalido'}).status_code == 401
 
 
 def test_foto_aceita_imagem_real_recusa_o_resto_e_serve_sem_login(gestor):
@@ -304,40 +152,181 @@ def test_foto_aceita_imagem_real_recusa_o_resto_e_serve_sem_login(gestor):
     assert publico().get('/arquivos/abc').status_code == 404
 
 
-def test_apagar_a_conta_leva_abrigos_necessidades_e_promessas(gestor):
-    dono = criar_conta('sai@teste.com', 'gestor', 'c')
+def test_selo_vai_para_o_firebase_quando_o_cnpj_esta_ativo(gestor, receita):
+    criar_abrigo('a1', gestor)
 
-    dono.put('/abrigos/s1', ABRIGO)
-    dono.put('/necessidades/ns1', {'title': 'Leite', 'abrigoId': 's1'})
-    dono.put('/necessidades/n1', {
-        'title': 'x',
-        'contribuicoes': [{'id': 'c9', 'por': 'sai@teste.com', 'quantidade': 1}],
+    resposta = gestor.post('/verificacoes', {'abrigoId': 'a1', 'cnpj': '11.222.333/0001-81'})
+
+    assert resposta.status_code == 200
+    assert resposta.json['verificado'] is True
+    assert db.reference('verificacoes/a1').get()['razaoSocial'] == 'Casa Lar Ltda'
+
+    guardada = gestor.get('/verificacoes/a1')
+
+    assert guardada.json['verificado'] is True
+    assert guardada.json['situacao'] == 'ATIVA'
+
+
+def test_cnpj_baixado_ou_inexistente_nao_ganha_selo(gestor, receita):
+    criar_abrigo('a2', gestor)
+
+    assert gestor.post('/verificacoes', {'abrigoId': 'a2', 'cnpj': CNPJ_BAIXADO}).json['verificado'] is False
+    assert db.reference('verificacoes/a2').get() is None
+
+
+def test_cnpj_com_digitos_errados_e_recusado_sem_consultar(gestor, monkeypatch):
+    def nao_deveria(cnpj):
+        raise AssertionError('consultou a Receita')
+
+    monkeypatch.setattr(modulo, 'consultar_cnpj', nao_deveria)
+    criar_abrigo('a3', gestor)
+
+    assert gestor.post('/verificacoes', {'abrigoId': 'a3', 'cnpj': '11222333000100'}).status_code == 400
+    assert gestor.post('/verificacoes', {'abrigoId': 'a3', 'cnpj': '11111111111111'}).status_code == 400
+
+
+def test_so_o_dono_pede_o_selo_e_o_cnpj_nao_serve_a_duas_contas(gestor, doador, receita):
+    criar_abrigo('a4', doador)
+
+    assert doador.post('/verificacoes', {'abrigoId': 'a1', 'cnpj': CNPJ_ATIVO}).status_code == 403
+    assert doador.post('/verificacoes', {'abrigoId': 'a4', 'cnpj': CNPJ_ATIVO}).status_code == 409
+    assert gestor.post('/verificacoes', {'abrigoId': 'nao-existe', 'cnpj': CNPJ_ATIVO}).status_code == 404
+
+
+def test_receita_fora_do_ar_responde_503(gestor, monkeypatch):
+    def fora_do_ar(cnpj):
+        raise TimeoutError()
+
+    monkeypatch.setattr(modulo, 'consultar_cnpj', fora_do_ar)
+
+    assert gestor.post('/verificacoes', {'abrigoId': 'a1', 'cnpj': CNPJ_ATIVO}).status_code == 503
+
+
+def test_aviso_so_aparece_com_tres_pessoas_diferentes(gestor):
+    criar_abrigo('d1', gestor)
+
+    pessoas = [Pessoa(f'denuncia{n}@teste.com') for n in range(3)]
+    denuncia = {'abrigoId': 'd1', 'motivo': 'chave-pix-suspeita', 'detalhe': 'A chave é de outro nome'}
+
+    assert pessoas[0].post('/denuncias', denuncia).status_code == 201
+    assert pessoas[0].post('/denuncias', denuncia).status_code == 201
+    assert pessoas[1].post('/denuncias', denuncia).status_code == 201
+    assert db.reference('alertas/d1').get() is None
+
+    assert pessoas[2].post('/denuncias', denuncia).status_code == 201
+    assert db.reference('alertas/d1').get() == {'denuncias': 3}
+
+    # Quem denunciou saiu do aplicativo: a denúncia sai junto, e o aviso também.
+    assert pessoas[2].delete('/contas/eu').status_code == 204
+    assert db.reference('alertas/d1').get() is None
+
+
+def test_denuncia_invalida_e_recusada(gestor, doador):
+    assert doador.post('/denuncias', {'abrigoId': 'd1', 'motivo': 'nao gostei'}).status_code == 400
+    assert gestor.post('/denuncias', {'abrigoId': 'd1', 'motivo': 'outro'}).status_code == 400
+    assert doador.post('/denuncias', {'abrigoId': 'nao-existe', 'motivo': 'outro'}).status_code == 404
+
+
+def test_o_dono_ve_as_denuncias_sem_saber_quem_fez(gestor, doador):
+    lista = gestor.get('/abrigos/d1/denuncias')
+
+    assert lista.status_code == 200
+    assert lista.json[0]['motivo'] == 'chave-pix-suspeita'
+    assert 'uid' not in lista.json[0]
+    assert doador.get('/abrigos/d1/denuncias').status_code == 403
+
+
+def test_nota_valoriza_urgencia_o_que_falta_e_a_distancia():
+    base = {'alvo': 10}
+
+    assert nota_da_necessidade({**base, 'urgente': True}, 5)[0] > nota_da_necessidade(base, 5)[0]
+    assert nota_da_necessidade(base, 1)[0] > nota_da_necessidade(base, 100)[0]
+
+    metade = {**base, 'contribuicoes': {'c': {'quantidade': 5}}}
+
+    assert nota_da_necessidade(base, 5)[0] > nota_da_necessidade(metade, 5)[0]
+
+    completa = {**base, 'contribuicoes': {'c': {'quantidade': 10}}}
+
+    assert nota_da_necessidade(completa, 5) is None
+
+
+def test_recomendacoes_seguem_a_prioridade_e_escondem_o_que_nao_serve(gestor, doador):
+    criar_abrigo('r1', gestor, latitude=-22.40, longitude=-43.66)
+    criar_abrigo('r2', gestor, latitude=-23.00, longitude=-43.00)
+    criar_abrigo('r3', gestor)
+    db.reference('alertas/r3').set({'denuncias': 3})
+    db.reference('necessidades').update({
+        'n1': {'id': 'n1', 'title': 'Arroz', 'abrigoId': 'r1', 'alvo': 10, 'unidade': 'kg', 'urgente': True},
+        'n2': {'id': 'n2', 'title': 'Leite', 'abrigoId': 'r2', 'alvo': 10, 'unidade': 'l'},
+        'n3': {'id': 'n3', 'title': 'Pronta', 'abrigoId': 'r1', 'alvo': 5, 'done': True},
+        'n4': {'id': 'n4', 'title': 'Suspeita', 'abrigoId': 'r3', 'alvo': 5, 'urgente': True},
+        'n5': {'id': 'n5', 'title': 'Cheia', 'abrigoId': 'r1', 'alvo': 2,
+               'contribuicoes': {'c': {'quantidade': 2, 'porUid': doador.uid}}},
     })
 
-    assert dono.delete('/contas/eu').status_code == 204
+    lista = doador.get('/recomendacoes?lat=-22.4&lng=-43.66').json
 
-    necessidades = gestor.get('/necessidades').json
+    assert [item['titulo'] for item in lista] == ['Arroz', 'Leite']
+    assert lista[0]['faltam'] == 10
+    assert lista[0]['distanciaKm'] == 0
+    assert 'urgente' in lista[0]['motivo']
+    assert lista[1]['distanciaKm'] > 50
 
-    assert not any(item['id'] == 'ns1' for item in necessidades)
-    assert not any(
-        uma['id'] == 'c9'
-        for item in necessidades if item['id'] == 'n1'
-        for uma in item['contribuicoes']
-    )
-    assert not any(item['id'] == 's1' for item in gestor.get('/abrigos').json)
-    assert publico().post('/auth/entrar', json={'email': 'sai@teste.com', 'senhaResumo': R('c')}).status_code == 401
+    sem_posicao = doador.get('/recomendacoes?limite=1').json
+
+    assert len(sem_posicao) == 1
+    assert sem_posicao[0]['distanciaKm'] is None
 
 
-def test_juntar_contribuicoes_quem_doa_desiste_sem_mexer_nas_outras():
-    gravadas = [
-        {'id': 1, 'por': 'a@x', 'quantidade': 1, 'entregue': False},
-        {'id': 2, 'por': 'b@x', 'quantidade': 2, 'entregue': True},
-    ]
+def test_relatorio_soma_o_prometido_e_o_recebido_so_para_o_dono(gestor, doador):
+    criar_abrigo('p1', gestor)
+    db.reference('necessidades').update({
+        'x1': {
+            'id': 'x1', 'title': 'Fraldas', 'abrigoId': 'p1', 'alvo': 10, 'unidade': 'pacotes',
+            'contribuicoes': {
+                'a': {'quantidade': 3, 'entregue': True, 'porUid': 'u1'},
+                'b': {'quantidade': 4, 'entregue': False, 'porUid': 'u2'},
+            },
+        },
+        'x2': {'id': 'x2', 'title': 'Leite', 'abrigoId': 'p1', 'alvo': 2, 'done': True,
+               'contribuicoes': {'c': {'quantidade': 2, 'entregue': True, 'porUid': 'u1'}}},
+    })
 
-    resultado = juntar_contribuicoes(gravadas, [], 'a@x', False)
+    dados = gestor.get('/abrigos/p1/relatorio').json
 
-    assert [item['id'] for item in resultado] == [2]
-    assert resultado[0]['entregue'] is True
+    assert dados['necessidades'] == 2
+    assert dados['atendidas'] == 1
+    assert dados['doadores'] == 2
+    assert dados['prometido'] == 9
+    assert dados['recebido'] == 5
+    assert doador.get('/abrigos/p1/relatorio').status_code == 403
+
+    planilha = gestor.get('/abrigos/p1/relatorio?formato=csv')
+
+    assert planilha.mimetype == 'text/csv'
+    assert 'Fraldas;pacotes;10.0;7.0;3.0;não' in planilha.get_data(as_text=True)
+
+
+def test_apagar_os_dados_da_conta_remove_o_selo_e_as_fotos():
+    pessoa = Pessoa('sai@teste.com')
+    jpeg = base64.b64encode(bytes([0xff, 0xd8, 0xff, 0xe0])).decode()
+    foto = pessoa.post('/arquivos', {'base64': jpeg}).json['caminho']
+
+    criar_abrigo('s1', pessoa)
+
+    with app.app_context():
+        modulo.executar(
+            'INSERT INTO verificacoes (abrigo_id, uid, cnpj, verificado) VALUES (%s, %s, %s, 1)',
+            ('s1', pessoa.uid, '11222333000181'),
+        )
+        modulo.salvar()
+
+    db.reference('verificacoes/s1').set({'verificado': True})
+
+    assert pessoa.delete('/contas/eu').status_code == 204
+    assert publico().get(foto).status_code == 404
+    assert db.reference('verificacoes/s1').get() is None
 
 
 def test_rota_inexistente_responde_em_json(gestor):
@@ -348,14 +337,12 @@ def test_rota_inexistente_responde_em_json(gestor):
 
 
 def test_corpo_grande_demais_e_recusado(gestor):
-    grande = gestor.put('/doacoes/d9', {'observacao': 'x' * 300000})
-
-    assert grande.status_code == 413
+    assert gestor.post('/denuncias', {'abrigoId': 'd1', 'motivo': 'outro', 'detalhe': 'x' * 20000}).status_code == 413
 
 
 def test_swagger_documenta_as_rotas():
     resposta = publico().get('/apispec_1.json')
 
     assert resposta.status_code == 200
-    assert '/abrigos/{id}' in resposta.json['paths']
+    assert '/recomendacoes' in resposta.json['paths']
     assert publico().get('/apidocs/').status_code == 200

@@ -32,4 +32,9 @@ services:
       MYSQL_USER: root
       MYSQL_PASSWORD: root
       MYSQL_DB: infoabrigo
-      JWT_SEGREDO: ${JWT_SEGREDO:-troque-este-valor-so-para-desenvolvimento}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
+      FIREBASE_CREDENCIAIS: /segredos/conta-de-servico.json
+    volumes:
+      # A chave da conta de serviço fica fora da imagem.
+      - ./conta-de-servico.json:/segredos/conta-de-servico.json:ro
