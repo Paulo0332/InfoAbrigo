@@ -8,6 +8,7 @@ import CameraFoto from '../src/components/CameraFoto';
 import DenunciarAbrigo from '../src/components/DenunciarAbrigo';
 import OndeAjudar from '../src/components/OndeAjudar';
 import SeloAbrigo from '../src/components/SeloAbrigo';
+import StatusSincronizacao from '../src/components/StatusSincronizacao';
 import PainelScreen from '../src/screens/PainelScreen';
 import * as servicosApi from '../src/services/servicosApi';
 import LoginScreen from '../src/screens/LoginScreen';
@@ -314,6 +315,26 @@ describe('telas', () => {
     expect(screen.getByText('Fraldas')).toBeTruthy();
     expect(screen.getByText('A chave Pix parece não ser do abrigo')).toBeTruthy();
     expect(screen.getByText('Nome diferente')).toBeTruthy();
+  });
+
+  test('o status mostra a conexão, a sincronização e o botão', async () => {
+    await abrir(StatusSincronizacao);
+
+    expect(await screen.findByText('Status: Online')).toBeTruthy();
+    expect(screen.getByText('Sincronização: Parada')).toBeTruthy();
+    expect(screen.getByText('Sincronizar agora')).toBeTruthy();
+  });
+
+  test('sem internet, o status mostra Offline', async () => {
+    global.__semInternet = true;
+
+    try {
+      await abrir(StatusSincronizacao);
+
+      expect(await screen.findByText('Status: Offline')).toBeTruthy();
+    } finally {
+      global.__semInternet = false;
+    }
   });
 
   test('perfil abre e diz onde os dados estão', async () => {

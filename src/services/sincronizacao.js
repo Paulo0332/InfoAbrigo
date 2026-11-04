@@ -38,9 +38,14 @@ let emAndamento = null;
 let repetir = false;
 let ultima = { email: null, em: 0 };
 let semConexao = false;
+let sincronizando = false;
 
 const ouvintes = new Set();
 const ouvintesDeNovidades = new Set();
+
+export function estaSincronizando() {
+  return sincronizando;
+}
 
 // Para a faixa de aviso saber quando olhar de novo. Devolve a função que para.
 export function ouvirSincronizacao(ouvinte) {
@@ -343,6 +348,9 @@ export function sincronizar() {
 // O que foi gravado durante uma rodada só vai na seguinte. Quem espera por
 // sincronizar() precisa saber que tudo chegou, e não só o que havia no início.
 async function rodarAteFicarEmDia() {
+  sincronizando = true;
+  avisarOuvintes();
+
   try {
     do {
       repetir = false;
@@ -352,6 +360,7 @@ async function rodarAteFicarEmDia() {
     console.log('Erro ao sincronizar:', error);
   } finally {
     emAndamento = null;
+    sincronizando = false;
     avisarOuvintes();
   }
 }

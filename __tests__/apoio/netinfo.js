@@ -3,6 +3,10 @@ module.exports = {
   __esModule: true,
   default: {
     fetch: async () => ({ isConnected: global.__semInternet !== true }),
-    addEventListener: () => () => {},
+    addEventListener: (ouvinte) => {
+      ouvinte({ isConnected: global.__semInternet !== true });
+
+      return () => {};
+    },
   },
 };

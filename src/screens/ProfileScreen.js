@@ -37,6 +37,7 @@ import {
   trocarSenha,
 } from '../services/contaRemota';
 import { apagarDadosDaConta } from '../services/limpeza';
+import StatusSincronizacao from '../components/StatusSincronizacao';
 import { apiDisponivel } from '../services/servicosApi';
 import { estadoDaSincronizacao } from '../services/sincronizacao';
 import { buscarPerfil } from '../data/perfis';
@@ -590,6 +591,8 @@ export default function ProfileScreen(props) {
 
         {conta ? (
           <View>
+            {temFirebase() && <StatusSincronizacao />}
+
             <Text style={styles.grupo}>Seus dados</Text>
 
             <View style={styles.cartao}>
