@@ -28,6 +28,7 @@ Trabalho da disciplina **Laboratório de Desenvolvimento de Aplicativos Híbrido
 | `LPAH-2026-SQLITE-FIREBASE` | `src/services/sincronizacao.js`, com fila e NetInfo |
 | `API-Tasks` | `backend/` |
 | `Task-Manager-API` | `src/services/api.js` e `src/services/servicosApi.js`, com axios |
+| `Exemplos de Teste App` | Jest em `__tests__/` e Maestro em `maestro/` |
 
 ## Como funciona
 
@@ -97,7 +98,34 @@ npm run emulador
 npm test
 ```
 
+O `--forceExit` do `npm test` existe porque o Realtime Database do Firebase deixa um temporizador de estatísticas ligado mesmo depois de fechado, e sem ele o Jest não termina.
+
 Os testes de sincronização e das regras de segurança ficam de fora, a menos que o emulador esteja no ar e a variável `TESTE_FIREBASE=1` esteja definida.
+
+### Testes de interface com o Maestro
+
+Seguem o exemplo da disciplina: o Jest confere as regras, e o [Maestro](https://maestro.dev) usa o app como uma pessoa, tocando nos botões e conferindo o que aparece na tela.
+
+| Fluxo | O que faz |
+|---|---|
+| `maestro/infoabrigo-basico.yaml` | Abre o app, confere a tela de entrada e abre o cadastro |
+| `maestro/infoabrigo-cadastro.yaml` | Cria uma conta de doador e passa pelas abas |
+| `maestro/abrir-app.yaml` | Abre o projeto no Expo Go, do zero. Os outros dois fluxos usam este |
+
+Para rodar:
+
+1. Instale o Maestro, que precisa do Java.
+2. Ligue a depuração USB no Android e conecte o celular no computador.
+3. Deixe o `npx expo start` rodando.
+4. Rode o comando abaixo, trocando o endereço pelo que o Expo mostra no terminal.
+
+```bash
+maestro test -e EXPO_URL=exp://192.168.18.124:8081 maestro/infoabrigo-basico.yaml maestro/infoabrigo-cadastro.yaml
+```
+
+O `clearState` apaga os dados do Expo Go no celular antes de cada fluxo, como no exemplo do professor.
+
+Em celulares Xiaomi, POCO e Redmi, ative também **Instalar via USB** e **Depuração USB (Configurações de segurança)** nas Opções do desenvolvedor. Esses celulares pedem confirmação a cada instalação do app auxiliar do Maestro. Depois de aceitar uma vez, rode com `--no-reinstall-driver` para não precisar aceitar de novo.
 
 Testes da API, com o MySQL e o emulador no ar:
 
@@ -107,11 +135,11 @@ cd backend && python -m pytest tests
 
 ## Publicação
 
-O passo a passo está em [docs/modulo-12-recursos-nativos-e-publicacao.md](docs/modulo-12-recursos-nativos-e-publicacao.md).
+O aplicativo não será publicado nas lojas. O que a aula 16 pede para gerar o instalador está registrado em [docs/modulo-12-recursos-nativos-e-publicacao.md](docs/modulo-12-recursos-nativos-e-publicacao.md), só como referência.
 
 ## Limites conhecidos
 
-- **Mapa:** usa Leaflet com WebView, e não `react-native-maps`, que deu tela preta no Expo Go (veja `docs/modulo-04-mapa.md`).
+- **Mapa:** usa Leaflet com WebView, e não `react-native-maps`. Desde o SDK 52, o Expo Go não mostra mais o Google Maps, e o mapa nativo só funcionaria num build próprio (veja `docs/modulo-04-mapa.md`).
 - **Expo Go:** badge, lembretes e o calendário nativo só funcionam no aplicativo instalado por build próprio. No Expo Go o aplicativo abre normalmente, sem badge nem lembrete, e o botão de calendário abre a Agenda do Google.
 - **Sem a API no ar:** contas e dados continuam funcionando. Selo, recomendações, painel e denúncias ficam indisponíveis, e as fotos novas ficam guardadas em texto junto do abrigo.
 - **Pagamento:** o aplicativo monta o código Pix, mas quem paga é o banco da pessoa. Nada confere se o pagamento aconteceu.

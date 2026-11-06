@@ -10,11 +10,21 @@ const descrever = process.env.TESTE_FIREBASE === '1' ? describe : describe.skip;
 
 jest.setTimeout(120000);
 
+// Cada celular abre a própria conexão com o emulador. Elas são fechadas no fim:
+// sem isso, o Jest fica esperando e o npm test não termina.
+const celulares = [];
+
+async function desligarCelulares() {
+  for (const celular of celulares.splice(0)) {
+    await Promise.all(celular.app.getApps().map((app) => celular.app.deleteApp(app)));
+  }
+}
+
 // jest.resetModules dá a cada celular um banco, um login e um AsyncStorage novos.
 function novoCelular() {
   jest.resetModules();
 
-  return {
+  const celular = {
     auth: require('../src/services/auth'),
     remota: require('../src/services/contaRemota'),
     senha: require('../src/services/senha'),
@@ -27,7 +37,12 @@ function novoCelular() {
     limpeza: require('../src/services/limpeza'),
     firebase: require('../src/services/firebase'),
     db: require('firebase/database'),
+    app: require('firebase/app'),
   };
+
+  celulares.push(celular);
+
+  return celular;
 }
 
 function contaNova(celular, email, perfil, sal) {
@@ -103,7 +118,8 @@ descrever('sincronização com o Firebase', () => {
     await limparEmulador();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await desligarCelulares();
     global.fetch = fetchOriginal;
     global.__semInternet = false;
     desligarAmbiente();

@@ -1,0 +1,72 @@
+# Cria uma conta de doador e passa pelas abas, como alguém usando o app.
+appId: host.exp.exponent
+env:
+  EXPO_URL: exp://192.168.18.124:8081
+---
+- runFlow: abrir-app.yaml
+
+- tapOn: "Criar conta"
+
+- tapOn: "Como podemos te chamar"
+- inputText: "Teste Maestro"
+
+- tapOn: "voce@email.com"
+- inputRandomEmail
+
+- tapOn: "Pelo menos 6 caracteres"
+- inputText: "maestro123"
+- hideKeyboard
+
+- scrollUntilVisible:
+    element: "Doador"
+    direction: DOWN
+- tapOn: "Doador"
+
+# O título da tela também é "Criar conta"; o botão é o segundo.
+- scrollUntilVisible:
+    element:
+      text: "Criar conta"
+      index: 1
+    direction: DOWN
+- tapOn:
+    text: "Criar conta"
+    index: 1
+
+# Só aparece em celular com digital cadastrada.
+- runFlow:
+    when:
+      visible: "Usar a sua biometria?"
+    commands:
+      - tapOn: "Agora não"
+
+- extendedWaitUntil:
+    visible: "Ações Rápidas"
+    timeout: 20000
+
+- tapOn: "Agenda"
+- assertVisible: "Marcar compromisso"
+
+- tapOn: "Perfil"
+- assertVisible: "Seus dados"
+
+- tapOn: "Mapa"
+
+# O Android pergunta da localização na primeira vez. A pergunta pode
+# demorar um pouco para aparecer.
+- extendedWaitUntil:
+    visible: "Permitir que o app Expo Go acesse a localização deste dispositivo?"
+    timeout: 10000
+    optional: true
+- runFlow:
+    when:
+      visible: "Durante o uso do app"
+    commands:
+      - tapOn: "Durante o uso do app"
+- runFlow:
+    when:
+      visible: "While using the app"
+    commands:
+      - tapOn: "While using the app"
+
+- tapOn: "Início"
+- assertVisible: "Ações Rápidas"

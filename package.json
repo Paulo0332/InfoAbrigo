@@ -7,11 +7,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "jest",
+    "test": "jest --forceExit",
     "emulador": "firebase emulators:start --only auth,database --project demo-infoabrigo"
   },
   "dependencies": {
-    "@expo/ngrok": "^4.1.3",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
@@ -46,6 +45,7 @@
   },
   "private": true,
   "devDependencies": {
+    "@expo/ngrok": "^4.1.3",
     "@testing-library/react-native": "^14.1.0",
     "jest": "^30.5.2",
     "jest-expo": "~58.0.14",

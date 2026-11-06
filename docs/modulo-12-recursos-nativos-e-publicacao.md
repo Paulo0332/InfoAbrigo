@@ -43,6 +43,14 @@ npm test
 cd backend && python -m pytest tests
 ```
 
+Testes de interface, com o Maestro e o celular ligado por USB, como no exemplo "Exemplos de Teste App" da disciplina. Os fluxos ficam em `maestro/`, e o `README.md` explica como rodar:
+
+```bash
+maestro test -e EXPO_URL=exp://192.168.18.124:8081 maestro/infoabrigo-basico.yaml maestro/infoabrigo-cadastro.yaml
+```
+
+O Jest confere as regras por dentro, e o Maestro usa o app como uma pessoa: toca nos botões e confere o que aparece na tela.
+
 Badge, lembrete e calendário nativo só podem ser conferidos num aplicativo instalado:
 
 ```bash
@@ -50,6 +58,8 @@ npx eas-cli build --profile preview --platform android
 ```
 
 **Publicação, na ordem:**
+
+O InfoAbrigo não será publicado nas lojas. Os passos abaixo ficam só como referência do que a aula 16 pede.
 
 1. **Firebase:** no [console do Firebase](https://console.firebase.google.com), crie um projeto. Ative o **Authentication** com e-mail e senha, crie um **Realtime Database** e cole nele as regras de `database.rules.json`. Registre um aplicativo Web e copie as chaves para o `.env`, nos campos `EXPO_PUBLIC_FIREBASE_*`.
 2. **Banco da API:** crie um MySQL 8 hospedado num serviço da sua escolha (o Aiven é uma opção) e rode `backend/banco.sql` nele.

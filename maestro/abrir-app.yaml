@@ -1,0 +1,29 @@
+# Abre o InfoAbrigo pelo Expo Go, do zero. Os outros fluxos chamam este.
+# O endereço é o que o "npx expo start" mostra no terminal.
+appId: host.exp.exponent
+---
+- clearState
+- launchApp
+- openLink: ${EXPO_URL}
+
+# Depois do clearState, o Expo Go mostra o menu de desenvolvedor por cima do app.
+# Ele só aparece quando o app termina de carregar, o que pode levar mais de um
+# minuto na primeira vez depois de limpar o cache do Expo.
+- extendedWaitUntil:
+    visible: "Continue"
+    timeout: 120000
+    optional: true
+- runFlow:
+    when:
+      visible: "Continue"
+    commands:
+      - tapOn: "Continue"
+- runFlow:
+    when:
+      visible: "Toggle element inspector"
+    commands:
+      - back
+
+- extendedWaitUntil:
+    visible: "Os abrigos da sua região, e o que eles precisam hoje."
+    timeout: 30000
