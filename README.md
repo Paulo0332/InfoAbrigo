@@ -110,6 +110,7 @@ Seguem o exemplo da disciplina: o Jest confere as regras, e o [Maestro](https://
 |---|---|
 | `maestro/infoabrigo-basico.yaml` | Abre o app, confere a tela de entrada e abre o cadastro |
 | `maestro/infoabrigo-cadastro.yaml` | Cria uma conta de doador e passa pelas abas |
+| `maestro/infoabrigo-offline.yaml` | Liga o modo avião, marca um compromisso, confere a faixa "Aguardando conexão" e que ele é enviado quando a internet volta |
 | `maestro/abrir-app.yaml` | Abre o projeto no Expo Go, do zero. Os outros dois fluxos usam este |
 
 Para rodar:
@@ -120,7 +121,7 @@ Para rodar:
 4. Rode o comando abaixo, trocando o endereço pelo que o Expo mostra no terminal.
 
 ```bash
-maestro test -e EXPO_URL=exp://192.168.18.124:8081 maestro/infoabrigo-basico.yaml maestro/infoabrigo-cadastro.yaml
+maestro test -e EXPO_URL=exp://192.168.18.124:8081 maestro/infoabrigo-basico.yaml maestro/infoabrigo-cadastro.yaml maestro/infoabrigo-offline.yaml
 ```
 
 O `clearState` apaga os dados do Expo Go no celular antes de cada fluxo, como no exemplo do professor.
