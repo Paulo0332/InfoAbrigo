@@ -62,18 +62,16 @@ npx eas-cli build --profile preview --platform android
 O InfoAbrigo não será publicado nas lojas. Os passos abaixo ficam só como referência do que a aula 16 pede.
 
 1. **Firebase:** no [console do Firebase](https://console.firebase.google.com), crie um projeto. Ative o **Authentication** com e-mail e senha, crie um **Realtime Database** e cole nele as regras de `database.rules.json`. Registre um aplicativo Web e copie as chaves para o `.env`, nos campos `EXPO_PUBLIC_FIREBASE_*`.
-2. **Banco da API:** crie um MySQL 8 hospedado num serviço da sua escolha (o Aiven é uma opção) e rode `backend/banco.sql` nele.
-3. **API:** crie uma conta no [Render](https://render.com), escolha **New > Blueprint** e aponte para este repositório. O `render.yaml` já traz a configuração, usando o `Dockerfile`. Preencha os campos pedidos e envie `conta-de-servico.json` como **Secret File**. Ao final, abra `https://SEU-ENDERECO/saude` e confira `{"ok":true}`.
-4. **Aplicativo:** crie uma conta na [Expo](https://expo.dev) e rode `npx eas-cli login` e `npx eas-cli init`. Defina as chaves do Firebase e o endereço da API em `eas.json`, dentro de `env` do perfil usado. O endereço precisa ser `https`, porque o Android bloqueia `http` no aplicativo publicado.
-5. **APK para testar:** `npx eas-cli build --profile preview --platform android`.
-6. **Play Store:** a conta de desenvolvedor do Google é paga. Com ela, gere o pacote com `npx eas-cli build --profile production --platform android` e envie com `npx eas-cli submit --platform android`.
-7. **App Store:** a conta da Apple também é paga, e os comandos são os mesmos com `--platform ios`.
+2. **Aplicativo:** crie uma conta na [Expo](https://expo.dev) e rode `npx eas-cli login` e `npx eas-cli init`. Defina as chaves do Firebase em `eas.json`, dentro de `env` do perfil usado.
+3. **APK para testar:** `npx eas-cli build --profile preview --platform android`.
+4. **Play Store:** a conta de desenvolvedor do Google é paga. Com ela, gere o pacote com `npx eas-cli build --profile production --platform android` e envie com `npx eas-cli submit --platform android`.
+5. **App Store:** a conta da Apple também é paga, e os comandos são os mesmos com `--platform ios`.
 
-Se a API não for publicada, contas e dados continuam funcionando pelo Firebase. Só o selo, as recomendações, o painel e as denúncias ficam de fora. No plano gratuito do Render, a API dorme depois de um tempo parada, e o primeiro acesso pode demorar.
+Não há servidor para publicar: o banco é o Firebase, e as APIs que o aplicativo consome são públicas. O exemplo da pasta `backend/` traz `render.yaml` e `Dockerfile` para quem quiser hospedá-lo, mas o aplicativo não depende dele.
 
 6. **Possíveis perguntas**
-- *Por que não colocar o endereço da API no código?*
-Ele muda entre o computador da aula e o servidor publicado. No `.env`, nada precisa ser reescrito.
+- *Por que as chaves do Firebase ficam no `.env`, e não no código?*
+Elas mudam entre o emulador, usado nos testes, e o projeto de verdade. No `.env`, nada precisa ser reescrito.
 - *O que os testes de sincronização provam?*
 Eles simulam vários celulares, cada um com o próprio banco, falando com o emulador do Firebase e as regras de segurança reais. Não substituem o teste num aparelho, porque o SQLite e as permissões nativas são simulados.
 - *Por que não há anúncios?*

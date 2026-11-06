@@ -6,12 +6,21 @@ appId: host.exp.exponent
 - launchApp
 - openLink: ${EXPO_URL}
 
+# Na primeira vez depois de limpar o cache do Expo, montar o app ("Bundling")
+# pode levar alguns minutos.
+- extendedWaitUntil:
+    visible: "Bundling.*"
+    timeout: 15000
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Bundling.*"
+    timeout: 300000
+    optional: true
+
 # Depois do clearState, o Expo Go mostra o menu de desenvolvedor por cima do app.
-# Ele só aparece quando o app termina de carregar, o que pode levar mais de um
-# minuto na primeira vez depois de limpar o cache do Expo.
 - extendedWaitUntil:
     visible: "Continue"
-    timeout: 120000
+    timeout: 30000
     optional: true
 - runFlow:
     when:
