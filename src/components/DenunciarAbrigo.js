@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { MOTIVOS_DE_DENUNCIA, denunciarAbrigo } from '../services/servicosApi';
+import { MOTIVOS_DE_DENUNCIA, denunciarAbrigo } from '../services/comunidade';
 import { colors } from '../theme/colors';
 
 // Quem doa por Pix confia na chave que o abrigo cadastrou. Esta é a forma de avisar

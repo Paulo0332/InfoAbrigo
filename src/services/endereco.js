@@ -1,3 +1,5 @@
+import { consultar } from './api';
+
 // Busca de endereço pelo CEP, usando a consulta pública da BrasilAPI, que
 // não pede chave. Além da rua e do bairro, ela devolve as coordenadas —
 // e é isso que permite marcar o abrigo no mapa sem a pessoa precisar
@@ -33,7 +35,7 @@ export async function buscarCep(texto) {
   const d = apenasDigitos(texto);
 
   try {
-    const resposta = await fetch(URL_CEP + d);
+    const resposta = await consultar(URL_CEP + d);
 
     if (resposta.status === 404) {
       return { situacao: 'inexistente' };
@@ -122,7 +124,7 @@ function siglaDoEstado(endereco) {
 async function consultarNominatim(parametros) {
   const url = URL_BUSCA + '?' + parametros + '&format=json&limit=5&addressdetails=1&countrycodes=br';
 
-  const resposta = await fetch(url, {
+  const resposta = await consultar(url, {
     headers: { 'User-Agent': 'InfoAbrigo-Academico/1.0' },
   });
 

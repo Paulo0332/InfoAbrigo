@@ -10,7 +10,7 @@ import OndeAjudar from '../src/components/OndeAjudar';
 import SeloAbrigo from '../src/components/SeloAbrigo';
 import StatusSincronizacao from '../src/components/StatusSincronizacao';
 import PainelScreen from '../src/screens/PainelScreen';
-import * as servicosApi from '../src/services/servicosApi';
+import * as comunidade from '../src/services/comunidade';
 import LoginScreen from '../src/screens/LoginScreen';
 import MapScreen from '../src/screens/MapScreen';
 import ProfileScreen from '../src/screens/ProfileScreen';
@@ -36,9 +36,9 @@ jest.mock('../src/services/firebase', () => ({
   temFirebase: jest.fn(() => false),
 }));
 
-jest.mock('../src/services/servicosApi', () => ({
-  ...jest.requireActual('../src/services/servicosApi'),
-  apiDisponivel: jest.fn(() => true),
+jest.mock('../src/services/comunidade', () => ({
+  ...jest.requireActual('../src/services/comunidade'),
+  servicosDisponiveis: jest.fn(() => true),
   buscarRecomendacoes: jest.fn(async () => []),
   denunciarAbrigo: jest.fn(async () => ({ ok: true })),
   buscarRelatorio: jest.fn(async () => ({
@@ -250,8 +250,8 @@ describe('telas', () => {
     expect(screen.getByTestId('camera').props.facing).toBe('front');
   });
 
-  test('as recomendações levam ao abrigo, e somem sem a API', async () => {
-    servicosApi.buscarRecomendacoes.mockResolvedValueOnce([
+  test('as recomendações levam ao abrigo', async () => {
+    comunidade.buscarRecomendacoes.mockResolvedValueOnce([
       {
         necessidadeId: 'n1',
         abrigoId: 'a1',
@@ -272,8 +272,8 @@ describe('telas', () => {
     expect(aoEscolher).toHaveBeenCalledWith(expect.objectContaining({ abrigoId: 'a1' }));
   });
 
-  test('sem a API, as recomendações não aparecem nem atrapalham', async () => {
-    servicosApi.buscarRecomendacoes.mockRejectedValueOnce(new Error('fora do ar'));
+  test('se o cálculo falhar, as recomendações não aparecem nem atrapalham', async () => {
+    comunidade.buscarRecomendacoes.mockRejectedValueOnce(new Error('falhou'));
 
     await abrir(OndeAjudar, undefined, { aoEscolher: jest.fn() });
 
@@ -299,13 +299,13 @@ describe('telas', () => {
     await abrir(DenunciarAbrigo, undefined, { visivel: true, abrigo: { id: 'a1' }, aoFechar: aoFechar });
     await fireEvent.press(screen.getByText('Enviar denúncia'));
 
-    expect(servicosApi.denunciarAbrigo).not.toHaveBeenCalled();
+    expect(comunidade.denunciarAbrigo).not.toHaveBeenCalled();
 
     await fireEvent.press(screen.getByText('A chave Pix parece não ser do abrigo'));
     await fireEvent.press(screen.getByText('Enviar denúncia'));
 
     await waitFor(() => expect(aoFechar).toHaveBeenCalled());
-    expect(servicosApi.denunciarAbrigo).toHaveBeenCalledWith('a1', 'chave-pix-suspeita', '');
+    expect(comunidade.denunciarAbrigo).toHaveBeenCalledWith('a1', 'chave-pix-suspeita', '');
   });
 
   test('o painel mostra o impacto e as denúncias do abrigo', async () => {

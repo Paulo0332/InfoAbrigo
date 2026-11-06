@@ -1,3 +1,5 @@
+import { consultar } from './api';
+
 // Traça a rota até o abrigo dentro do próprio aplicativo, em vez de jogar
 // a pessoa no mapa do celular.
 //
@@ -110,7 +112,7 @@ export async function buscarRota(origem, destino, modo) {
   };
 
   try {
-    const resposta = await fetch(URL_ROTA, {
+    const resposta = await consultar(URL_ROTA, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

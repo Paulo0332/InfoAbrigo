@@ -18,7 +18,7 @@ import { WebView } from 'react-native-webview';
 import DenunciarAbrigo from '../components/DenunciarAbrigo';
 import SeloAbrigo from '../components/SeloAbrigo';
 import { CLUSTER_CSS, CLUSTER_JS, LEAFLET_CSS, LEAFLET_JS } from '../mapa/leaflet';
-import { apiDisponivel } from '../services/servicosApi';
+import { servicosDisponiveis } from '../services/comunidade';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -1409,7 +1409,7 @@ export default function MapScreen(props) {
               </View>
             )}
 
-            {apiDisponivel() && !souDono(abrigoSelecionado) && (
+            {servicosDisponiveis() && !souDono(abrigoSelecionado) && (
               <Pressable
                 accessibilityRole="button"
                 style={({ pressed }) => [styles.linkDenuncia, pressed && styles.pressionado]}

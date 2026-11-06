@@ -13,9 +13,15 @@
       "$id": {
         ".write": "auth != null && (data.exists() ? data.child('donoUid').val() === auth.uid : newData.child('donoUid').val() === auth.uid)",
         ".validate": "newData.hasChildren(['nome', 'latitude', 'longitude', 'dono', 'donoUid']) && newData.child('donoUid').val() === auth.uid && newData.child('dono').val() === auth.token.email",
-        "nome": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
-        "latitude": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
-        "longitude": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" }
+        "nome": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200"
+        },
+        "latitude": {
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "longitude": {
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        }
       }
     },
     "necessidades": {
@@ -26,8 +32,12 @@
           "$cid": {
             ".write": "auth != null && (data.exists() ? data.child('porUid').val() === auth.uid : newData.child('porUid').val() === auth.uid)",
             ".validate": "newData.hasChildren(['id', 'por', 'porUid', 'quantidade'])",
-            "quantidade": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-            "entregue": { ".validate": "newData.isBoolean() && (newData.val() === false || data.val() === true || root.child('necessidades').child($id).child('criadoPor').val() === auth.uid || root.child('abrigos').child(root.child('necessidades').child($id).child('abrigoId').val() + '').child('donoUid').val() === auth.uid)" }
+            "quantidade": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "entregue": {
+              ".validate": "newData.isBoolean() && (newData.val() === false || data.val() === true || root.child('necessidades').child($id).child('criadoPor').val() === auth.uid || root.child('abrigos').child(root.child('necessidades').child($id).child('abrigoId').val() + '').child('donoUid').val() === auth.uid)"
+            }
           }
         }
       }
@@ -45,10 +55,36 @@
       }
     },
     "verificacoes": {
-      ".read": "auth != null"
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null && root.child('abrigos').child($id).child('donoUid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['verificado', 'cnpj']) && newData.child('verificado').val() === true && newData.parent().parent().child('cnpjs').child(newData.child('cnpj').val() + '').val() === auth.uid",
+        "razaoSocial": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        }
+      }
     },
-    "alertas": {
-      ".read": "auth != null"
+    "cnpjs": {
+      ".read": "auth != null",
+      "$cnpj": {
+        ".write": "auth != null && (!data.exists() || data.val() === auth.uid) && (!newData.exists() || newData.val() === auth.uid)",
+        ".validate": "$cnpj.matches(/^[0-9]{14}$/)"
+      }
+    },
+    "denuncias": {
+      ".read": "auth != null",
+      "$abrigo": {
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && root.child('abrigos').child($abrigo).child('donoUid').val() !== auth.uid",
+          ".validate": "newData.hasChildren(['motivo']) && newData.child('motivo').isString() && newData.child('motivo').val().matches(/^(chave-pix-suspeita|abrigo-inexistente|dados-errados|outro)$/)",
+          "detalhe": {
+            ".validate": "newData.isString() && newData.val().length <= 500"
+          },
+          "em": {
+            ".validate": "newData.isString()"
+          }
+        }
+      }
     }
   }
 }

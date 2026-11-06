@@ -38,7 +38,7 @@ import {
 } from '../services/contaRemota';
 import { apagarDadosDaConta } from '../services/limpeza';
 import StatusSincronizacao from '../components/StatusSincronizacao';
-import { apiDisponivel } from '../services/servicosApi';
+import { servicosDisponiveis } from '../services/comunidade';
 import { estadoDaSincronizacao } from '../services/sincronizacao';
 import { buscarPerfil } from '../data/perfis';
 import { PERGUNTAS } from '../data/perguntas';
@@ -718,7 +718,7 @@ export default function ProfileScreen(props) {
                 </View>
               ))}
 
-              {apiDisponivel() && meusAbrigos.map((abrigo) => (
+              {servicosDisponiveis() && meusAbrigos.map((abrigo) => (
                 <Pressable
                   accessibilityRole="button"
                   key={'painel-' + abrigo.id}

@@ -8,7 +8,6 @@ import {
   updatePassword,
 } from 'firebase/auth';
 
-import { pedir, temServidor } from './api';
 import { apagarConta, buscarContaPorEmail, gravarContaLocal } from './auth';
 import { esquecerPendencias } from './bancoLocal';
 import { apagarDadosDaPessoa, gravarPerfil, lerPerfil } from './bancoRemoto';
@@ -229,10 +228,6 @@ export function apagarDoServidor(conta, senha) {
       usuario,
       EmailAuthProvider.credential(usuario.email, senha)
     );
-
-    if (temServidor()) {
-      await pedir('DELETE', '/contas/eu', undefined, await usuario.getIdToken());
-    }
 
     await apagarDadosDaPessoa(usuario);
     await deleteUser(usuario);
