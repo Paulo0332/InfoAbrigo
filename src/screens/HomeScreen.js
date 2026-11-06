@@ -24,6 +24,8 @@ import {
   quandoAcontece,
 } from '../services/agenda';
 import { carregarVistos, marcarVistos } from '../services/avisos';
+import OndeAjudar from '../components/OndeAjudar';
+import { atualizarBadge } from '../services/recursosNativos';
 import { faltam, temMeta, textoDoQueFalta } from '../services/necessidades';
 import {
   ITEM,
@@ -112,7 +114,10 @@ export default function HomeScreen(props) {
         return;
       }
 
-      const posicao = await Location.getCurrentPositionAsync({});
+      // A posição guardada sai na hora; o GPS poderia segurar o card por segundos.
+      const posicao =
+        (await Location.getLastKnownPositionAsync()) ||
+        (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
 
       setLocalizacao(posicao.coords);
     } catch (error) {
@@ -331,6 +336,11 @@ export default function HomeScreen(props) {
 
   const avisos = montarAvisos();
   const novos = naoVistos();
+
+  // O mesmo número do sino, no ícone do aplicativo.
+  useEffect(() => {
+    atualizarBadge(novos.length);
+  }, [novos.length]);
   const necessidadesAbertas = abertas();
 
   return (
@@ -393,6 +403,7 @@ export default function HomeScreen(props) {
 
           <View style={styles.statsContainer}>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
               onPress={() => irPara('Doações')}
             >
@@ -407,6 +418,7 @@ export default function HomeScreen(props) {
                 quantos abrigos existem para visitar. */}
             {ehGestor(conta) ? (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
                 onPress={() => irPara('Agenda')}
               >
@@ -418,6 +430,7 @@ export default function HomeScreen(props) {
               </Pressable>
             ) : (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
                 onPress={() => irPara('Mapa')}
               >
@@ -429,6 +442,7 @@ export default function HomeScreen(props) {
             <View style={styles.statDivider} />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('History')}
             >
@@ -447,6 +461,7 @@ export default function HomeScreen(props) {
           <View style={styles.quickActions}>
             {acoesDoPerfil(conta).map((acao) => (
               <Pressable
+                accessibilityRole="button"
                 key={acao.id}
                 style={({ pressed }) => [styles.actionBtn, pressed && styles.pressionado]}
                 onPress={() => executarAcao(acao)}
@@ -464,6 +479,7 @@ export default function HomeScreen(props) {
               não aparecia em lugar nenhum da tela de abertura. */}
           {abrigoMaisProximo() && (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.perto, pressed && styles.pressionado]}
               onPress={() => verNoMapa(abrigoMaisProximo())}
             >
@@ -488,10 +504,22 @@ export default function HomeScreen(props) {
             </Pressable>
           )}
 
+          <OndeAjudar
+            localizacao={localizacao}
+            atualizarEm={necessidades.length}
+            aoEscolher={(item) =>
+              props.navigation.navigate('Doações', {
+                abrigoId: item.abrigoId,
+                momento: Date.now(),
+              })
+            }
+          />
+
           {/* Sem abrigo nenhum cadastrado a tela mostrava três zeros e não
               dizia o que fazer com eles. */}
           {abrigos.length === 0 && (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.vazio, pressed && styles.pressionado]}
               onPress={() =>
                 ehGestor(conta)
@@ -519,6 +547,7 @@ export default function HomeScreen(props) {
 
           {necessidadesAbertas.length > 0 ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 globalStyles.card,
                 styles.warningCard,
@@ -558,6 +587,7 @@ export default function HomeScreen(props) {
             </Pressable>
           ) : (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 globalStyles.card,
                 styles.warningCard,
@@ -585,6 +615,7 @@ export default function HomeScreen(props) {
 
           {proximoCompromisso() ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [globalStyles.card, pressed && styles.pressionado]}
               onPress={() => irPara('Agenda')}
             >
@@ -618,6 +649,7 @@ export default function HomeScreen(props) {
             </Pressable>
           ) : (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [globalStyles.card, pressed && styles.pressionado]}
               onPress={() => irPara('Agenda')}
             >
@@ -668,6 +700,7 @@ export default function HomeScreen(props) {
               <ScrollView style={styles.painelLista}>
                 {avisosDoPainel.map((aviso) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={aviso.id}
                     style={({ pressed }) => [styles.aviso, pressed && styles.pressionado]}
                     onPress={() => irPara(aviso.destino)}

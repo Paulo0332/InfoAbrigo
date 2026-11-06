@@ -149,6 +149,7 @@ export default function HistoryScreen(props) {
 
           {aguardando && !ehItem ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.pagar, pressed && styles.pressionado]}
               onPress={() => marcarComoPaga(item)}
             >
@@ -162,6 +163,7 @@ export default function HistoryScreen(props) {
               alguém conferiu. */}
           {!aguardando && !ehItem && item.pagaEm ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.marcada, pressed && styles.pressionado]}
               onPress={() => confirmarDesfazer(item)}
             >
@@ -254,7 +256,7 @@ export default function HistoryScreen(props) {
             ListFooterComponent={
               doacoes.length > 0 ? (
                 <Text style={styles.rodape}>
-                  Este histórico é a sua anotação neste aparelho. O
+                  Este histórico é a sua anotação. O
                   aplicativo não confere pagamento e não emite recibo —
                   quem emite recibo, inclusive para deduzir no imposto, é a
                   própria instituição.
@@ -276,6 +278,7 @@ export default function HistoryScreen(props) {
                 </Text>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                   onPress={() => props.navigation.navigate('Donate')}
                 >
@@ -387,10 +390,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.primary,
     marginTop: 2,
-  },
-
-  pressionado: {
-    opacity: 0.6,
   },
 
   entregue: {

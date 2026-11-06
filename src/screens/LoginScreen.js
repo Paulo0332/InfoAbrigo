@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { StatusBar } from 'expo-status-bar';
 import {
   Alert,
   Keyboard,
@@ -18,6 +19,15 @@ import { Ionicons } from '@expo/vector-icons';
 import BiometricButton from '../components/BiometricButton';
 import { buscarPerfil } from '../data/perfis';
 import { carregarConta, carregarContas, entrarNaConta, salvarConta } from '../services/auth';
+import { temFirebase } from '../services/firebase';
+import {
+  CONECTADA,
+  SEM_REDE,
+  SENHA_ERRADA,
+  conectar,
+  entrarPorEmail,
+  pedirNovaSenha,
+} from '../services/contaRemota';
 import { adotarDadosSemDono } from '../services/limpeza';
 import { conferirResposta, conferirSenha, novoSal, resumir } from '../services/senha';
 import { deuErrado } from '../services/tato';
@@ -37,6 +47,10 @@ export default function LoginScreen(props) {
   const [recuperando, setRecuperando] = useState(false);
   const [resposta, setResposta] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
+
+  // Quem já tem conta e abriu o aplicativo num celular novo entra pelo e-mail.
+  const [comEmail, setComEmail] = useState(false);
+  const [emailDigitado, setEmailDigitado] = useState('');
 
   // Quando o app abre, a janela da digital pode abrir sozinha. Quando a
   // pessoa chega aqui por ter saído da conta, não pode: ela seria levada
@@ -93,14 +107,18 @@ export default function LoginScreen(props) {
 
   // Usamos replace, e não navigate, para a tela de entrada sair da pilha:
   // depois de entrar, o botão voltar não deve trazer a pessoa de volta.
-  async function abrirApp() {
+  function abrirApp() {
+    return abrirCom(selecionada);
+  }
+
+  async function abrirCom(conta) {
     try {
-      await entrarNaConta(selecionada);
+      await entrarNaConta(conta);
 
       // Registros gravados antes de existir o campo de dono ficam com a
       // conta que entrar primeiro. Enquanto ninguém adotava, eles
       // apareciam para todas as contas do aparelho.
-      await adotarDadosSemDono(selecionada);
+      await adotarDadosSemDono(conta);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível abrir a conta.');
 
@@ -120,8 +138,26 @@ export default function LoginScreen(props) {
     }
 
     const conferida = await conferirSenha(selecionada, senha);
+    let conta = selecionada;
 
-    if (!conferida.confere) {
+    // Conta criada antes de a senha passar a ser guardada como resumo.
+    // A conversão acontece agora, no primeiro acerto, sem pedir nada a
+    // quem usa — e a senha em texto some do aparelho.
+    if (conferida.confere && conferida.precisaConverter) {
+      conta = await converterParaResumo();
+    }
+
+    // Com internet, quem decide é o servidor: a senha pode ter sido trocada em
+    // outro celular. Sem internet, vale o que está guardado aqui.
+    const remoto = await conectar(conta, senha, conferida.confere);
+
+    if (remoto.situacao === CONECTADA) {
+      abrirCom(remoto.conta);
+
+      return;
+    }
+
+    if (remoto.situacao === SENHA_ERRADA || !conferida.confere) {
       deuErrado();
 
       Alert.alert('Não foi possível entrar', 'Senha incorreta.');
@@ -129,14 +165,63 @@ export default function LoginScreen(props) {
       return;
     }
 
-    // Conta criada antes de a senha passar a ser guardada como resumo.
-    // A conversão acontece agora, no primeiro acerto, sem pedir nada a
-    // quem usa — e a senha em texto some do aparelho.
-    if (conferida.precisaConverter) {
-      await converterParaResumo();
+    abrirCom(conta);
+  }
+
+  async function entrarComEmail() {
+    const email = emailDigitado.trim().toLowerCase();
+
+    if (!email || !senha) {
+      Alert.alert('Atenção', 'Digite o e-mail e a senha da sua conta.');
+
+      return;
     }
 
-    abrirApp();
+    const remoto = await entrarPorEmail(email, senha);
+
+    if (remoto.situacao === CONECTADA) {
+      abrirCom(remoto.conta);
+
+      return;
+    }
+
+    deuErrado();
+
+    Alert.alert(
+      'Não foi possível entrar',
+      remoto.situacao === SEM_REDE
+        ? 'Para entrar numa conta que ainda não está neste aparelho, é preciso internet.'
+        : 'E-mail ou senha incorretos.'
+    );
+  }
+
+  async function esqueciComEmail() {
+    const email = emailDigitado.trim().toLowerCase();
+
+    if (!email) {
+      Alert.alert('Atenção', 'Digite o e-mail da sua conta.');
+
+      return;
+    }
+
+    enviarLinkDeSenha(email);
+  }
+
+  // A tela diz a mesma coisa exista a conta ou não: revelar quem tem conta ajudaria
+  // quem está tentando entrar na dos outros.
+  async function enviarLinkDeSenha(email) {
+    const remoto = await pedirNovaSenha(email);
+
+    if (remoto.situacao === CONECTADA) {
+      Alert.alert(
+        'Confira o seu e-mail',
+        'Se houver uma conta com este endereço, enviamos um link para criar uma senha nova. Depois, entre aqui com a senha nova.'
+      );
+
+      return;
+    }
+
+    Alert.alert('Sem conexão', 'Para recuperar a senha, é preciso internet.');
   }
 
   async function converterParaResumo() {
@@ -150,8 +235,12 @@ export default function LoginScreen(props) {
       await salvarConta(atualizada);
 
       setSelecionada(atualizada);
+
+      return atualizada;
     } catch (error) {
       console.log('Erro ao converter a senha da conta:', error);
+
+      return selecionada;
     }
   }
 
@@ -160,6 +249,12 @@ export default function LoginScreen(props) {
   }
 
   function abrirRecuperacao() {
+    if (temFirebase()) {
+      enviarLinkDeSenha(selecionada.email);
+
+      return;
+    }
+
     // Conta criada antes da pergunta de segurança existir cai aqui. Antes
     // a mensagem encerrava o assunto; agora ela diz o caminho, porque a
     // pergunta passou a poder ser definida depois, pelo perfil.
@@ -176,14 +271,14 @@ export default function LoginScreen(props) {
   }
 
   async function redefinirSenha() {
-    if (!(await conferirResposta(selecionada, resposta))) {
-      Alert.alert('Resposta incorreta', 'A resposta não confere com a do cadastro.');
+    if (novaSenha.length < 6) {
+      Alert.alert('Atenção', 'A senha nova precisa ter pelo menos 6 caracteres.');
 
       return;
     }
 
-    if (novaSenha.length < 6) {
-      Alert.alert('Atenção', 'A senha nova precisa ter pelo menos 6 caracteres.');
+    if (!(await conferirResposta(selecionada, resposta))) {
+      Alert.alert('Resposta incorreta', 'A resposta não confere com a do cadastro.');
 
       return;
     }
@@ -243,6 +338,9 @@ export default function LoginScreen(props) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      {/* A tela de entrada tem fundo claro, ao contrário das que têm o topo laranja. */}
+      <StatusBar style="dark" />
+
       {/* Sem isto o teclado sobe por cima do campo que está sendo
           digitado. No iOS o KeyboardAvoidingView empurra o conteúdo; no
           Android o próprio sistema redimensiona a janela, e a folga no fim
@@ -259,18 +357,81 @@ export default function LoginScreen(props) {
 
         {marca()}
 
-        {contas.length === 0 ? (
+        {comEmail ? (
+          <View>
+            <Text style={styles.rotulo}>E-mail</Text>
+
+            <TextInput
+              style={styles.input}
+              placeholder="O e-mail da sua conta"
+              placeholderTextColor="#9A8F7E"
+              value={emailDigitado}
+              onChangeText={setEmailDigitado}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              maxLength={200}
+            />
+
+            <Text style={styles.rotulo}>Senha</Text>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Sua senha"
+              placeholderTextColor="#9A8F7E"
+              value={senha}
+              onChangeText={setSenha}
+              secureTextEntry
+              maxLength={40}
+            />
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
+              onPress={entrarComEmail}
+            >
+              <Text style={styles.textoBotao}>Entrar</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+              onPress={esqueciComEmail}
+            >
+              <Text style={styles.textoLink}>Esqueci a senha</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+              onPress={() => setComEmail(false)}
+            >
+              <Text style={styles.textoLink}>Voltar</Text>
+            </Pressable>
+          </View>
+        ) : contas.length === 0 && selecionada == null ? (
           <View>
             <Text style={styles.semConta}>
               Você ainda não tem uma conta neste aparelho.
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('SignUp')}
             >
               <Text style={styles.textoBotao}>Criar conta</Text>
             </Pressable>
+
+            {temFirebase() && (
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+                onPress={() => setComEmail(true)}
+              >
+                <Text style={styles.textoLink}>Já tenho conta em outro celular</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           <View>
@@ -286,6 +447,7 @@ export default function LoginScreen(props) {
               >
                 {contas.map((item) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={item.email}
                     style={({ pressed }) => [
                       styles.conta,
@@ -353,6 +515,7 @@ export default function LoginScreen(props) {
                 />
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                   onPress={redefinirSenha}
                 >
@@ -360,6 +523,7 @@ export default function LoginScreen(props) {
                 </Pressable>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                   onPress={() => setRecuperando(false)}
                 >
@@ -400,6 +564,7 @@ export default function LoginScreen(props) {
                 </View>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                   onPress={entrar}
                 >
@@ -407,6 +572,7 @@ export default function LoginScreen(props) {
                 </Pressable>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                   onPress={abrirRecuperacao}
                 >
@@ -433,11 +599,22 @@ export default function LoginScreen(props) {
             )}
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('SignUp')}
             >
               <Text style={styles.textoLink}>Criar outra conta neste aparelho</Text>
             </Pressable>
+
+            {temFirebase() && (
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+                onPress={() => setComEmail(true)}
+              >
+                <Text style={styles.textoLink}>Entrar com outra conta</Text>
+              </Pressable>
+            )}
           </View>
         )}
 

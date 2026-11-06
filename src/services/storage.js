@@ -1,11 +1,12 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { gravarLista, lerRegistros } from './bancoLocal';
+import { avisarMudanca, garantirAtualizado } from './sincronizacao';
 
-const STORAGE_KEY = "@infoabrigo:needs";
+const COLECAO = 'necessidades';
 
 export async function saveNeeds(list) {
   try {
-    const jsonValue = JSON.stringify(list);
-    await AsyncStorage.setItem(STORAGE_KEY, jsonValue);
+    await gravarLista(COLECAO, list);
+    avisarMudanca();
   } catch (error) {
     console.log("Erro ao salvar necessidades:", error);
     throw error;
@@ -14,8 +15,9 @@ export async function saveNeeds(list) {
 
 export async function loadNeeds() {
   try {
-    const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
-    return jsonValue != null ? JSON.parse(jsonValue) : null;
+    await garantirAtualizado();
+
+    return await lerRegistros(COLECAO);
   } catch (error) {
     console.log("Erro ao carregar necessidades:", error);
     throw error;

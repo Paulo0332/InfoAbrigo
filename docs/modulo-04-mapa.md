@@ -56,6 +56,8 @@ A causa é uma mudança do Expo Go, não do nosso código. A autorização do Go
 
 > github.com/react-native-maps/react-native-maps/issues/5888
 
+A conclusão desse relato, de abril de 2026, é que o Expo Go deixou de oferecer o Google Maps, no Android e no iPhone, desde o SDK 52. Nenhuma versão do `react-native-maps` resolve isso dentro do Expo Go. A situação foi conferida de novo no SDK 58, que instala a versão 1.29.11, e continua a mesma: o mapa nativo só funciona num build próprio, com chave do Google.
+
 E é por isso que **o exemplo do professor funciona e o nosso não**: o dele é SDK 54 com a 1.20.1; o nosso é SDK 57 com a 1.27.2, que é a versão que o `npx expo install` instala. O material da aula está do lado antigo da linha. O código é o mesmo.
 
 O que foi testado e **descartado** antes de trocar de abordagem:

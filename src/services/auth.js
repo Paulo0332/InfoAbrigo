@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { pedirEnvio } from './bancoLocal';
+import { CHAVE_ATUAL, carregarConta } from './contaAtual';
+import { usuarioAtual } from './firebase';
+import { avisarMudanca } from './sincronizacao';
+
 // Duas chaves, com papéis diferentes: uma guarda todas as contas criadas
 // neste aparelho, a outra diz qual delas está em uso agora.
 //
@@ -7,7 +12,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // o aplicativo pelo lado do gestor e pelo lado de quem doa era preciso
 // apagar a conta e criar outra — perdendo tudo no caminho.
 const CHAVE_CONTAS = '@infoabrigo:contas';
-const CHAVE_ATUAL = '@infoabrigo:conta';
+
+export { carregarConta };
 
 function mesmoEmail(a, b) {
   return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
@@ -41,23 +47,46 @@ export async function carregarContas() {
   }
 }
 
-export async function carregarConta() {
-  try {
-    const dados = await AsyncStorage.getItem(CHAVE_ATUAL);
+// O que mudou na conta e precisa chegar ao banco. A preferência de biometria e a
+// foto de perfil são deste aparelho e ficam de fora, e a senha é assunto do Firebase
+// Authentication, nunca do banco.
+export function mudancasDaConta(anterior, conta) {
+  const mudou = (campo) =>
+    JSON.stringify(anterior[campo] ?? null) !== JSON.stringify(conta[campo] ?? null);
+  const campos = {};
 
-    // Sem conta em uso o getItem devolve null, e é assim que a tela de
-    // entrada sabe que precisa oferecer a lista ou o cadastro.
-    return dados != null ? JSON.parse(dados) : null;
-  } catch (error) {
-    console.log('Erro ao carregar a conta:', error);
+  ['nome', 'perfil', 'instituicao', 'telefone'].forEach((campo) => {
+    if (mudou(campo)) {
+      campos[campo] = conta[campo] ?? null;
+    }
+  });
 
-    throw error;
+  return campos;
+}
+
+// Salva a conta alterada por uma tela e deixa o pedido na fila do servidor.
+export async function salvarConta(conta) {
+  const anterior = await buscarContaPorEmail(conta.email);
+
+  await gravarContaLocal(conta);
+
+  const usuario = await usuarioAtual();
+
+  if (anterior == null || usuario == null || usuario.email !== conta.email.trim().toLowerCase()) {
+    return;
+  }
+
+  const campos = mudancasDaConta(anterior, conta);
+
+  if (Object.keys(campos).length > 0) {
+    await pedirEnvio('contas', 'conta', 'eu', campos, conta.email);
+    avisarMudanca();
   }
 }
 
 // Grava a conta na lista — trocando no lugar se já existir uma com o
 // mesmo e-mail — e deixa ela como a conta em uso.
-export async function salvarConta(conta) {
+export async function gravarContaLocal(conta) {
   try {
     const contas = await carregarContas();
     const jaExiste = contas.some((item) => mesmoEmail(item.email, conta.email));

@@ -45,3 +45,12 @@ yarn-error.*
 *.docx
 scripts/
 docs/
+
+# local env files
+.env
+.env.local
+
+# emulador do Firebase
+firebase-debug.log
+database-debug.log
+ui-debug.log

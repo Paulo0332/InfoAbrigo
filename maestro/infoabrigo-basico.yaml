@@ -1,0 +1,16 @@
+# Igual ao tap-perfect-basic do professor: abre o app e confere a primeira tela.
+appId: host.exp.exponent
+env:
+  EXPO_URL: exp://192.168.18.124:8081
+---
+- runFlow: abrir-app.yaml
+
+- assertVisible: "InfoAbrigo"
+- assertVisible: "Os abrigos da sua região, e o que eles precisam hoje."
+- assertVisible: "Criar conta"
+- assertVisible: "Já tenho conta em outro celular"
+
+- tapOn: "Criar conta"
+- assertVisible: "Nome"
+- assertVisible: "E-mail"
+- assertVisible: "Como você vai usar o aplicativo"

@@ -6,6 +6,7 @@ import DonateScreen from '../screens/DonateScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import RegisterShelterScreen from '../screens/RegisterShelterScreen';
 import HelpScreen from '../screens/HelpScreen';
+import PainelScreen from '../screens/PainelScreen';
 import AppNavigator from './AppNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -23,6 +24,7 @@ export default function RootNavigator() {
       <Stack.Screen name="History" component={HistoryScreen} />
       <Stack.Screen name="RegisterShelter" component={RegisterShelterScreen} />
       <Stack.Screen name="Help" component={HelpScreen} />
+      <Stack.Screen name="Painel" component={PainelScreen} />
     </Stack.Navigator>
   );
 }

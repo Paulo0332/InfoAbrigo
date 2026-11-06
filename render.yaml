@@ -1,0 +1,27 @@
+# Publicação da API no Render, pelo Dockerfile. Os segredos são preenchidos no painel;
+# nunca devem entrar no repositório.
+services:
+  - type: web
+    name: infoabrigo-api
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /saude
+    envVars:
+      - key: MYSQL_HOST
+        sync: false
+      - key: MYSQL_PORT
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_DB
+        value: infoabrigo
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: FIREBASE_CREDENCIAIS
+        value: /etc/secrets/conta-de-servico.json

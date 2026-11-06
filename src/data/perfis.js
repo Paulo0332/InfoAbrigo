@@ -2,9 +2,9 @@ import { colors } from '../theme/colors';
 
 // Os quatro perfis da seção 2 da documentação. O perfil é escolhido pela
 // própria pessoa e guardado na conta: ele decide o que o aplicativo
-// oferece, não o que ela pode provar que é. Sem servidor não há como
-// validar — quem administra um abrigo de verdade só pode ser confirmado
-// quando existir backend.
+// oferece, não o que ela pode provar que é. O servidor garante que só o dono
+// altera o próprio abrigo, mas ninguém confere se a pessoa administra mesmo
+// aquela instituição: isso continua dependendo do CNPJ informado.
 export const PERFIS = [
   {
     id: 'gestor',

@@ -1,0 +1,40 @@
+services:
+
+## MySQL
+  mysqldb:
+    container_name: infoabrigo-mysql
+    image: mysql:8.0.42
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - 3306:3306
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      # Cria as tabelas na primeira vez que o banco sobe.
+      - ./banco.sql:/docker-entrypoint-initdb.d/banco.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+## API
+  api:
+    build: .
+    ports:
+      - "5001:5000"
+    depends_on:
+      mysqldb:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysqldb
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_DB: infoabrigo
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
+      FIREBASE_CREDENCIAIS: /segredos/conta-de-servico.json
+    volumes:
+      # A chave da conta de serviço fica fora da imagem.
+      - ./conta-de-servico.json:/segredos/conta-de-servico.json:ro

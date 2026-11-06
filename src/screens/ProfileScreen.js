@@ -26,7 +26,20 @@ import {
   salvarConta,
 } from '../services/auth';
 import CameraFoto from '../components/CameraFoto';
+import { temFirebase } from '../services/firebase';
+import {
+  CONECTADA,
+  ENTRAR_DE_NOVO,
+  SENHA_ERRADA,
+  apagarDoServidor,
+  limparRastros,
+  temSessao,
+  trocarSenha,
+} from '../services/contaRemota';
 import { apagarDadosDaConta } from '../services/limpeza';
+import StatusSincronizacao from '../components/StatusSincronizacao';
+import { apiDisponivel } from '../services/servicosApi';
+import { estadoDaSincronizacao } from '../services/sincronizacao';
 import { buscarPerfil } from '../data/perfis';
 import { PERGUNTAS } from '../data/perguntas';
 import { escolherDoCelular } from '../services/galeria';
@@ -37,9 +50,29 @@ import { colors } from '../theme/colors';
 
 const VERSAO = '1.0.0';
 
+// Diz onde os dados estão, para a pessoa nunca achar que algo subiu sem ter subido.
+function textoDaSincronia(estado) {
+  if (estado == null || estado.situacao === 'sem-servidor') {
+    return 'Nome, e-mail e senha ficam só neste aparelho.';
+  }
+
+  if (estado.situacao === 'sem-sessao') {
+    return 'Seus dados estão só neste aparelho até você entrar com a senha, conectado à internet.';
+  }
+
+  if (estado.pendentes > 0) {
+    return 'Há alterações esperando conexão para chegar ao servidor.';
+  }
+
+  return 'Seus dados estão guardados no Firebase.';
+}
+
 export default function ProfileScreen(props) {
 
   const [conta, setConta] = useState(null);
+  const [sincronia, setSincronia] = useState(null);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  const [senhaDaExclusao, setSenhaDaExclusao] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [temBiometria, setTemBiometria] = useState(false);
   const [permissaoLocalizacao, setPermissaoLocalizacao] = useState(false);
@@ -86,6 +119,7 @@ export default function ProfileScreen(props) {
 
       setConta(contaSalva);
       setMeusAbrigos(abrigosDaConta(abrigos, contaSalva));
+      setSincronia(await estadoDaSincronizacao(contaSalva));
     } catch (error) {
       Alert.alert(
         'Erro',
@@ -191,8 +225,10 @@ export default function ProfileScreen(props) {
 
   function confirmarExclusao() {
     Alert.alert(
-      'Apagar a conta deste aparelho',
-      'Some o seu nome, e-mail e senha, e também as suas doações, os seus compromissos e os itens que você prometeu levar. Não existe servidor guardando nada: não há como recuperar.',
+      temFirebase() ? 'Apagar a conta' : 'Apagar a conta deste aparelho',
+      temFirebase()
+        ? 'Some o seu nome, e-mail e senha, as suas doações, os seus compromissos, os itens que você prometeu levar e os abrigos que você cadastrou, aqui e no Firebase. Não há como recuperar.'
+        : 'Some o seu nome, e-mail e senha, e também as suas doações, os seus compromissos e os itens que você prometeu levar. Não há como recuperar.',
       [
         {
           text: 'Cancelar',
@@ -201,7 +237,14 @@ export default function ProfileScreen(props) {
         {
           text: 'Apagar',
           style: 'destructive',
-          onPress: apagar,
+          onPress: () => {
+            if (temFirebase()) {
+              setSenhaDaExclusao('');
+              setConfirmandoExclusao(true);
+            } else {
+              apagar();
+            }
+          },
         },
       ]
     );
@@ -212,16 +255,46 @@ export default function ProfileScreen(props) {
       // Os dados saem antes do cadastro: apagando a conta primeiro, o
       // e-mail que identifica o que é dela já teria sumido.
       if (conta) {
-        await apagarDadosDaConta(conta.email);
-      }
+        // O Firebase vem primeiro: sem conexão, nada é apagado daqui, e a pessoa
+        // não fica achando que os dados sumiram quando continuam lá.
+        if (temFirebase()) {
+          const remoto = await apagarDoServidor(conta, senhaDaExclusao);
 
-      await apagarConta();
+          if (remoto.situacao === SENHA_ERRADA) {
+            deuErrado();
+            Alert.alert('Senha incorreta', 'A sua senha não confere.');
+
+            return;
+          }
+
+          if (remoto.situacao === ENTRAR_DE_NOVO) {
+            Alert.alert(
+              'Entre de novo',
+              'Saia e entre com a senha, com internet, antes de apagar a conta.'
+            );
+
+            return;
+          }
+
+          if (remoto.situacao !== CONECTADA) {
+            Alert.alert('Sem conexão', 'Para apagar a conta, é preciso internet.');
+
+            return;
+          }
+        }
+
+        setConfirmandoExclusao(false);
+        await apagarDadosDaConta(conta.email);
+        await limparRastros(conta);
+      } else {
+        await apagarConta();
+      }
 
       props.navigation.getParent().replace('Login');
     } catch (error) {
       Alert.alert(
         'Erro',
-        'Não foi possível apagar a conta.'
+        'Não foi possível apagar a conta. Confira a sua internet e tente de novo.'
       );
     }
   }
@@ -286,6 +359,21 @@ export default function ProfileScreen(props) {
       Alert.alert('Atenção', 'A senha nova precisa ter pelo menos 6 caracteres.');
 
       return;
+    }
+
+    // Com o Firebase, a senha precisa mudar por lá, senão a antiga continuaria
+    // valendo nos outros celulares. Sem internet, recusa em vez de mudar só aqui.
+    if (temFirebase() && (await temSessao(conta))) {
+      const remoto = await trocarSenha(senhaAtual, senhaNova);
+
+      if (remoto.situacao !== CONECTADA) {
+        Alert.alert(
+          'Não foi possível trocar a senha',
+          remoto.mensagem || 'Para trocar a senha, é preciso internet.'
+        );
+
+        return;
+      }
     }
 
     // O sal continua o mesmo: ele também tempera a resposta da pergunta
@@ -503,10 +591,13 @@ export default function ProfileScreen(props) {
 
         {conta ? (
           <View>
+            {temFirebase() && <StatusSincronizacao />}
+
             <Text style={styles.grupo}>Seus dados</Text>
 
             <View style={styles.cartao}>
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirNome}
               >
@@ -525,6 +616,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={escolherFoto}
               >
@@ -543,9 +635,11 @@ export default function ProfileScreen(props) {
                 <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
               </Pressable>
 
-              <View style={styles.divisoria} />
+              {!temFirebase() && <View style={styles.divisoria} />}
 
+              {!temFirebase() && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirPergunta}
               >
@@ -569,10 +663,12 @@ export default function ProfileScreen(props) {
                   <Ionicons name="alert-circle" size={20} color={colors.supportPink} />
                 )}
               </Pressable>
+              )}
 
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirSenha}
               >
@@ -602,6 +698,7 @@ export default function ProfileScreen(props) {
                   {indice > 0 ? <View style={styles.divisoria} /> : null}
 
                   <Pressable
+                    accessibilityRole="button"
                     style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                     onPress={() =>
                       props.navigation.getParent().navigate('RegisterShelter', { abrigo: abrigo })
@@ -621,9 +718,30 @@ export default function ProfileScreen(props) {
                 </View>
               ))}
 
+              {apiDisponivel() && meusAbrigos.map((abrigo) => (
+                <Pressable
+                  accessibilityRole="button"
+                  key={'painel-' + abrigo.id}
+                  style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
+                  onPress={() => props.navigation.navigate('Painel', { abrigo: abrigo })}
+                >
+                  <View style={styles.icone}>
+                    <Ionicons name="bar-chart-outline" size={20} color={colors.primary} />
+                  </View>
+
+                  <View style={styles.linhaTexto}>
+                    <Text style={styles.linhaTitulo}>Painel de impacto</Text>
+                    <Text style={styles.linhaDescricao}>{abrigo.nome}</Text>
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={20} color="#9A8F7E" />
+                </Pressable>
+              ))}
+
               {meusAbrigos.length > 0 ? <View style={styles.divisoria} /> : null}
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={() => props.navigation.getParent().navigate('History')}
               >
@@ -706,8 +824,8 @@ export default function ProfileScreen(props) {
                   <Text style={styles.linhaTitulo}>Seus dados</Text>
 
                   <Text style={styles.linhaDescricao}>
-                    Nome, e-mail e senha ficam só neste aparelho. A digital
-                    nunca chega ao aplicativo.
+                    {textoDaSincronia(sincronia)} A digital nunca chega ao
+                    aplicativo.
                   </Text>
                 </View>
               </View>
@@ -715,6 +833,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={sair}
               >
@@ -740,6 +859,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={confirmarExclusao}
               >
@@ -753,7 +873,7 @@ export default function ProfileScreen(props) {
 
                 <View style={styles.linhaTexto}>
                   <Text style={styles.linhaTituloSair}>
-                    Apagar a conta deste aparelho
+                    {temFirebase() ? 'Apagar a conta' : 'Apagar a conta deste aparelho'}
                   </Text>
 
                   <Text style={styles.linhaDescricao}>
@@ -802,6 +922,7 @@ export default function ProfileScreen(props) {
             />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={salvarNome}
             >
@@ -809,8 +930,57 @@ export default function ProfileScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setEditandoNome(false)}
+            >
+              <Text style={styles.textoLink}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ------------------------------------------- confirmar a exclusão */}
+      <Modal
+        visible={confirmandoExclusao}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setConfirmandoExclusao(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.fundoModal}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.painel}>
+            <Text style={styles.painelTitulo}>Confirme com a sua senha</Text>
+
+            <Text style={styles.painelTexto}>
+              A senha é pedida para ninguém apagar a sua conta num aparelho
+              desbloqueado que você deixou na mesa.
+            </Text>
+
+            <TextInput
+              style={styles.campo}
+              placeholder="Sua senha"
+              placeholderTextColor="#9A8F7E"
+              value={senhaDaExclusao}
+              onChangeText={setSenhaDaExclusao}
+              secureTextEntry
+              maxLength={40}
+            />
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
+              onPress={apagar}
+            >
+              <Text style={styles.textoBotao}>Apagar a conta</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
+              onPress={() => setConfirmandoExclusao(false)}
             >
               <Text style={styles.textoLink}>Cancelar</Text>
             </Pressable>
@@ -873,6 +1043,7 @@ export default function ProfileScreen(props) {
             </View>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={salvarSenha}
             >
@@ -880,6 +1051,7 @@ export default function ProfileScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setTrocandoSenha(false)}
             >
@@ -905,12 +1077,13 @@ export default function ProfileScreen(props) {
               <Text style={styles.painelTitulo}>Pergunta de segurança</Text>
 
               <Text style={styles.painelTexto}>
-                Sem servidor não existe "enviar link por e-mail". Esta
-                resposta é o que devolve o acesso se você esquecer a senha.
+                O aplicativo não envia e-mail de recuperação. Esta resposta é
+                o que devolve o acesso se você esquecer a senha.
               </Text>
 
               {PERGUNTAS.map((opcao) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={opcao}
                   style={({ pressed }) => [
                     styles.opcaoPergunta,
@@ -950,6 +1123,7 @@ export default function ProfileScreen(props) {
               />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                 onPress={salvarPergunta}
               >
@@ -957,6 +1131,7 @@ export default function ProfileScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                 onPress={() => setEditandoPergunta(false)}
               >

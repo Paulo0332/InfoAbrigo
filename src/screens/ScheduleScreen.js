@@ -38,6 +38,7 @@ import {
 } from '../services/agenda';
 import { carregarConta } from '../services/auth';
 import { escolherDoCelular, salvarNoCelular } from '../services/galeria';
+import { adicionarAoCalendario, reprogramarLembretes } from '../services/recursosNativos';
 import {
   ITEM,
   carregarDoacoes,
@@ -60,6 +61,7 @@ export default function ScheduleScreen(props) {
   const areaSegura = useSafeAreaInsets();
 
   const [agenda, setAgenda] = useState([]);
+  const [ladoDaCamera, setLadoDaCamera] = useState('back');
   const [conta, setConta] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
   const [promessas, setPromessas] = useState([]);
@@ -110,6 +112,7 @@ export default function ScheduleScreen(props) {
       setConta(contaSalva);
       setAbrigos(listaAbrigos);
       setAgenda(compromissosDaConta(lista, contaSalva));
+      reprogramarLembretes(compromissosDaConta(lista, contaSalva));
 
       // O que a pessoa prometeu levar e ainda não entregou. A entrega é
       // justamente o tipo de compromisso que ela vem marcar aqui, e ter
@@ -137,6 +140,7 @@ export default function ScheduleScreen(props) {
 
     try {
       await salvarAgendaDaConta(novaLista, conta);
+      reprogramarLembretes(novaLista);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível salvar a agenda.');
     }
@@ -458,6 +462,21 @@ export default function ScheduleScreen(props) {
     return ehHoje(item.quando) || jaPassou(item.quando);
   }
 
+  async function levarParaCalendario(item) {
+    const abrigo = abrigos.find((um) => um.id === item.abrigoId);
+
+    try {
+      await adicionarAoCalendario(
+        buscarTipo(item.tipo).nome + (item.abrigoNome ? ' — ' + item.abrigoNome : ''),
+        item.quando,
+        abrigo ? abrigo.endereco : '',
+        item.observacao
+      );
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível abrir o calendário do celular.');
+    }
+  }
+
   function renderizarCompromisso({ item }) {
     const tipoDele = buscarTipo(item.tipo);
     const passado = jaPassou(item.quando);
@@ -507,6 +526,17 @@ export default function ScheduleScreen(props) {
             {!passado && (
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel="Adicionar ao calendário do celular"
+                style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
+                onPress={() => levarParaCalendario(item)}
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+              </Pressable>
+            )}
+
+            {!passado && (
+              <Pressable
+                accessibilityRole="button"
                 accessibilityLabel="Mudar o compromisso"
                 style={({ pressed }) => [styles.acaoCartao, pressed && styles.pressionado]}
                 onPress={() => abrirEdicao(item)}
@@ -531,6 +561,7 @@ export default function ScheduleScreen(props) {
             botão só aparece quando a hora já passou. */}
         {item.registro ? (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.registro, pressed && styles.pressionado]}
             onPress={() => setFotoAmpliada(item.registro.uri)}
           >
@@ -576,6 +607,7 @@ export default function ScheduleScreen(props) {
           </Pressable>
         ) : podeRegistrar(item) ? (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.botaoRegistrar, pressed && styles.pressionado]}
             onPress={() => escolherOrigem(item)}
           >
@@ -615,6 +647,7 @@ export default function ScheduleScreen(props) {
 
         <View style={styles.abas}>
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.aba,
               aba === 'proximos' && styles.abaAtiva,
@@ -628,6 +661,7 @@ export default function ScheduleScreen(props) {
           </Pressable>
 
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.aba,
               aba === 'passados' && styles.abaAtiva,
@@ -733,6 +767,7 @@ export default function ScheduleScreen(props) {
 
               {TIPOS.map((opcao) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={opcao.id}
                   style={({ pressed }) => [
                     styles.opcao,
@@ -770,6 +805,7 @@ export default function ScheduleScreen(props) {
 
                   {promessas.map((promessa) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={promessa.id}
                       style={({ pressed }) => [styles.promessa, pressed && styles.pressionado]}
                       onPress={() => usarPromessa(promessa)}
@@ -818,6 +854,7 @@ export default function ScheduleScreen(props) {
                 >
                   {abrigos.map((abrigo) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={abrigo.id}
                       style={({ pressed }) => [
                         styles.chip,
@@ -847,6 +884,7 @@ export default function ScheduleScreen(props) {
               <View style={styles.atalhos}>
                 {ATALHOS.map((atalho) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={atalho.rotulo}
                     style={({ pressed }) => [
                       styles.atalho,
@@ -903,6 +941,7 @@ export default function ScheduleScreen(props) {
               />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoSalvar, pressed && styles.pressionado]}
                 onPress={salvarCompromisso}
               >
@@ -929,13 +968,22 @@ export default function ScheduleScreen(props) {
             <View style={styles.areaCamera}>
               <CameraView
                 style={styles.camera}
-                facing="back"
+                facing={ladoDaCamera}
                 ref={cameraRef}
                 onCameraReady={() => setIsCameraReady(true)}
               />
 
               <View style={styles.sobreCamera}>
-                <View style={[styles.topoCamera, { paddingTop: areaSegura.top + 20 }]}>
+                <View
+                  style={[
+                    styles.topoCamera,
+                    {
+                      paddingTop: areaSegura.top + 20,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                    },
+                  ]}
+                >
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Fechar a câmera"
@@ -943,6 +991,18 @@ export default function ScheduleScreen(props) {
                     style={styles.botaoVidro}
                   >
                     <Ionicons name="close" size={28} color="#FFFFFF" />
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Alternar entre a câmera frontal e a traseira"
+                    onPress={() => {
+                      setIsCameraReady(false);
+                      setLadoDaCamera(ladoDaCamera === 'back' ? 'front' : 'back');
+                    }}
+                    style={styles.botaoVidro}
+                  >
+                    <Ionicons name="camera-reverse" size={26} color="#FFFFFF" />
                   </Pressable>
                 </View>
 
@@ -969,7 +1029,7 @@ export default function ScheduleScreen(props) {
                   style={styles.previaSombra}
                 >
                   <View style={[styles.barraPrevia, { paddingTop: areaSegura.top + 16 }]}>
-                    <Pressable onPress={trocarFoto} style={styles.botaoPrevia}>
+                    <Pressable accessibilityRole="button" onPress={trocarFoto} style={styles.botaoPrevia}>
                       <Ionicons name="camera-reverse" size={18} color="#FFFFFF" />
                       <Text style={styles.textoPrevia}>Trocar a foto</Text>
                     </Pressable>
@@ -1578,7 +1638,7 @@ const styles = StyleSheet.create({
   },
 
   sobreCamera: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'space-between',
   },
 
@@ -1631,12 +1691,12 @@ const styles = StyleSheet.create({
   },
 
   previa: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     resizeMode: 'cover',
   },
 
   previaSombra: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
 
   barraPrevia: {
@@ -1729,7 +1789,7 @@ const styles = StyleSheet.create({
   },
 
   camadaFoto: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.94)',
     alignItems: 'center',
     justifyContent: 'center',

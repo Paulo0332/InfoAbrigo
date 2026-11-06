@@ -35,6 +35,7 @@ import {
 } from '../services/necessidades';
 import { abrigosDaConta, carregarAbrigos } from '../services/shelters';
 import { aviso, deuCerto, toqueLeve } from '../services/tato';
+import { ouvirNovidadesDeFora } from '../services/sincronizacao';
 import { loadNeeds, saveNeeds } from '../services/storage';
 
 // Os dois filtros que não são um abrigo específico.
@@ -74,11 +75,15 @@ export default function DonationsScreen(props) {
 
     // Ao voltar do cadastro de abrigo, o vínculo e a lista podem ter
     // mudado.
+    const pararNovidades = ouvirNovidadesDeFora(() => carregarTudo(false));
     const inscricao = props.navigation.addListener('focus', () => {
       carregarTudo(false);
     });
 
-    return inscricao;
+    return () => {
+      inscricao();
+      pararNovidades();
+    };
   }, []);
 
   // Uma leitura só para tudo que a tela mostra: a conta diz o perfil, os
@@ -635,6 +640,7 @@ export default function DonationsScreen(props) {
           <View style={styles.filtros}>
             {opcoesDoFiltro().map((opcao) => (
               <Pressable
+                accessibilityRole="button"
                 key={opcao.id}
                 style={({ pressed }) => [
                   styles.filtro,
@@ -748,6 +754,7 @@ export default function DonationsScreen(props) {
         {/* Porta de entrada da doação em dinheiro (Módulo 3). A lista
             acima é o que o abrigo precisa; aqui a pessoa contribui. */}
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.doar, pressed && styles.doarPressionado]}
           onPress={() => props.navigation.navigate('Donate', abrigoEscolhido())}
         >
@@ -772,6 +779,7 @@ export default function DonationsScreen(props) {
             escolhido, que só faz sentido quando há um escolhido. */}
         {abrigoEscolhido() && (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.ajudar, pressed && styles.doarPressionado]}
             onPress={() => props.navigation.navigate('Help', { abrigoId: filtro })}
           >
@@ -849,6 +857,7 @@ export default function DonationsScreen(props) {
             />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.painelBotao, pressed && styles.doarPressionado]}
               onPress={confirmarQuantidade}
             >
@@ -856,6 +865,7 @@ export default function DonationsScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.painelLink, pressed && styles.doarPressionado]}
               onPress={() => setOferecendo(null)}
             >

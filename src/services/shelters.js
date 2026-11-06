@@ -1,14 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { gravarLista, lerRegistros } from './bancoLocal';
+import { avisarMudanca, garantirAtualizado } from './sincronizacao';
 
-const STORAGE_KEY = '@infoabrigo:abrigos';
+const COLECAO = 'abrigos';
 
 const RAIO_TERRA_KM = 6371;
 
 export async function carregarAbrigos() {
   try {
-    const dados = await AsyncStorage.getItem(STORAGE_KEY);
+    await garantirAtualizado();
 
-    return dados != null ? JSON.parse(dados) : [];
+    return await lerRegistros(COLECAO);
   } catch (error) {
     console.log('Erro ao carregar os abrigos:', error);
 
@@ -16,14 +17,21 @@ export async function carregarAbrigos() {
   }
 }
 
+// O que já está no aparelho, sem esperar o servidor. É o que o mapa desenha
+// primeiro: a lista nova, quando chega, só redesenha se algo tiver mudado.
+export function carregarAbrigosDoAparelho() {
+  return lerRegistros(COLECAO);
+}
+
 // Cadastra um abrigo e devolve a lista já atualizada, para a tela não
 // precisar ler de novo em seguida.
 export async function cadastrarAbrigo(abrigo) {
   try {
-    const atuais = await carregarAbrigos();
+    const atuais = await lerRegistros(COLECAO);
     const nova = [abrigo, ...atuais];
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {
@@ -37,7 +45,7 @@ export async function cadastrarAbrigo(abrigo) {
 // inteira e devolve outra do mesmo tamanho, como o toggleNeed do Módulo 1.
 export async function atualizarAbrigo(abrigo) {
   try {
-    const atuais = await carregarAbrigos();
+    const atuais = await lerRegistros(COLECAO);
 
     const nova = atuais.map((item) => {
       if (item.id === abrigo.id) {
@@ -47,7 +55,8 @@ export async function atualizarAbrigo(abrigo) {
       return item;
     });
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {
@@ -59,10 +68,11 @@ export async function atualizarAbrigo(abrigo) {
 
 export async function apagarAbrigo(id) {
   try {
-    const atuais = await carregarAbrigos();
+    const atuais = await lerRegistros(COLECAO);
     const nova = atuais.filter((abrigo) => abrigo.id !== id);
 
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nova));
+    await gravarLista(COLECAO, nova);
+    avisarMudanca();
 
     return nova;
   } catch (error) {

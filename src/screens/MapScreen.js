@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import DenunciarAbrigo from '../components/DenunciarAbrigo';
+import SeloAbrigo from '../components/SeloAbrigo';
+import { CLUSTER_CSS, CLUSTER_JS, LEAFLET_CSS, LEAFLET_JS } from '../mapa/leaflet';
+import { apiDisponivel } from '../services/servicosApi';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,7 +37,7 @@ import {
   formatarDistancia,
   formatarDuracao,
 } from '../services/rota';
-import { calcularDistancia, carregarAbrigos, ehDono } from '../services/shelters';
+import { calcularDistancia, carregarAbrigos, carregarAbrigosDoAparelho, ehDono } from '../services/shelters';
 import { toqueLeve } from '../services/tato';
 import { colors } from '../theme/colors';
 
@@ -102,24 +106,10 @@ function montarHtml(localizacao, abrigos) {
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <!-- Agrupa pinos que caem quase no mesmo ponto. Se o arquivo não
-         carregar, a página segue sem ele e os pinos entram soltos no
-         mapa: agrupar é conforto, não é requisito. -->
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-    />
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <style>${LEAFLET_CSS}</style>
+    <style>${CLUSTER_CSS}</style>
+    <script>${LEAFLET_JS}</script>
+    <script>${CLUSTER_JS}</script>
     <style>
       html, body, #mapa { height: 100%; margin: 0; padding: 0; }
       body { background: ${colors.backgroundLight}; }
@@ -267,7 +257,7 @@ function montarHtml(localizacao, abrigos) {
 
       blocosEsri.addTo(mapa);
 
-      L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
+      var eu = L.marker([${localizacao.latitude}, ${localizacao.longitude}], {
         icon: L.divIcon({
           className: 'vazio',
           html: '<div class="eu"></div>',
@@ -347,6 +337,26 @@ function montarHtml(localizacao, abrigos) {
         }
       }
 
+      // A posição guardada do aparelho desenha o mapa na hora, e o GPS corrige
+      // depois, sem recarregar a página. O mapa só vai atrás se a diferença for
+      // grande e a pessoa ainda não tiver mexido nele.
+      var mexeu = false;
+
+      mapa.on('dragstart', function () {
+        mexeu = true;
+      });
+
+      function moverEu(latitude, longitude) {
+        var nova = L.latLng(latitude, longitude);
+        var longe = mapa.distance(eu.getLatLng(), nova) > 300;
+
+        eu.setLatLng(nova);
+
+        if (longe && !mexeu) {
+          mapa.setView(nova, mapa.getZoom());
+        }
+      }
+
       var contornoRota = null;
       var linhaRota = null;
 
@@ -389,6 +399,12 @@ function montarHtml(localizacao, abrigos) {
       }
 
       ${marcadores}
+
+      // O mapa já pode ser mexido, mesmo com blocos ainda chegando. Esperar o fim
+      // do carregamento da página deixava o aviso na frente de um mapa pronto.
+      mapa.whenReady(function () {
+        window.ReactNativeWebView.postMessage('mapa-pronto');
+      });
     </script>
   </body>
 </html>`;
@@ -397,6 +413,9 @@ function montarHtml(localizacao, abrigos) {
 export default function MapScreen(props) {
 
   const [localizacao, setLocalizacao] = useState(null);
+  const [centro, setCentro] = useState(null);
+  const [denunciando, setDenunciando] = useState(false);
+  const [abrigosLidos, setAbrigosLidos] = useState(false);
   const [erro, setErro] = useState(null);
   const [abrigos, setAbrigos] = useState([]);
   const [abrigoSelecionado, setAbrigoSelecionado] = useState(null);
@@ -438,7 +457,17 @@ export default function MapScreen(props) {
 
   useEffect(() => {
     buscarLocalizacao();
-    buscarAbrigos();
+
+    // O que já está no aparelho desenha o mapa. Sem isto ele nascia vazio e era
+    // desenhado de novo inteiro quando a lista chegava.
+    carregarAbrigosDoAparelho()
+      .then(setAbrigos)
+      .catch((error) => console.log('Erro ao ler os abrigos:', error))
+      .finally(() => {
+        setAbrigosLidos(true);
+        buscarAbrigos();
+      });
+
     buscarConta().then(setConta).catch(() => setConta(null));
 
     // Ao voltar do cadastro, a lista precisa ser lida de novo.
@@ -459,14 +488,47 @@ export default function MapScreen(props) {
         return;
       }
 
-      const posicao = await Location.getCurrentPositionAsync({});
+      // O GPS pode levar muitos segundos, ainda mais dentro de casa. A última
+      // posição conhecida sai na hora e já serve para abrir o mapa.
+      const guardada = await Location.getLastKnownPositionAsync();
 
-      setLocalizacao(posicao.coords);
+      if (guardada) {
+        aplicarPosicao(guardada.coords);
+      }
+
+      try {
+        const atual = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        aplicarPosicao(atual.coords);
+      } catch (error) {
+        if (!guardada) {
+          throw error;
+        }
+
+        console.log('Erro ao atualizar a localização:', error);
+      }
     } catch (error) {
       console.log('Erro ao obter a localização:', error);
 
       setErro('Não foi possível obter a sua localização.');
     }
+  }
+
+  function moverPontoAzul(coords) {
+    if (mapaRef.current) {
+      mapaRef.current.injectJavaScript(
+        'moverEu(' + coords.latitude + ',' + coords.longitude + '); true;'
+      );
+    }
+  }
+
+  // O centro fica na primeira posição: mudá-lo recarregaria a página do mapa.
+  function aplicarPosicao(coords) {
+    setLocalizacao(coords);
+    setCentro((atual) => atual || coords);
+    moverPontoAzul(coords);
   }
 
   async function buscarConta() {
@@ -538,6 +600,12 @@ export default function MapScreen(props) {
 
     if (recado === 'sem-rede') {
       setSemRede(true);
+
+      return;
+    }
+
+    if (recado === 'mapa-pronto') {
+      setCarregandoMapa(false);
 
       return;
     }
@@ -651,6 +719,10 @@ export default function MapScreen(props) {
   // rota sumiria do mapa sem ninguém ter pedido.
   function aoTerminarDeCarregar() {
     setCarregandoMapa(false);
+
+    if (localizacao) {
+      moverPontoAzul(localizacao);
+    }
 
     if (rota) {
       desenharNoMapa(rota.linha);
@@ -811,8 +883,8 @@ export default function MapScreen(props) {
     return rota != null && rota.abrigoId === abrigo.id ? rota : null;
   }
 
-  // Só quem cadastrou o abrigo pode editar ou excluir. É separação de
-  // interface, não de segurança: sem servidor ninguém valida nada.
+  // Só quem cadastrou o abrigo vê os botões de editar e excluir. A garantia de
+  // verdade é do servidor, que recusa a alteração vinda de outra conta.
   function souDono(abrigo) {
     return ehDono(abrigo, conta);
   }
@@ -872,6 +944,7 @@ export default function MapScreen(props) {
   function renderizarDaLista({ item }) {
     return (
       <Pressable
+        accessibilityRole="button"
         style={({ pressed }) => [styles.itemLista, pressed && styles.pressionado]}
         onPress={() => escolherDaLista(item)}
       >
@@ -885,6 +958,8 @@ export default function MapScreen(props) {
 
         <View style={styles.itemTexto}>
           <Text style={styles.itemNome}>{item.nome}</Text>
+
+          <SeloAbrigo abrigo={item} />
 
           {item.endereco ? (
             <Text style={styles.itemEndereco} numberOfLines={1}>
@@ -918,6 +993,16 @@ export default function MapScreen(props) {
   }
 
   const lista = localizacao ? noMapa() : [];
+
+  // A página só é remontada se os pinos mudarem de verdade. Abrir a aba de novo
+  // com a mesma lista não pode redesenhar o mapa inteiro.
+  const pinosDoMapa = lista
+    .map((abrigo) => [abrigo.id, abrigo.latitude, abrigo.longitude].join(','))
+    .join('|');
+  const paginaDoMapa = useMemo(
+    () => (centro ? montarHtml(centro, lista) : ''),
+    [centro, pinosDoMapa]
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -983,6 +1068,7 @@ export default function MapScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.semRedeBotao, pressed && styles.pressionado]}
               onPress={recarregarMapa}
             >
@@ -1028,6 +1114,7 @@ export default function MapScreen(props) {
             ) : (
               resultadosDaBusca().map((abrigo) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={abrigo.id}
                   style={({ pressed }) => [styles.resultado, pressed && styles.pressionado]}
                   onPress={() => irParaResultado(abrigo)}
@@ -1061,6 +1148,7 @@ export default function MapScreen(props) {
         {localizacao && abrigos.length > 1 && (
           <View style={styles.raios}>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 styles.raio,
                 raio == null && styles.raioAtivo,
@@ -1075,6 +1163,7 @@ export default function MapScreen(props) {
 
             {RAIOS.map((opcao) => (
               <Pressable
+                accessibilityRole="button"
                 key={opcao}
                 style={({ pressed }) => [
                   styles.raio,
@@ -1106,6 +1195,7 @@ export default function MapScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoErro, pressed && styles.pressionado]}
               onPress={tentarNovamente}
             >
@@ -1114,6 +1204,7 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.linkErro, pressed && styles.pressionado]}
               onPress={abrirConfiguracoes}
             >
@@ -1124,19 +1215,19 @@ export default function MapScreen(props) {
           </View>
         )}
 
-        {!erro && !localizacao && (
+        {!erro && (!localizacao || !abrigosLidos) && (
           <View style={styles.centralizado}>
             <Text style={styles.texto}>Aguarde...</Text>
           </View>
         )}
 
-        {!erro && localizacao && !modoLista && (
+        {!erro && localizacao && abrigosLidos && !modoLista && (
           <View style={styles.mapa}>
             <WebView
               ref={mapaRef}
               style={styles.mapa}
               originWhitelist={['*']}
-              source={{ html: montarHtml(localizacao, lista) }}
+              source={{ html: paginaDoMapa }}
               onMessage={aoTocarNoMapa}
               onLoadEnd={aoTerminarDeCarregar}
             />
@@ -1181,6 +1272,7 @@ export default function MapScreen(props) {
 
             {ehGestor(conta) && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.conviteBotao, pressed && styles.pressionado]}
                 onPress={() => props.navigation.navigate('RegisterShelter')}
               >
@@ -1210,6 +1302,7 @@ export default function MapScreen(props) {
         {!abrigoSelecionado && rota && abrigoDaRota() && (
           <View style={styles.faixaRota}>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.faixaToque, pressed && styles.pressionado]}
               onPress={reabrirCartao}
             >
@@ -1269,6 +1362,8 @@ export default function MapScreen(props) {
               </Pressable>
             </View>
 
+            <SeloAbrigo abrigo={abrigoSelecionado} />
+
             {abrigoSelecionado.endereco ? (
               <Text style={styles.endereco}>{abrigoSelecionado.endereco}</Text>
             ) : null}
@@ -1299,6 +1394,7 @@ export default function MapScreen(props) {
               <View style={styles.contatos}>
                 {canais(abrigoSelecionado).map((canal) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={canal.nome}
                     style={({ pressed }) => [
                       styles.contato,
@@ -1313,8 +1409,20 @@ export default function MapScreen(props) {
               </View>
             )}
 
+            {apiDisponivel() && !souDono(abrigoSelecionado) && (
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.linkDenuncia, pressed && styles.pressionado]}
+                onPress={() => setDenunciando(true)}
+              >
+                <Ionicons name="flag-outline" size={14} color="#9A8F7E" />
+                <Text style={styles.textoDenuncia}>Denunciar este abrigo</Text>
+              </Pressable>
+            )}
+
             <View style={styles.acoes}>
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                 onPress={() => tracarRota(abrigoSelecionado, modoRota)}
                 disabled={buscandoRota}
@@ -1331,6 +1439,7 @@ export default function MapScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                 onPress={() => centralizarEm(abrigoSelecionado)}
               >
@@ -1339,6 +1448,7 @@ export default function MapScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                 onPress={() => compartilhar(abrigoSelecionado)}
               >
@@ -1348,6 +1458,7 @@ export default function MapScreen(props) {
 
               {souDono(abrigoSelecionado) && (
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                   onPress={() =>
                     props.navigation.navigate('RegisterShelter', {
@@ -1388,6 +1499,7 @@ export default function MapScreen(props) {
                 <View style={styles.modos}>
                   {MODOS.map((modo) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={modo.id}
                       style={({ pressed }) => [
                         styles.modo,
@@ -1416,6 +1528,7 @@ export default function MapScreen(props) {
                 </View>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.rotaLink, pressed && styles.pressionado]}
                   onPress={() => setVerPassos(!verPassos)}
                 >
@@ -1446,6 +1559,7 @@ export default function MapScreen(props) {
                 )}
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.rotaExterna, pressed && styles.pressionado]}
                   onPress={() => abrirNoMapaDoCelular(abrigoSelecionado)}
                 >
@@ -1459,6 +1573,7 @@ export default function MapScreen(props) {
             )}
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Doações', {
@@ -1475,6 +1590,7 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Help', { abrigoId: abrigoSelecionado.id })
@@ -1485,6 +1601,7 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Donate', {
@@ -1502,11 +1619,32 @@ export default function MapScreen(props) {
 
       </View>
 
+      {abrigoSelecionado && (
+        <DenunciarAbrigo
+          visivel={denunciando}
+          abrigo={abrigoSelecionado}
+          aoFechar={() => setDenunciando(false)}
+        />
+      )}
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  linkDenuncia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingVertical: 8,
+  },
+
+  textoDenuncia: {
+    fontSize: 12,
+    color: '#9A8F7E',
+  },
+
   safeArea: {
     flex: 1,
     backgroundColor: colors.primary,

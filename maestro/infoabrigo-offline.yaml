@@ -1,0 +1,43 @@
+# Usa o app sem internet: liga o modo avião, marca um compromisso, confere que ele
+# fica guardado no celular esperando a conexão, e que é enviado quando ela volta.
+appId: host.exp.exponent
+env:
+  EXPO_URL: exp://192.168.18.124:8081
+# Se algo falhar no meio, o celular não fica preso no modo avião.
+onFlowComplete:
+  - setAirplaneMode: disabled
+---
+- runFlow: infoabrigo-cadastro.yaml
+
+- tapOn: "Agenda"
+- assertVisible: "Marcar compromisso"
+
+- setAirplaneMode: enabled
+
+- tapOn: "Marcar compromisso"
+- tapOn: "Ex.: Entrega das fraldas de março"
+- inputText: "Visita sem internet"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Marcar na agenda"
+    direction: DOWN
+- tapOn: "Marcar na agenda"
+
+# Gravado no celular, mesmo sem internet.
+- assertVisible: "Visita sem internet"
+- extendedWaitUntil:
+    visible: "Aguardando conexão: 1 alteração aguardando envio."
+    timeout: 20000
+
+- setAirplaneMode: disabled
+
+# A conexão volta, a fila é enviada e a faixa some sozinha.
+- extendedWaitUntil:
+    notVisible: "Aguardando conexão: 1 alteração aguardando envio."
+    timeout: 90000
+
+- tapOn: "Perfil"
+- extendedWaitUntil:
+    visible: "Status: Online"
+    timeout: 30000
+- assertVisible: "Sincronização: Parada"
