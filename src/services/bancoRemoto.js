@@ -16,6 +16,10 @@ const ESPERA_DA_GRAVACAO = 8000;
 
 export class RecusadoPeloBanco extends Error {}
 
+// Quantas pessoas diferentes precisam denunciar para o abrigo ganhar o aviso. Uma só
+// não basta: seria fácil demais prejudicar um abrigo de verdade.
+export const DENUNCIAS_PARA_ALERTA = 3;
+
 export function chaveSegura(texto) {
   return String(texto).replace(/[.#$/[\]]/g, '_');
 }
@@ -129,7 +133,10 @@ export function gravarAbrigo(usuario, abrigo) {
 // ninguém que possa atender ou retirar.
 export async function apagarAbrigo(id) {
   const necessidades = comoLista(await ler('necessidades'));
-  const trocas = { ['abrigos/' + chaveSegura(id)]: null };
+  const trocas = {
+    ['abrigos/' + chaveSegura(id)]: null,
+    ['verificacoes/' + chaveSegura(id)]: null,
+  };
 
   necessidades
     .filter((necessidade) => String(necessidade.abrigoId) === String(id))
@@ -263,30 +270,31 @@ function aplicarEntregas(doacoes, necessidades) {
 }
 
 export async function lerTudo(usuario) {
-  const [abrigos, necessidades, doacoes, compromissos, verificacoes, alertas] = await Promise.all([
+  const [abrigos, necessidades, doacoes, compromissos, verificacoes, denuncias] = await Promise.all([
     ler('abrigos'),
     ler('necessidades'),
     ler('doacoes/' + usuario.uid),
     ler('compromissos/' + usuario.uid),
     ler('verificacoes'),
-    ler('alertas'),
+    ler('denuncias'),
   ]);
 
   const listaDeNecessidades = maisNovosPrimeiro(comoLista(necessidades).map(aberta));
 
   return {
-    // O selo e o alerta são escritos pela API, em nós próprios, e não pelo dono do
-    // abrigo. Se morassem dentro do abrigo, ele conseguiria alterá-los.
+    // O selo e as denúncias moram em nós próprios, fora do abrigo. Se ficassem dentro
+    // dele, o dono conseguiria apagar as denúncias ao salvar o cadastro.
     abrigos: maisNovosPrimeiro(comoLista(abrigos)).map((abrigo) => {
       const chave = chaveSegura(abrigo.id);
       const extras = {};
+      const quantas = Object.keys((denuncias && denuncias[chave]) || {}).length;
 
       if (verificacoes && verificacoes[chave]) {
         extras.verificacao = verificacoes[chave];
       }
 
-      if (alertas && alertas[chave]) {
-        extras.alerta = alertas[chave];
+      if (quantas >= DENUNCIAS_PARA_ALERTA) {
+        extras.alerta = { denuncias: quantas };
       }
 
       return { ...abrigo, ...extras };
@@ -300,7 +308,7 @@ export async function lerTudo(usuario) {
 // Avisa quando outro celular muda abrigos ou necessidades. O banco entrega o valor
 // atual assim que alguém começa a escutar, e esse primeiro não é novidade.
 export function ouvirMudancas(aoMudar) {
-  const paradas = ['abrigos', 'necessidades', 'verificacoes', 'alertas'].map((nome) => {
+  const paradas = ['abrigos', 'necessidades', 'verificacoes', 'denuncias'].map((nome) => {
     let primeira = true;
 
     return onValue(
@@ -324,7 +332,12 @@ export function ouvirMudancas(aoMudar) {
 // Tudo que é da pessoa, de uma vez. As promessas em necessidades de outros abrigos
 // saem junto; os abrigos dela levam as necessidades deles.
 export async function apagarDadosDaPessoa(usuario) {
-  const [abrigos, necessidades] = await Promise.all([ler('abrigos'), ler('necessidades')]);
+  const [abrigos, necessidades, denuncias, cnpjs] = await Promise.all([
+    ler('abrigos'),
+    ler('necessidades'),
+    ler('denuncias'),
+    ler('cnpjs'),
+  ]);
   const meus = comoLista(abrigos).filter((abrigo) => abrigo.donoUid === usuario.uid);
   const idsDosMeus = new Set(meus.map((abrigo) => String(abrigo.id)));
   const trocas = {
@@ -354,7 +367,54 @@ export async function apagarDadosDaPessoa(usuario) {
 
   meus.forEach((abrigo) => {
     trocas['abrigos/' + chaveSegura(abrigo.id)] = null;
+    trocas['verificacoes/' + chaveSegura(abrigo.id)] = null;
+  });
+
+  // As denúncias que a pessoa fez saem com ela, e o CNPJ fica livre para outra conta.
+  Object.entries(denuncias || {}).forEach(([abrigo, porPessoa]) => {
+    if (porPessoa && porPessoa[usuario.uid]) {
+      trocas['denuncias/' + abrigo + '/' + usuario.uid] = null;
+    }
+  });
+
+  Object.entries(cnpjs || {}).forEach(([cnpj, uid]) => {
+    if (uid === usuario.uid) {
+      trocas['cnpjs/' + cnpj] = null;
+    }
   });
 
   await executar(() => update(ref(obterBanco()), trocas));
+}
+
+// ---------------- Selo e denúncias ----------------
+
+// O CNPJ fica reservado para a conta que o usou primeiro, e o selo só é aceito pelas
+// regras se o CNPJ dele for dessa mesma conta. As duas gravações vão juntas: ou
+// entram as duas, ou nenhuma.
+export function gravarSelo(usuario, abrigoId, cnpj, razaoSocial) {
+  return executar(() =>
+    update(ref(obterBanco()), {
+      ['cnpjs/' + cnpj]: usuario.uid,
+      ['verificacoes/' + chaveSegura(abrigoId)]: limpo({
+        verificado: true,
+        cnpj: cnpj,
+        razaoSocial: razaoSocial || '',
+      }),
+    })
+  );
+}
+
+export function apagarSelo(abrigoId) {
+  return executar(() => set(caminho('verificacoes/' + chaveSegura(abrigoId)), null));
+}
+
+// Uma denúncia por pessoa em cada abrigo: denunciar de novo só troca o motivo.
+export function gravarDenuncia(usuario, abrigoId, denuncia) {
+  return executar(() =>
+    set(caminho('denuncias/' + chaveSegura(abrigoId) + '/' + usuario.uid), limpo(denuncia))
+  );
+}
+
+export async function lerDenuncias(abrigoId) {
+  return comoLista(await ler('denuncias/' + chaveSegura(abrigoId)));
 }

@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-import { MOTIVOS_DE_DENUNCIA, buscarDenuncias, buscarPlanilha, buscarRelatorio } from '../services/servicosApi';
+import { MOTIVOS_DE_DENUNCIA, buscarDenuncias, buscarPlanilha, buscarRelatorio } from '../services/comunidade';
 import { colors } from '../theme/colors';
 
 function nomeDoMotivo(id) {

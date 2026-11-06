@@ -1,7 +1,7 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import NetInfo from '@react-native-community/netinfo';
 
-import { enderecoDaApi, pedir, SemConexao, temServidor } from './api';
+import { SemConexao } from './api';
 import {
   gravarAnotacao,
   lerAnotacao,
@@ -15,13 +15,16 @@ import {
   apagarAbrigo,
   apagarNecessidade,
   apagarPrivado,
+  apagarSelo,
   gravarAbrigo,
   gravarNecessidade,
   gravarPerfil,
   gravarPrivado,
+  gravarSelo,
   lerTudo,
   ouvirMudancas,
 } from './bancoRemoto';
+import { apenasDigitos, consultarCnpj } from './cnpj';
 import { carregarConta } from './contaAtual';
 import { temFirebase, usuarioAtual } from './firebase';
 
@@ -150,9 +153,9 @@ async function compactar(uri) {
 }
 
 // A foto do abrigo nasce como um arquivo deste celular, que nenhum outro consegue
-// abrir. Antes de o abrigo subir, ela vira algo que todos abrem. O lugar dela é a
-// API, porque o Storage do Firebase exige o plano pago. Com a API fora do ar, a foto
-// segue junto do abrigo, em texto, para o cadastro não ficar preso esperando.
+// abrir. Antes de o abrigo subir, ela é reduzida e vira texto (base64), que segue
+// junto do abrigo no Firebase. O Storage do Firebase, o lugar próprio para arquivos,
+// exige o plano pago; reduzida, a foto fica pequena o bastante para o banco.
 async function prepararAbrigo(op, usuario) {
   const foto = op.dados.foto;
 
@@ -171,43 +174,34 @@ async function prepararAbrigo(op, usuario) {
     return { ...op.dados, foto: null };
   }
 
-  let endereco = 'data:image/jpeg;base64,' + base64;
-
-  if (temServidor()) {
-    try {
-      const resposta = await pedir('POST', '/arquivos', { base64 }, await usuario.getIdToken());
-
-      endereco = enderecoDaApi() + resposta.caminho;
-    } catch (error) {
-      console.log('A foto seguiu sem passar pela API:', error.message);
-    }
-  }
-
-  const dados = { ...op.dados, foto: endereco };
+  const dados = { ...op.dados, foto: 'data:image/jpeg;base64,' + base64 };
 
   await trocarDados(op.seq, op.colecao, op.id, dados);
 
   return dados;
 }
 
-// O selo é decidido pela API: se fosse o próprio celular, poderia ser falsificado.
-// Falhar aqui não atrapalha nada, e a próxima gravação do abrigo tenta de novo.
-async function pedirVerificacao(abrigo, conta, usuario) {
-  const cnpj = conta.instituicao && conta.instituicao.cnpj;
+// O selo: o CNPJ da conta é conferido na BrasilAPI a cada gravação do abrigo, então
+// um CNPJ que deixou de estar ativo perde o selo. As regras do banco só aceitam o selo
+// do dono do abrigo e com um CNPJ que nenhuma outra conta usou. Falhar aqui não
+// atrapalha nada: a próxima gravação do abrigo tenta de novo.
+async function conferirSelo(abrigo, conta, usuario) {
+  const cnpj = apenasDigitos(conta.instituicao && conta.instituicao.cnpj);
 
-  if (!temServidor() || !cnpj) {
+  if (!cnpj) {
     return;
   }
 
   try {
-    await pedir(
-      'POST',
-      '/verificacoes',
-      { abrigoId: String(abrigo.id), cnpj: cnpj },
-      await usuario.getIdToken()
-    );
+    const receita = await consultarCnpj(cnpj);
+
+    if (receita.situacao === 'ativa') {
+      await gravarSelo(usuario, abrigo.id, cnpj, receita.razaoSocial);
+    } else if (receita.situacao !== 'indisponivel') {
+      await apagarSelo(abrigo.id);
+    }
   } catch (error) {
-    console.log('Verificação da instituição adiada:', error.message);
+    console.log('Selo do abrigo adiado:', error.message);
   }
 }
 
@@ -239,7 +233,7 @@ async function executar(op, conta, usuario) {
     const dados = await prepararAbrigo(op, usuario);
 
     await gravarAbrigo(usuario, dados);
-    await pedirVerificacao(dados, conta, usuario);
+    await conferirSelo(dados, conta, usuario);
   } else if (op.colecao === 'necessidades') {
     await gravarNecessidade(usuario, op.dados);
   } else {

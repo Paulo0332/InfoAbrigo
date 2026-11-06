@@ -1,63 +1,46 @@
 import axios from 'axios';
 
-// Fala com a API do InfoAbrigo.
+// As APIs que o aplicativo consome, todas públicas, gratuitas e sem chave:
 //
-// O endereço vem do arquivo .env (EXPO_PUBLIC_API_URL). Sem ele o aplicativo
-// funciona como sempre funcionou: tudo fica só no aparelho. É assim que ele
-// continua abrindo para quem só quer ver as telas, sem servidor nenhum.
+// - BrasilAPI: endereço pelo CEP e situação do CNPJ na Receita Federal;
+// - Nominatim (OpenStreetMap): coordenada de um endereço;
+// - Valhalla (OpenStreetMap): o caminho até o abrigo.
+//
+// Elas já estão na internet, mantidas por quem as publica. Por isso o aplicativo
+// funciona em qualquer lugar, sem servidor nenhum ligado. O consumo segue o exemplo
+// Task-Manager-API da disciplina: um cliente axios só, com tempo limite.
 const cliente = axios.create({
-  timeout: 8000,
-  headers: { 'Content-Type': 'application/json' },
-  // Quem decide o que cada resposta significa é a função pedir, logo abaixo.
+  timeout: 10000,
+  // Quem decide o que cada resposta significa é quem chamou: um 404 de CEP, por
+  // exemplo, quer dizer "CEP inexistente", e não erro.
   validateStatus: () => true,
 });
 
-export function enderecoDaApi() {
-  return (process.env.EXPO_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
-}
-
-export function temServidor() {
-  return enderecoDaApi() !== '';
-}
-
-// Separa "o servidor recusou" de "não deu para falar com o servidor". A
-// primeira é uma resposta; a segunda só quer dizer tentar de novo depois.
-export class ErroDaApi extends Error {
-  constructor(status, mensagem) {
-    super(mensagem);
-    this.status = status;
-  }
-}
-
+// Não deu para falar com o serviço: sem internet, ou ele não respondeu a tempo.
 export class SemConexao extends Error {}
 
-export async function pedir(metodo, caminho, corpo, token) {
+// Responde no mesmo formato do fetch (status, ok e json), para quem chama tratar a
+// resposta do mesmo jeito em todos os serviços.
+export async function consultar(url, opcoes = {}) {
   let resposta;
 
   try {
     resposta = await cliente.request({
-      method: metodo,
-      url: enderecoDaApi() + caminho,
-      data: corpo,
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
+      url: url,
+      method: opcoes.method || 'GET',
+      headers: opcoes.headers,
+      data: opcoes.body,
     });
   } catch (error) {
-    throw new SemConexao('Não foi possível falar com o servidor.');
+    throw new SemConexao('Não foi possível falar com ' + url.split('/')[2] + '.');
   }
 
-  // Servidor fora do ar responde 5xx, e isso é o mesmo que estar sem conexão:
-  // a gravação continua na fila para a próxima tentativa.
-  if (resposta.status >= 500 || resposta.status === 429) {
-    throw new SemConexao('O servidor não respondeu agora.');
-  }
-
-  if (resposta.status === 204) {
-    return null;
-  }
-
-  if (resposta.status < 200 || resposta.status >= 300) {
-    throw new ErroDaApi(resposta.status, (resposta.data && resposta.data.erro) || 'Pedido recusado.');
-  }
-
-  return resposta.data;
+  return {
+    status: resposta.status,
+    ok: resposta.status >= 200 && resposta.status < 300,
+    json: async () =>
+      typeof resposta.data === 'string' && resposta.data !== ''
+        ? JSON.parse(resposta.data)
+        : resposta.data,
+  };
 }

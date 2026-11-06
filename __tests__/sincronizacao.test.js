@@ -415,10 +415,69 @@ descrever('sincronização com o Firebase', () => {
       await expect(ler('contas/outro-uid')).rejects.toMatchObject(recusa);
     });
 
-    test('selo e alerta só são escritos pela API', async () => {
-      await expect(gravar('verificacoes/abrigo-1', { verificado: true })).rejects.toMatchObject(recusa);
-      await expect(gravar('alertas/abrigo-1', null)).rejects.toMatchObject(recusa);
-      expect((await ler('verificacoes')).exists()).toBe(false);
+    test('o selo só entra pelo dono do abrigo e com CNPJ que nenhuma outra conta usou', async () => {
+      const dono = novoCelular();
+      const entrou = await dono.remota.entrarPorEmail('gestor@teste.com', 'senha-gestor');
+
+      await dono.auth.entrarNaConta(entrou.conta);
+
+      const bancoDoDono = dono.firebase.obterBanco();
+      const uidDoDono = (await dono.firebase.usuarioAtual()).uid;
+      const selo = (quem, cnpj) => ({
+        ['cnpjs/' + cnpj]: quem,
+        'verificacoes/abrigo-1': { verificado: true, cnpj: cnpj, razaoSocial: 'Casa Lar' },
+      });
+
+      // Quem não é dono não dá selo ao abrigo, nem reservando um CNPJ para si.
+      await expect(fb.db.update(fb.db.ref(banco), selo(uid, '11222333000181'))).rejects.toMatchObject(recusa);
+
+      await dono.db.update(dono.db.ref(bancoDoDono), selo(uidDoDono, '00000000000191'));
+
+      expect((await ler('verificacoes/abrigo-1')).val().verificado).toBe(true);
+
+      // O CNPJ fica com a primeira conta que o usou.
+      await expect(gravar('cnpjs/00000000000191', uid)).rejects.toMatchObject(recusa);
+
+      // E o selo não aceita CNPJ reservado por outra conta.
+      await expect(
+        dono.db.set(dono.db.ref(bancoDoDono, 'verificacoes/abrigo-1'), {
+          verificado: true,
+          cnpj: '11222333000181',
+        })
+      ).rejects.toMatchObject(recusa);
+
+      await dono.db.update(dono.db.ref(bancoDoDono), {
+        'verificacoes/abrigo-1': null,
+        'cnpjs/00000000000191': null,
+      });
+    });
+
+    test('cada pessoa denuncia uma vez, em nome próprio, e o dono não denuncia o próprio abrigo', async () => {
+      await gravar('denuncias/abrigo-1/' + uid, { motivo: 'dados-errados', em: 'agora' });
+
+      expect((await ler('denuncias/abrigo-1/' + uid)).val().motivo).toBe('dados-errados');
+
+      await expect(
+        gravar('denuncias/abrigo-1/outro-uid', { motivo: 'dados-errados' })
+      ).rejects.toMatchObject(recusa);
+      await expect(
+        gravar('denuncias/abrigo-1/' + uid, { motivo: 'qualquer coisa' })
+      ).rejects.toMatchObject(recusa);
+
+      const dono = novoCelular();
+      const entrou = await dono.remota.entrarPorEmail('gestor@teste.com', 'senha-gestor');
+
+      await dono.auth.entrarNaConta(entrou.conta);
+
+      const uidDoDono = (await dono.firebase.usuarioAtual()).uid;
+
+      await expect(
+        dono.db.set(dono.db.ref(dono.firebase.obterBanco(), 'denuncias/abrigo-1/' + uidDoDono), {
+          motivo: 'outro',
+        })
+      ).rejects.toMatchObject(recusa);
+
+      await gravar('denuncias/abrigo-1/' + uid, null);
     });
 
     test('quem não entrou não lê nada', async () => {

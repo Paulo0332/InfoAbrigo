@@ -3,8 +3,9 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
 
-// O selo e o aviso vêm da API, por um lugar do Firebase que o dono do abrigo não
-// consegue alterar. O texto diz só o que foi conferido: a instituição existe e está
+// O selo vem da consulta do CNPJ na BrasilAPI, e o aviso, de três denúncias de pessoas
+// diferentes. Os dois ficam fora do cadastro do abrigo, num lugar que as regras do
+// Firebase protegem. O texto diz só o que foi conferido: a instituição existe e está
 // ativa. Isso não prova que a pessoa que cadastrou trabalha lá.
 export default function SeloAbrigo(props) {
   const { verificacao, alerta } = props.abrigo;

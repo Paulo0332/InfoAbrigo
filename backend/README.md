@@ -2,7 +2,9 @@
 
 Python, Flask e MySQL, na mesma organização do exemplo `API-Tasks` da disciplina: `app.py`, `banco.sql`, Swagger e Docker.
 
-Contas, abrigos, necessidades, doações e agenda ficam no Firebase. A API cuida de fotos, selo de instituição verificada, recomendações, relatórios e denúncias.
+Esta pasta é o exemplo `API-Tasks` aplicado ao InfoAbrigo, e o aplicativo **não depende dela**. Uma API própria só funciona com um servidor ligado. Por isso o aplicativo faz o mesmo sem ela: o selo é conferido na BrasilAPI, as denúncias ficam no Firebase, e recomendações e painel são calculados no celular (veja `docs/modulo-11-servidor-e-banco.md`).
+
+Ela continua aqui, com os testes, para mostrar o conteúdo da disciplina: rotas REST, MySQL, Swagger, Docker, exclusão lógica e login conferido pelo token do Firebase. Para usá-la, é preciso hospedá-la, com o `render.yaml` da raiz do projeto, por exemplo.
 
 ## Configurar o Firebase
 

@@ -12,6 +12,7 @@ import { calcularDistancia, ehDono } from '../src/services/shelters';
 import { conferirResposta, conferirSenha, resumir, resumirResposta } from '../src/services/senha';
 import { mudancasDaConta } from '../src/services/auth';
 import { linkDoCalendario } from '../src/services/recursosNativos';
+import { montarPlanilha, montarRelatorio, recomendar } from '../src/services/comunidade';
 
 const NEED = {
   alvo: 10,
@@ -171,5 +172,60 @@ describe('mudanças da conta', () => {
 
   test('troca de nome não leva credencial', () => {
     expect(mudancasDaConta(base, { ...base, nome: 'B' })).toEqual({ nome: 'B' });
+  });
+});
+
+describe('recomendações e painel, calculados no celular', () => {
+  const abrigos = [
+    { id: 'a1', nome: 'Casa Lar', latitude: -22.4, longitude: -43.66 },
+    { id: 'a2', nome: 'Lar Longe', latitude: -23.0, longitude: -43.2 },
+    { id: 'a3', nome: 'Denunciado', latitude: -22.4, longitude: -43.66, alerta: { denuncias: 3 } },
+  ];
+  const necessidades = [
+    { id: 'n1', abrigoId: 'a1', title: 'Arroz', alvo: 10, unidade: 'kg', urgente: true, contribuicoes: [] },
+    { id: 'n2', abrigoId: 'a2', title: 'Leite', alvo: 10, contribuicoes: [{ porUid: 'u1', quantidade: 5 }] },
+    { id: 'n3', abrigoId: 'a1', title: 'Fraldas', alvo: 4, contribuicoes: [{ porUid: 'u1', quantidade: 4 }] },
+    { id: 'n4', abrigoId: 'a3', title: 'Feijão', alvo: 10, urgente: true, contribuicoes: [] },
+    { id: 'n5', abrigoId: 'a1', title: 'Sabão', alvo: 3, done: true, contribuicoes: [] },
+  ];
+
+  test('a urgência perto vem primeiro, e o que já foi atendido ou denunciado fica de fora', () => {
+    const lista = recomendar(abrigos, necessidades, { latitude: -22.4, longitude: -43.66 });
+
+    expect(lista.map((item) => item.necessidadeId)).toEqual(['n1', 'n2']);
+    expect(lista[0]).toMatchObject({ abrigoNome: 'Casa Lar', faltam: 10, urgente: true });
+    expect(lista[0].motivo).toBe('urgente, muito perto de você, ninguém se ofereceu ainda');
+    expect(lista[1].faltam).toBe(5);
+  });
+
+  test('sem a localização, recomenda sem falar de distância', () => {
+    const lista = recomendar(abrigos, necessidades, null);
+
+    expect(lista[0].distanciaKm).toBeNull();
+    expect(lista[0].motivo).not.toMatch(/km/);
+  });
+
+  test('o relatório soma o prometido, o recebido e conta cada doador uma vez', () => {
+    const relatorio = montarRelatorio('a1', [
+      { abrigoId: 'a1', title: 'Arroz', alvo: 10, contribuicoes: [
+        { porUid: 'u1', quantidade: 4, entregue: true },
+        { porUid: 'u2', quantidade: 3 },
+      ] },
+      { abrigoId: 'a1', title: 'Sabão', alvo: 2, done: true, contribuicoes: [{ porUid: 'u1', quantidade: 2, entregue: true }] },
+      { abrigoId: 'a2', title: 'De outro abrigo', alvo: 9, contribuicoes: [{ porUid: 'u9', quantidade: 9 }] },
+    ]);
+
+    expect(relatorio).toMatchObject({ necessidades: 2, atendidas: 1, doadores: 2, prometido: 9, recebido: 6 });
+  });
+
+  test('a planilha sai separada por ponto e vírgula, com aspas quando precisa', () => {
+    const planilha = montarPlanilha({
+      itens: [{ titulo: 'Arroz; tipo 1', unidade: 'kg', meta: 10, prometido: 7, recebido: 4, atendida: false }],
+    });
+
+    expect(planilha.split('\n')).toEqual([
+      'Necessidade;Unidade;Meta;Prometido;Recebido;Atendida',
+      '"Arroz; tipo 1";kg;10;7;4;não',
+    ]);
   });
 });

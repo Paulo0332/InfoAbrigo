@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { apiDisponivel, buscarRecomendacoes } from '../services/servicosApi';
+import { buscarRecomendacoes } from '../services/comunidade';
 import { colors } from '../theme/colors';
 
 function textoDoQueFalta(item) {
@@ -15,9 +15,8 @@ function textoDoQueFalta(item) {
   return item.titulo + ': faltam ' + Number(item.faltam) + unidade;
 }
 
-// "Onde sua ajuda vale mais". Quem calcula é a API, porque ela enxerga todos os
-// abrigos de uma vez. Se ela estiver fora do ar, o bloco simplesmente não aparece:
-// recomendação é um extra, e a tela continua inteira sem ela.
+// "Onde sua ajuda vale mais". O celular calcula com os abrigos e as necessidades que
+// já tem, então funciona até sem internet. Sem nada a recomendar, o bloco não aparece.
 export default function OndeAjudar(props) {
   const [lista, setLista] = useState([]);
 
@@ -25,10 +24,6 @@ export default function OndeAjudar(props) {
   const longitude = props.localizacao ? props.localizacao.longitude : null;
 
   useEffect(() => {
-    if (!apiDisponivel()) {
-      return undefined;
-    }
-
     let ativo = true;
 
     buscarRecomendacoes(props.localizacao)

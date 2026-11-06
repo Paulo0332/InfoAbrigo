@@ -18,8 +18,9 @@ Em todas as telas, sem mudar a forma de usar. O Perfil mostra o status Online ou
 | Onde | O que guarda | Para quê |
 |---|---|---|
 | SQLite, no celular | `registros`, `fila` e `anotacoes` | Funcionar sem internet |
-| Firebase Realtime Database | `contas`, `abrigos`, `necessidades`, `doacoes`, `compromissos` | Compartilhar entre aparelhos, em tempo real |
-| MySQL, na API (Módulo 13) | `arquivos`, `verificacoes` e `denuncias` | O que precisa ficar fora do alcance do aplicativo |
+| Firebase Realtime Database | `contas`, `abrigos`, `necessidades`, `doacoes`, `compromissos`, `verificacoes`, `cnpjs` e `denuncias` | Compartilhar entre aparelhos, em tempo real |
+
+Não há servidor próprio: tudo o que é compartilhado mora no Firebase, que já está na internet. Por isso o aplicativo funciona em qualquer lugar.
 
 ### 4.2 A fila
 
@@ -50,23 +51,24 @@ Ficam em `database.rules.json`, e valem mesmo que alguém altere o aplicativo:
 - só quem administra o abrigo cria necessidades nele, muda os dados delas e marca uma entrega;
 - cada pessoa só mexe na própria promessa;
 - doações, agenda e perfil só podem ser lidos pela própria conta;
-- selo e aviso de denúncia só podem ser escritos pela API.
+- o selo só entra pelo dono do abrigo, e com um CNPJ que nenhuma outra conta usou;
+- cada pessoa denuncia um abrigo uma vez só, em nome próprio, e o dono não denuncia o próprio abrigo.
 
 ### 4.5 A entrega de uma doação
 
 A doação é privada, então o abrigo não pode gravar nela. Quando o gestor marca a entrega, ele escreve na promessa, dentro da necessidade. O celular de quem doou lê essa marca e atualiza a própria cópia, em `aplicarEntregas`.
 
 5. **Como testar**
-- Siga a seção "Com o Firebase e a API" do `README.md`.
+- Siga a seção "Com o Firebase" do `README.md`.
 - No primeiro celular, crie uma conta de gestor e cadastre um abrigo.
 - No segundo, use uma conta de doador: o abrigo aparece.
 - Deixe o gestor na aba Doações e prometa um item no outro celular: a promessa aparece sem tocar na tela.
 - Ligue o modo avião, faça um compromisso e confira a faixa "Aguardando conexão" acima das abas.
-- Desligue o modo avião: a faixa some sozinha.
+- Desligue o modo avião: a faixa some sozinha. O fluxo `maestro/infoabrigo-offline.yaml` faz esse teste sozinho.
 
 6. **Possíveis perguntas**
-- *Por que tantos bancos?*
-O do celular garante o uso sem internet, o Firebase compartilha os dados, e o MySQL guarda o que o aplicativo não pode controlar.
+- *Por que dois bancos?*
+O do celular garante o uso sem internet, e o Firebase compartilha os dados entre os aparelhos.
 - *E se duas pessoas alterarem o mesmo abrigo?*
 Só o dono altera. Entre dois celulares do mesmo dono, vale a última gravação que chegar.
 - *O aplicativo funciona sem o Firebase?*
@@ -76,10 +78,10 @@ Fica no Firebase Authentication, que cuida dela. O banco de dados não guarda se
 
 ---
 
-# Módulo 13: A API
+# Módulo 13: APIs, selo, denúncias e painel
 
 1. **O que este módulo faz**
-Cuida do que o aplicativo não pode decidir sozinho, e do que o plano gratuito do Firebase não oferece: fotos, selo de instituição verificada, recomendações, painel do gestor e denúncias.
+Confere o CNPJ das instituições, deixa a comunidade avisar sobre abrigos suspeitos, mostra onde a ajuda vale mais e dá ao gestor um painel de prestação de contas. Nada disso depende de servidor próprio ligado.
 
 2. **Onde fica no app**
 - **Início:** "Onde sua ajuda vale mais".
@@ -88,31 +90,31 @@ Cuida do que o aplicativo não pode decidir sozinho, e do que o plano gratuito d
 - **Perfil do gestor:** "Painel de impacto".
 
 3. **Conceito da aula aplicado**
-- **`API-Tasks`:** `backend/`, com Flask, MySQL, Swagger, Docker e exclusão lógica por `deleted_at`.
-- **`Task-Manager-API`:** o consumo com axios, em `src/services/api.js`.
+- **`Task-Manager-API`:** o consumo de API com axios, em `src/services/api.js`. O cliente atende as três APIs públicas que o aplicativo usa: BrasilAPI (CEP e CNPJ), Nominatim (endereço) e Valhalla (rota).
+- **`API-Tasks`:** a pasta `backend/`, com Flask, MySQL, Swagger, Docker e exclusão lógica por `deleted_at`. Ela fica no repositório como exemplo do conteúdo, mas o aplicativo não depende dela: uma API própria só funciona com um servidor ligado.
 
-4. **Por que cada recurso precisa da API**
+4. **Como cada recurso funciona**
 
-| Recurso | Por que não fica no aplicativo |
-|---|---|
-| **Fotos** | O Storage do Firebase exige o plano pago |
-| **Selo verificado** | Se o celular conferisse o CNPJ, bastaria alterar o aplicativo para ganhar o selo |
-| **Aviso de denúncia** | Precisa contar pessoas diferentes sem revelar quem denunciou |
-| **Recomendações** | O cálculo junta urgência, o que falta e distância, em todos os abrigos |
-| **Relatório** | Reúne os totais do abrigo e gera a planilha |
-
-A API confere o login com o token do Firebase, e lê e escreve no banco com a conta de serviço. É por isso que só ela consegue escrever o selo.
+| Recurso | Onde | Como |
+|---|---|---|
+| **Selo verificado** | `conferirSelo`, em `src/services/sincronizacao.js` | A cada gravação do abrigo, o CNPJ da conta é consultado na BrasilAPI. Ativo, o selo é gravado em `verificacoes`, e o CNPJ fica reservado para a conta em `cnpjs`. |
+| **Denúncias** | `src/services/comunidade.js` | Cada denúncia é gravada em `denuncias/{abrigo}/{conta}`. Com três pessoas diferentes, o abrigo ganha o aviso e sai das recomendações. |
+| **Recomendações** | `recomendar`, em `comunidade.js` | O celular junta urgência, o que falta e distância, com os abrigos que já tem. |
+| **Painel e planilha** | `montarRelatorio` e `montarPlanilha` | Os totais do abrigo, e a planilha separada por ponto e vírgula, enviada pelo compartilhar do celular. |
+| **Fotos** | `prepararAbrigo`, em `sincronizacao.js` | A foto é reduzida e segue junto do abrigo, em base64. O Storage do Firebase exige o plano pago. |
 
 5. **Como testar**
-- Abra `/apidocs` no navegador para ver e testar as rotas no Swagger.
 - Cadastre um abrigo com uma conta de gestor com CNPJ ativo: o selo aparece.
 - Denuncie um abrigo com três contas diferentes: o aviso aparece, e ele sai das recomendações.
 - Com a conta do gestor, abra "Painel de impacto" no Perfil.
+- Os cálculos têm testes em `__tests__/regras.test.js`, e as regras do selo e das denúncias, em `__tests__/sincronizacao.test.js`.
 
 6. **Possíveis perguntas**
 - *O selo prova que a pessoa trabalha no abrigo?*
 Não. Prova que a instituição existe e está ativa na Receita, e impede que outra conta use o mesmo CNPJ.
+- *O selo pode ser falsificado?*
+As regras impedem dar selo a abrigo de outra pessoa e usar o CNPJ de outra conta. Quem alterasse o próprio aplicativo ainda poderia gravar um selo com um CNPJ inativo. Para impedir isso de vez, a conferência teria de rodar num servidor, como faz a pasta `backend/`.
 - *Por que três denúncias?*
 Uma só seria fácil de usar para prejudicar um abrigo de verdade. Cada pessoa conta uma vez.
-- *E se a API cair?*
-Contas e dados continuam funcionando, porque estão no Firebase. Os recursos desta tabela ficam indisponíveis por um tempo.
+- *Por que não usar a API da pasta `backend/` no aplicativo?*
+Ela precisaria de um servidor ligado o tempo todo. Sem ele, selo, denúncias e painel parariam fora da rede de quem roda a API. Com o Firebase e as APIs públicas, o aplicativo funciona em qualquer lugar.

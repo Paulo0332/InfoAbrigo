@@ -7,7 +7,7 @@ Transforma as telas soltas num aplicativo com papéis: a pessoa escolhe um perfi
 Na escolha de perfil do **cadastro**, em **Cadastrar abrigo** e nos atalhos da aba **Início**, que mudam conforme o perfil.
 
 3. **Conceito da aula aplicado**
-Consumo de APIs por HTTP, assunto da aula 10: `fetch` na BrasilAPI para conferir o CNPJ e o CEP. Navegação com Stack por fora das abas (`src/navigation/RootNavigator.js`) e formulários com estado controlado.
+Consumo de APIs por HTTP, assunto da aula 10: o cliente axios de `src/services/api.js` consulta a BrasilAPI para conferir o CNPJ e o CEP. Navegação com Stack por fora das abas (`src/navigation/RootNavigator.js`) e formulários com estado controlado.
 
 4. **Onde está o código**
 - `src/data/perfis.js`: os quatro perfis e o que cada um oferece.

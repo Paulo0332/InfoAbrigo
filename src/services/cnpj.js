@@ -1,3 +1,5 @@
+import { consultar } from './api';
+
 // Verificação do CNPJ da instituição, em duas etapas.
 //
 // A primeira é matemática e funciona sem internet: todo CNPJ tem dois
@@ -117,7 +119,7 @@ export async function consultarCnpj(texto) {
   }
 
   try {
-    const resposta = await fetch(URL_CONSULTA + d);
+    const resposta = await consultar(URL_CONSULTA + d);
 
     if (resposta.status === 404) {
       return { situacao: 'inexistente' };
