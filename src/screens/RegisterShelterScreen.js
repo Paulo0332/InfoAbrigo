@@ -663,6 +663,7 @@ export default function RegisterShelterScreen(props) {
 
             <View style={styles.fotoAcoes}>
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.fotoBotao, pressed && styles.pressionado]}
                 onPress={() => setCamera(true)}
               >
@@ -671,6 +672,7 @@ export default function RegisterShelterScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.fotoBotao, pressed && styles.pressionado]}
                 onPress={() => setFoto(null)}
               >
@@ -681,6 +683,7 @@ export default function RegisterShelterScreen(props) {
           </View>
         ) : (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.fotoVazia, pressed && styles.pressionado]}
             onPress={() => setCamera(true)}
           >
@@ -1018,6 +1021,7 @@ export default function RegisterShelterScreen(props) {
             centro da cidade, e o geocodificador acerta a rua mas erra o
             número e o lado. Quem conhece o lugar aponta e pronto. */}
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.botaoMapa, pressed && styles.pressionado]}
           onPress={abrirMapa}
         >
@@ -1031,6 +1035,7 @@ export default function RegisterShelterScreen(props) {
         <Text style={styles.ou}>ou</Text>
 
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.botaoLocal, pressed && styles.pressionado]}
           onPress={localizarNoMapa}
           disabled={localizando}
@@ -1045,6 +1050,7 @@ export default function RegisterShelterScreen(props) {
         <Text style={styles.ou}>ou</Text>
 
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.botaoLocal, pressed && styles.pressionado]}
           onPress={usarLocalizacaoAtual}
           disabled={buscando}
@@ -1075,6 +1081,7 @@ export default function RegisterShelterScreen(props) {
         )}
 
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
           onPress={salvar}
           disabled={salvando}
@@ -1090,6 +1097,7 @@ export default function RegisterShelterScreen(props) {
 
         {abrigoEditado && (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.botaoExcluir, pressed && styles.pressionado]}
             onPress={confirmarExclusao}
           >

@@ -156,6 +156,7 @@ export default function HelpScreen(props) {
   function cartao(icone, cor, titulo, texto, aoTocar, rotuloAcao) {
     return (
       <Pressable
+        accessibilityRole="button"
         style={({ pressed }) => [styles.cartao, pressed && styles.pressionado]}
         onPress={aoTocar}
       >
@@ -312,6 +313,7 @@ export default function HelpScreen(props) {
                   </View>
 
                   <Pressable
+                    accessibilityRole="button"
                     style={({ pressed }) => [styles.botaoImposto, pressed && styles.pressionado]}
                     onPress={procurarConselho}
                   >
@@ -338,6 +340,7 @@ export default function HelpScreen(props) {
                 <View style={styles.canais}>
                   {canais().map((canal) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={canal.id}
                       style={({ pressed }) => [styles.canal, pressed && styles.pressionado]}
                       onPress={() => abrir(canal.url, canal.aviso)}

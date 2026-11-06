@@ -944,6 +944,7 @@ export default function MapScreen(props) {
   function renderizarDaLista({ item }) {
     return (
       <Pressable
+        accessibilityRole="button"
         style={({ pressed }) => [styles.itemLista, pressed && styles.pressionado]}
         onPress={() => escolherDaLista(item)}
       >
@@ -1067,6 +1068,7 @@ export default function MapScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.semRedeBotao, pressed && styles.pressionado]}
               onPress={recarregarMapa}
             >
@@ -1112,6 +1114,7 @@ export default function MapScreen(props) {
             ) : (
               resultadosDaBusca().map((abrigo) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={abrigo.id}
                   style={({ pressed }) => [styles.resultado, pressed && styles.pressionado]}
                   onPress={() => irParaResultado(abrigo)}
@@ -1145,6 +1148,7 @@ export default function MapScreen(props) {
         {localizacao && abrigos.length > 1 && (
           <View style={styles.raios}>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 styles.raio,
                 raio == null && styles.raioAtivo,
@@ -1159,6 +1163,7 @@ export default function MapScreen(props) {
 
             {RAIOS.map((opcao) => (
               <Pressable
+                accessibilityRole="button"
                 key={opcao}
                 style={({ pressed }) => [
                   styles.raio,
@@ -1190,6 +1195,7 @@ export default function MapScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoErro, pressed && styles.pressionado]}
               onPress={tentarNovamente}
             >
@@ -1198,6 +1204,7 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.linkErro, pressed && styles.pressionado]}
               onPress={abrirConfiguracoes}
             >
@@ -1265,6 +1272,7 @@ export default function MapScreen(props) {
 
             {ehGestor(conta) && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.conviteBotao, pressed && styles.pressionado]}
                 onPress={() => props.navigation.navigate('RegisterShelter')}
               >
@@ -1294,6 +1302,7 @@ export default function MapScreen(props) {
         {!abrigoSelecionado && rota && abrigoDaRota() && (
           <View style={styles.faixaRota}>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.faixaToque, pressed && styles.pressionado]}
               onPress={reabrirCartao}
             >
@@ -1385,6 +1394,7 @@ export default function MapScreen(props) {
               <View style={styles.contatos}>
                 {canais(abrigoSelecionado).map((canal) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={canal.nome}
                     style={({ pressed }) => [
                       styles.contato,
@@ -1412,6 +1422,7 @@ export default function MapScreen(props) {
 
             <View style={styles.acoes}>
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                 onPress={() => tracarRota(abrigoSelecionado, modoRota)}
                 disabled={buscandoRota}
@@ -1428,6 +1439,7 @@ export default function MapScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                 onPress={() => centralizarEm(abrigoSelecionado)}
               >
@@ -1436,6 +1448,7 @@ export default function MapScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                 onPress={() => compartilhar(abrigoSelecionado)}
               >
@@ -1445,6 +1458,7 @@ export default function MapScreen(props) {
 
               {souDono(abrigoSelecionado) && (
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.acao, pressed && styles.pressionado]}
                   onPress={() =>
                     props.navigation.navigate('RegisterShelter', {
@@ -1485,6 +1499,7 @@ export default function MapScreen(props) {
                 <View style={styles.modos}>
                   {MODOS.map((modo) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={modo.id}
                       style={({ pressed }) => [
                         styles.modo,
@@ -1513,6 +1528,7 @@ export default function MapScreen(props) {
                 </View>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.rotaLink, pressed && styles.pressionado]}
                   onPress={() => setVerPassos(!verPassos)}
                 >
@@ -1543,6 +1559,7 @@ export default function MapScreen(props) {
                 )}
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.rotaExterna, pressed && styles.pressionado]}
                   onPress={() => abrirNoMapaDoCelular(abrigoSelecionado)}
                 >
@@ -1556,6 +1573,7 @@ export default function MapScreen(props) {
             )}
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Doações', {
@@ -1572,6 +1590,7 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoVer, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Help', { abrigoId: abrigoSelecionado.id })
@@ -1582,6 +1601,7 @@ export default function MapScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoDoar, pressed && styles.pressionado]}
               onPress={() =>
                 props.navigation.navigate('Donate', {

@@ -561,6 +561,7 @@ export default function ScheduleScreen(props) {
             botão só aparece quando a hora já passou. */}
         {item.registro ? (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.registro, pressed && styles.pressionado]}
             onPress={() => setFotoAmpliada(item.registro.uri)}
           >
@@ -606,6 +607,7 @@ export default function ScheduleScreen(props) {
           </Pressable>
         ) : podeRegistrar(item) ? (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.botaoRegistrar, pressed && styles.pressionado]}
             onPress={() => escolherOrigem(item)}
           >
@@ -645,6 +647,7 @@ export default function ScheduleScreen(props) {
 
         <View style={styles.abas}>
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.aba,
               aba === 'proximos' && styles.abaAtiva,
@@ -658,6 +661,7 @@ export default function ScheduleScreen(props) {
           </Pressable>
 
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.aba,
               aba === 'passados' && styles.abaAtiva,
@@ -763,6 +767,7 @@ export default function ScheduleScreen(props) {
 
               {TIPOS.map((opcao) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={opcao.id}
                   style={({ pressed }) => [
                     styles.opcao,
@@ -800,6 +805,7 @@ export default function ScheduleScreen(props) {
 
                   {promessas.map((promessa) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={promessa.id}
                       style={({ pressed }) => [styles.promessa, pressed && styles.pressionado]}
                       onPress={() => usarPromessa(promessa)}
@@ -848,6 +854,7 @@ export default function ScheduleScreen(props) {
                 >
                   {abrigos.map((abrigo) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={abrigo.id}
                       style={({ pressed }) => [
                         styles.chip,
@@ -877,6 +884,7 @@ export default function ScheduleScreen(props) {
               <View style={styles.atalhos}>
                 {ATALHOS.map((atalho) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={atalho.rotulo}
                     style={({ pressed }) => [
                       styles.atalho,
@@ -933,6 +941,7 @@ export default function ScheduleScreen(props) {
               />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoSalvar, pressed && styles.pressionado]}
                 onPress={salvarCompromisso}
               >
@@ -1020,7 +1029,7 @@ export default function ScheduleScreen(props) {
                   style={styles.previaSombra}
                 >
                   <View style={[styles.barraPrevia, { paddingTop: areaSegura.top + 16 }]}>
-                    <Pressable onPress={trocarFoto} style={styles.botaoPrevia}>
+                    <Pressable accessibilityRole="button" onPress={trocarFoto} style={styles.botaoPrevia}>
                       <Ionicons name="camera-reverse" size={18} color="#FFFFFF" />
                       <Text style={styles.textoPrevia}>Trocar a foto</Text>
                     </Pressable>

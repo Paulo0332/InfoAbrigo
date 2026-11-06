@@ -92,6 +92,7 @@ export default function DenunciarAbrigo(props) {
           />
 
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
             onPress={enviar}
             disabled={enviando}
@@ -100,6 +101,7 @@ export default function DenunciarAbrigo(props) {
           </Pressable>
 
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
             onPress={fechar}
           >

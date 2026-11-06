@@ -401,6 +401,7 @@ export default function SignUpScreen(props) {
 
         {PERGUNTAS.map((opcao) => (
           <Pressable
+            accessibilityRole="button"
             key={opcao}
             style={({ pressed }) => [
               styles.opcaoPergunta,
@@ -435,6 +436,7 @@ export default function SignUpScreen(props) {
 
         {PERFIS.map((opcao) => (
           <Pressable
+            accessibilityRole="button"
             key={opcao.id}
             style={({ pressed }) => [
               styles.perfil,
@@ -476,6 +478,7 @@ export default function SignUpScreen(props) {
               />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoVerificar, pressed && styles.pressionado]}
                 onPress={verificarInstituicao}
                 disabled={verificando}
@@ -538,6 +541,7 @@ export default function SignUpScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.demo, pressed && styles.pressionado]}
               onPress={() => digitarCnpj(CNPJ_DEMONSTRACAO)}
             >
@@ -551,6 +555,7 @@ export default function SignUpScreen(props) {
         )}
 
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
           onPress={criarConta}
         >

@@ -242,6 +242,7 @@ export default function EscolherNoMapa(props) {
           )}
 
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.botao,
               !ponto && styles.botaoTravado,

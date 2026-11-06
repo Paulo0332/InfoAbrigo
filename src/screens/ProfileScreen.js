@@ -597,6 +597,7 @@ export default function ProfileScreen(props) {
 
             <View style={styles.cartao}>
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirNome}
               >
@@ -615,6 +616,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={escolherFoto}
               >
@@ -637,6 +639,7 @@ export default function ProfileScreen(props) {
 
               {!temFirebase() && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirPergunta}
               >
@@ -665,6 +668,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={abrirSenha}
               >
@@ -694,6 +698,7 @@ export default function ProfileScreen(props) {
                   {indice > 0 ? <View style={styles.divisoria} /> : null}
 
                   <Pressable
+                    accessibilityRole="button"
                     style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                     onPress={() =>
                       props.navigation.getParent().navigate('RegisterShelter', { abrigo: abrigo })
@@ -715,6 +720,7 @@ export default function ProfileScreen(props) {
 
               {apiDisponivel() && meusAbrigos.map((abrigo) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={'painel-' + abrigo.id}
                   style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                   onPress={() => props.navigation.navigate('Painel', { abrigo: abrigo })}
@@ -735,6 +741,7 @@ export default function ProfileScreen(props) {
               {meusAbrigos.length > 0 ? <View style={styles.divisoria} /> : null}
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={() => props.navigation.getParent().navigate('History')}
               >
@@ -826,6 +833,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={sair}
               >
@@ -851,6 +859,7 @@ export default function ProfileScreen(props) {
               <View style={styles.divisoria} />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.linha, pressed && styles.pressionado]}
                 onPress={confirmarExclusao}
               >
@@ -913,6 +922,7 @@ export default function ProfileScreen(props) {
             />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={salvarNome}
             >
@@ -920,6 +930,7 @@ export default function ProfileScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setEditandoNome(false)}
             >
@@ -959,6 +970,7 @@ export default function ProfileScreen(props) {
             />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={apagar}
             >
@@ -966,6 +978,7 @@ export default function ProfileScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setConfirmandoExclusao(false)}
             >
@@ -1030,6 +1043,7 @@ export default function ProfileScreen(props) {
             </View>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={salvarSenha}
             >
@@ -1037,6 +1051,7 @@ export default function ProfileScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setTrocandoSenha(false)}
             >
@@ -1068,6 +1083,7 @@ export default function ProfileScreen(props) {
 
               {PERGUNTAS.map((opcao) => (
                 <Pressable
+                  accessibilityRole="button"
                   key={opcao}
                   style={({ pressed }) => [
                     styles.opcaoPergunta,
@@ -1107,6 +1123,7 @@ export default function ProfileScreen(props) {
               />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                 onPress={salvarPergunta}
               >
@@ -1114,6 +1131,7 @@ export default function ProfileScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                 onPress={() => setEditandoPergunta(false)}
               >

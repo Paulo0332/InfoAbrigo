@@ -402,6 +402,7 @@ export default function DonateScreen(props) {
               </Text>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
                 onPress={() => copiar(codigoPix)}
               >
@@ -417,6 +418,7 @@ export default function DonateScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoEnviar, pressed && styles.pressionado]}
                 onPress={enviarCodigo}
               >
@@ -451,6 +453,7 @@ export default function DonateScreen(props) {
               </Text>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
                 onPress={() => copiar(textoDaTransferencia(abrigoCompleto))}
               >
@@ -488,6 +491,7 @@ export default function DonateScreen(props) {
               </Text>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
                 onPress={() =>
                   props.navigation.navigate('Tabs', {
@@ -500,6 +504,7 @@ export default function DonateScreen(props) {
               </Pressable>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoEnviar, pressed && styles.pressionado]}
                 onPress={() => copiar(abrigoCompleto.endereco)}
               >
@@ -531,6 +536,7 @@ export default function DonateScreen(props) {
               </Text>
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoCopiar, pressed && styles.pressionado]}
                 onPress={abrirPagina}
               >
@@ -562,6 +568,7 @@ export default function DonateScreen(props) {
               dinheiro que talvez nunca tivesse saído. */}
           {!paga && doacaoId ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoPaguei, pressed && styles.pressionado]}
               onPress={marcarComoPaga}
             >
@@ -572,6 +579,7 @@ export default function DonateScreen(props) {
 
           {paga && podeAvisar() ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botaoEnviar, styles.botaoAvisar, pressed && styles.pressionado]}
               onPress={avisarAbrigo}
             >
@@ -589,6 +597,7 @@ export default function DonateScreen(props) {
           ) : null}
 
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.botaoVoltar, pressed && styles.pressionado]}
             onPress={voltar}
           >
@@ -635,6 +644,7 @@ export default function DonateScreen(props) {
             </View>
           ) : (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.cartao, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('Tabs', { screen: 'Mapa' })}
             >
@@ -659,6 +669,7 @@ export default function DonateScreen(props) {
 
             {formasDeDinheiro(abrigoCompleto).map((opcao) => (
               <Pressable
+                accessibilityRole="button"
                 key={opcao.id}
                 style={({ pressed }) => [
                   styles.forma,
@@ -753,6 +764,7 @@ export default function DonateScreen(props) {
           <View style={styles.valores}>
             {ATALHOS.map((opcao) => (
               <Pressable
+                accessibilityRole="button"
                 key={opcao}
                 style={[styles.opcao, centavos === opcao && styles.opcaoAtiva]}
                 onPress={() => setCentavos(opcao)}
@@ -803,6 +815,7 @@ export default function DonateScreen(props) {
               />
 
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botaoSimples, pressed && styles.pressionado]}
                 onPress={confirmarComSenha}
               >

@@ -149,6 +149,7 @@ export default function HistoryScreen(props) {
 
           {aguardando && !ehItem ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.pagar, pressed && styles.pressionado]}
               onPress={() => marcarComoPaga(item)}
             >
@@ -162,6 +163,7 @@ export default function HistoryScreen(props) {
               alguém conferiu. */}
           {!aguardando && !ehItem && item.pagaEm ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.marcada, pressed && styles.pressionado]}
               onPress={() => confirmarDesfazer(item)}
             >
@@ -276,6 +278,7 @@ export default function HistoryScreen(props) {
                 </Text>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                   onPress={() => props.navigation.navigate('Donate')}
                 >

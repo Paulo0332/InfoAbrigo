@@ -116,6 +116,7 @@ export default function BiometricButton(props) {
 
   return (
     <Pressable
+      accessibilityRole="button"
       style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
       onPress={autenticar}
     >

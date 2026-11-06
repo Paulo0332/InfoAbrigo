@@ -640,6 +640,7 @@ export default function DonationsScreen(props) {
           <View style={styles.filtros}>
             {opcoesDoFiltro().map((opcao) => (
               <Pressable
+                accessibilityRole="button"
                 key={opcao.id}
                 style={({ pressed }) => [
                   styles.filtro,
@@ -753,6 +754,7 @@ export default function DonationsScreen(props) {
         {/* Porta de entrada da doação em dinheiro (Módulo 3). A lista
             acima é o que o abrigo precisa; aqui a pessoa contribui. */}
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.doar, pressed && styles.doarPressionado]}
           onPress={() => props.navigation.navigate('Donate', abrigoEscolhido())}
         >
@@ -777,6 +779,7 @@ export default function DonationsScreen(props) {
             escolhido, que só faz sentido quando há um escolhido. */}
         {abrigoEscolhido() && (
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [styles.ajudar, pressed && styles.doarPressionado]}
             onPress={() => props.navigation.navigate('Help', { abrigoId: filtro })}
           >
@@ -854,6 +857,7 @@ export default function DonationsScreen(props) {
             />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.painelBotao, pressed && styles.doarPressionado]}
               onPress={confirmarQuantidade}
             >
@@ -861,6 +865,7 @@ export default function DonationsScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.painelLink, pressed && styles.doarPressionado]}
               onPress={() => setOferecendo(null)}
             >

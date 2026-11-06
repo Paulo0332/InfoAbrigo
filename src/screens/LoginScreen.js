@@ -386,6 +386,7 @@ export default function LoginScreen(props) {
             />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={entrarComEmail}
             >
@@ -393,6 +394,7 @@ export default function LoginScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={esqueciComEmail}
             >
@@ -400,6 +402,7 @@ export default function LoginScreen(props) {
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => setComEmail(false)}
             >
@@ -413,6 +416,7 @@ export default function LoginScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('SignUp')}
             >
@@ -421,6 +425,7 @@ export default function LoginScreen(props) {
 
             {temFirebase() && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                 onPress={() => setComEmail(true)}
               >
@@ -442,6 +447,7 @@ export default function LoginScreen(props) {
               >
                 {contas.map((item) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={item.email}
                     style={({ pressed }) => [
                       styles.conta,
@@ -509,6 +515,7 @@ export default function LoginScreen(props) {
                 />
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                   onPress={redefinirSenha}
                 >
@@ -516,6 +523,7 @@ export default function LoginScreen(props) {
                 </Pressable>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                   onPress={() => setRecuperando(false)}
                 >
@@ -556,6 +564,7 @@ export default function LoginScreen(props) {
                 </View>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                   onPress={entrar}
                 >
@@ -563,6 +572,7 @@ export default function LoginScreen(props) {
                 </Pressable>
 
                 <Pressable
+                  accessibilityRole="button"
                   style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                   onPress={abrirRecuperacao}
                 >
@@ -589,6 +599,7 @@ export default function LoginScreen(props) {
             )}
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('SignUp')}
             >
@@ -597,6 +608,7 @@ export default function LoginScreen(props) {
 
             {temFirebase() && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.link, pressed && styles.pressionado]}
                 onPress={() => setComEmail(true)}
               >

@@ -98,6 +98,7 @@ export default function PainelScreen(props) {
             </Text>
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
               onPress={carregar}
             >
@@ -133,6 +134,7 @@ export default function PainelScreen(props) {
 
             {relatorio.itens.length > 0 && (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.botao, pressed && styles.pressionado]}
                 onPress={compartilhar}
               >

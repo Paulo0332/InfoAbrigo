@@ -52,6 +52,7 @@ export default function NeedForm(props) {
         />
 
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
           onPress={handleAdd}
         >
@@ -80,6 +81,7 @@ export default function NeedForm(props) {
         />
 
         <Pressable
+          accessibilityRole="button"
           style={({ pressed }) => [
             styles.urgente,
             urgente && styles.urgenteAtivo,

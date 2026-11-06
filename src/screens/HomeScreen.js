@@ -403,6 +403,7 @@ export default function HomeScreen(props) {
 
           <View style={styles.statsContainer}>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
               onPress={() => irPara('Doações')}
             >
@@ -417,6 +418,7 @@ export default function HomeScreen(props) {
                 quantos abrigos existem para visitar. */}
             {ehGestor(conta) ? (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
                 onPress={() => irPara('Agenda')}
               >
@@ -428,6 +430,7 @@ export default function HomeScreen(props) {
               </Pressable>
             ) : (
               <Pressable
+                accessibilityRole="button"
                 style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
                 onPress={() => irPara('Mapa')}
               >
@@ -439,6 +442,7 @@ export default function HomeScreen(props) {
             <View style={styles.statDivider} />
 
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.statBox, pressed && styles.pressionado]}
               onPress={() => props.navigation.navigate('History')}
             >
@@ -457,6 +461,7 @@ export default function HomeScreen(props) {
           <View style={styles.quickActions}>
             {acoesDoPerfil(conta).map((acao) => (
               <Pressable
+                accessibilityRole="button"
                 key={acao.id}
                 style={({ pressed }) => [styles.actionBtn, pressed && styles.pressionado]}
                 onPress={() => executarAcao(acao)}
@@ -474,6 +479,7 @@ export default function HomeScreen(props) {
               não aparecia em lugar nenhum da tela de abertura. */}
           {abrigoMaisProximo() && (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.perto, pressed && styles.pressionado]}
               onPress={() => verNoMapa(abrigoMaisProximo())}
             >
@@ -513,6 +519,7 @@ export default function HomeScreen(props) {
               dizia o que fazer com eles. */}
           {abrigos.length === 0 && (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.vazio, pressed && styles.pressionado]}
               onPress={() =>
                 ehGestor(conta)
@@ -540,6 +547,7 @@ export default function HomeScreen(props) {
 
           {necessidadesAbertas.length > 0 ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 globalStyles.card,
                 styles.warningCard,
@@ -579,6 +587,7 @@ export default function HomeScreen(props) {
             </Pressable>
           ) : (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 globalStyles.card,
                 styles.warningCard,
@@ -606,6 +615,7 @@ export default function HomeScreen(props) {
 
           {proximoCompromisso() ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [globalStyles.card, pressed && styles.pressionado]}
               onPress={() => irPara('Agenda')}
             >
@@ -639,6 +649,7 @@ export default function HomeScreen(props) {
             </Pressable>
           ) : (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [globalStyles.card, pressed && styles.pressionado]}
               onPress={() => irPara('Agenda')}
             >
@@ -689,6 +700,7 @@ export default function HomeScreen(props) {
               <ScrollView style={styles.painelLista}>
                 {avisosDoPainel.map((aviso) => (
                   <Pressable
+                    accessibilityRole="button"
                     key={aviso.id}
                     style={({ pressed }) => [styles.aviso, pressed && styles.pressionado]}
                     onPress={() => irPara(aviso.destino)}
