@@ -1,4 +1,12 @@
 # app.py
+import truststore
+
+# Usa os certificados do sistema nas conexões https. Sem isto, o Python só confia na
+# lista própria do pacote certifi, e falha em redes que inspecionam o tráfego, como
+# as de empresas e faculdades: a API não conseguia baixar os certificados do Google
+# para conferir o login. Precisa vir antes de qualquer conexão.
+truststore.inject_into_ssl()
+
 import base64
 import binascii
 import csv
