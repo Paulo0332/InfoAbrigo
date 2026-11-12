@@ -625,6 +625,7 @@ export default function DonateScreen(props) {
           style={styles.corpo}
           contentContainerStyle={styles.corpoConteudo}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
 
@@ -1000,8 +1001,11 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
 
+  // O minWidth: 0 deixa o campo encolher dentro da linha. Sem ele, o campo de texto
+  // tem uma largura mínima própria, estoura o cartão e empurra a tela para o lado.
   entradaValor: {
     flex: 1,
+    minWidth: 0,
     height: 64,
     fontSize: 30,
     fontWeight: 'bold',

@@ -623,9 +623,11 @@ export default function DonationsScreen(props) {
     );
   }
 
-  return (
-    <SafeAreaView style={globalStyles.container} edges={['top']}>
-      <View style={styles.content}>
+  // Tudo o que vem antes da lista mora dentro dela, e a tela inteira rola junto. Com a
+  // parte de cima fixa, o teclado aberto (ou um texto grande no sistema) a deixava
+  // ocupando a tela toda, e a lista e o botão de doar ficavam fora de alcance.
+  const cabecalho = (
+    <View>
 
         <Text style={styles.title}>Doações</Text>
 
@@ -793,11 +795,21 @@ export default function DonationsScreen(props) {
           </Pressable>
         )}
 
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={globalStyles.container} edges={['top']}>
+      <View style={styles.content}>
+
         <FlatList
           data={lista}
           keyExtractor={(item) => item.id}
           renderItem={renderNeed}
+          ListHeaderComponent={cabecalho}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -954,6 +966,7 @@ const styles = StyleSheet.create({
 
   buscaInput: {
     flex: 1,
+    minWidth: 0,
     height: 44,
     color: colors.textMain,
     fontSize: 15,
@@ -1167,11 +1180,11 @@ const styles = StyleSheet.create({
 
   emptyList: {
     flexGrow: 1,
-    justifyContent: 'center',
   },
 
   empty: {
     alignItems: 'center',
+    paddingTop: 40,
     paddingBottom: 60,
   },
 

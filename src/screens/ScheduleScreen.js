@@ -762,7 +762,13 @@ export default function ScheduleScreen(props) {
               </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            {/* O "handled" faz o toque num botão valer mesmo com o teclado aberto; sem
+                ele o primeiro toque só fecha o teclado, e a pessoa precisa tocar de novo. */}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <Text style={styles.rotulo}>O que é</Text>
 
               {TIPOS.map((opcao) => (
@@ -850,6 +856,7 @@ export default function ScheduleScreen(props) {
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
                   style={styles.abrigos}
                 >
                   {abrigos.map((abrigo) => (
@@ -1020,7 +1027,12 @@ export default function ScheduleScreen(props) {
               </View>
             </View>
           ) : (
-            <ScrollView style={styles.formulario} bounces={false}>
+            <ScrollView
+              style={styles.formulario}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <View style={styles.previaTopo}>
                 <Image source={{ uri: photo }} style={styles.previa} />
 
@@ -1593,12 +1605,16 @@ const styles = StyleSheet.create({
     color: colors.textMain,
   },
 
+  // O minWidth: 0 deixa os dois campos dividirem a linha. Sem ele, o campo de texto
+  // tem uma largura mínima própria e o da hora passava da borda da tela.
   campoData: {
     flex: 2,
+    minWidth: 0,
   },
 
   campoHora: {
     flex: 1,
+    minWidth: 0,
     marginLeft: 10,
   },
 

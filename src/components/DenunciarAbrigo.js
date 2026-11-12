@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -60,7 +61,14 @@ export default function DenunciarAbrigo(props) {
         style={styles.fundo}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.painel}>
+        {/* O painel rola: com o teclado aberto ele passa da área visível, e sem a rolagem
+            o botão de enviar ficava fora de alcance. */}
+        <ScrollView
+          style={styles.painel}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={styles.titulo}>Denunciar este abrigo</Text>
 
           {MOTIVOS_DE_DENUNCIA.map((opcao) => (
@@ -107,7 +115,7 @@ export default function DenunciarAbrigo(props) {
           >
             <Text style={styles.textoLink}>Cancelar</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -121,7 +129,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
 
+  // É um ScrollView: cresce com o conteúdo até 90% da tela e só então começa a rolar.
   painel: {
+    flexGrow: 0,
+    maxHeight: '90%',
     padding: 20,
     borderRadius: 16,
     backgroundColor: '#FFFFFF',

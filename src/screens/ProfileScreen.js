@@ -67,6 +67,23 @@ function textoDaSincronia(estado) {
   return 'Seus dados estão guardados no Firebase.';
 }
 
+// O painel branco dos modais. Ele rola: com o teclado aberto numa tela baixa o painel
+// passa da área visível, e sem a rolagem os botões Salvar e Cancelar ficavam fora de
+// alcance. O "handled" faz o toque num botão valer mesmo com o teclado aberto.
+function PainelRolavel(props) {
+  return (
+    <View style={styles.painel}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
+        {props.children}
+      </ScrollView>
+    </View>
+  );
+}
+
 export default function ProfileScreen(props) {
 
   const [conta, setConta] = useState(null);
@@ -586,6 +603,7 @@ export default function ProfileScreen(props) {
       <ScrollView
         style={styles.corpo}
         contentContainerStyle={styles.corpoConteudo}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
 
@@ -910,7 +928,7 @@ export default function ProfileScreen(props) {
           style={styles.fundoModal}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.painel}>
+          <PainelRolavel>
             <Text style={styles.painelTitulo}>Seu nome</Text>
 
             <TextInput
@@ -936,7 +954,7 @@ export default function ProfileScreen(props) {
             >
               <Text style={styles.textoLink}>Cancelar</Text>
             </Pressable>
-          </View>
+          </PainelRolavel>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -951,7 +969,7 @@ export default function ProfileScreen(props) {
           style={styles.fundoModal}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.painel}>
+          <PainelRolavel>
             <Text style={styles.painelTitulo}>Confirme com a sua senha</Text>
 
             <Text style={styles.painelTexto}>
@@ -984,7 +1002,7 @@ export default function ProfileScreen(props) {
             >
               <Text style={styles.textoLink}>Cancelar</Text>
             </Pressable>
-          </View>
+          </PainelRolavel>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -999,7 +1017,7 @@ export default function ProfileScreen(props) {
           style={styles.fundoModal}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.painel}>
+          <PainelRolavel>
             <Text style={styles.painelTitulo}>Alterar a senha</Text>
 
             <Text style={styles.painelTexto}>
@@ -1020,7 +1038,7 @@ export default function ProfileScreen(props) {
             <View style={styles.campoSenha}>
               <TextInput
                 style={styles.entradaSenha}
-                placeholder="Senha nova, ao menos 6 caracteres"
+                placeholder="Senha nova (mín. 6)"
                 placeholderTextColor="#9A8F7E"
                 value={senhaNova}
                 onChangeText={setSenhaNova}
@@ -1057,7 +1075,7 @@ export default function ProfileScreen(props) {
             >
               <Text style={styles.textoLink}>Cancelar</Text>
             </Pressable>
-          </View>
+          </PainelRolavel>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1072,8 +1090,8 @@ export default function ProfileScreen(props) {
           style={styles.fundoModal}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.painel}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <PainelRolavel>
+            <View>
               <Text style={styles.painelTitulo}>Pergunta de segurança</Text>
 
               <Text style={styles.painelTexto}>
@@ -1137,8 +1155,8 @@ export default function ProfileScreen(props) {
               >
                 <Text style={styles.textoLink}>Cancelar</Text>
               </Pressable>
-            </ScrollView>
-          </View>
+            </View>
+          </PainelRolavel>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1222,6 +1240,7 @@ const styles = StyleSheet.create({
   },
 
   painel: {
+    maxHeight: '90%',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 20,
@@ -1289,6 +1308,7 @@ const styles = StyleSheet.create({
 
   entradaSenha: {
     flex: 1,
+    minWidth: 0,
     height: 52,
     paddingHorizontal: 16,
     fontSize: 16,

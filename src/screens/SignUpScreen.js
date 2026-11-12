@@ -336,6 +336,7 @@ export default function SignUpScreen(props) {
         style={styles.corpo}
         contentContainerStyle={styles.corpoConteudo}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
 
@@ -638,6 +639,7 @@ const styles = StyleSheet.create({
 
   entradaSenha: {
     flex: 1,
+    minWidth: 0,
     height: 52,
     color: colors.textMain,
     paddingHorizontal: 16,
@@ -740,6 +742,7 @@ const styles = StyleSheet.create({
 
   inputCnpj: {
     flex: 1,
+    minWidth: 0,
   },
 
   botaoVerificar: {

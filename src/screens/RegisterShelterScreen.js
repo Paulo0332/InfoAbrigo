@@ -618,6 +618,7 @@ export default function RegisterShelterScreen(props) {
         style={styles.corpo}
         contentContainerStyle={styles.corpoConteudo}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
 
@@ -1007,7 +1008,7 @@ export default function RegisterShelterScreen(props) {
         <Text style={styles.rotulo}>Ponto de referência (opcional)</Text>
         <TextInput
           style={styles.input}
-          placeholder="Perto do quê? Ajuda quem vai levar a doação"
+          placeholder="Ex.: ao lado da padaria"
           placeholderTextColor="#9A8F7E"
           value={referencia}
           onChangeText={setReferencia}
@@ -1328,6 +1329,7 @@ const styles = StyleSheet.create({
 
   inputCep: {
     flex: 1,
+    minWidth: 0,
   },
 
   // A folga entre as colunas fica na linha, e não na coluna: com a margem
