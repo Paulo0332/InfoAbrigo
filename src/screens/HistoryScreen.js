@@ -526,6 +526,7 @@ const styles = StyleSheet.create({
     color: '#9A8F7E',
     textAlign: 'center',
     backgroundColor: colors.backgroundLight,
+    paddingHorizontal: 24,
     paddingBottom: 10,
   },
 

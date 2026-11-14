@@ -1925,6 +1925,7 @@ const styles = StyleSheet.create({
 
   buscaInput: {
     flex: 1,
+    minWidth: 0,
     height: 44,
     fontSize: 15,
     color: colors.textMain,

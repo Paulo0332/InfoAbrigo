@@ -32,7 +32,7 @@ export function textoDoAviso(estado) {
 
 // A faixa que diz que algo ainda não chegou ao servidor. Sem ela, quem grava sem
 // internet não tem como saber que os outros ainda não estão vendo aquilo.
-export default function AvisoConexao(props) {
+export default function AvisoConexao() {
   const [texto, setTexto] = useState(null);
 
   useEffect(() => {
@@ -78,23 +78,28 @@ export default function AvisoConexao(props) {
   }
 
   return (
-    <View
-      style={[styles.faixa, { bottom: props.distanciaDaBase }]}
-      pointerEvents="none"
-      accessibilityLiveRegion="polite"
-    >
-      <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
+    <View style={styles.area} accessibilityLiveRegion="polite">
+      <View style={styles.faixa}>
+        <Ionicons name="cloud-offline-outline" size={16} color="#FFFFFF" />
 
-      <Text style={styles.texto}>{texto}</Text>
+        <Text style={styles.texto}>{texto}</Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // A faixa ocupa um espaço próprio, logo acima da barra de abas: o conteúdo da tela
+  // sobe para abrir lugar. Flutuando por cima, ela cobria o botão de baixo (como o
+  // "Marcar compromisso" da Agenda) justamente quando a pessoa estava sem internet.
+  area: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
+    backgroundColor: colors.backgroundLight,
+  },
+
   faixa: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

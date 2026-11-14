@@ -352,6 +352,7 @@ export default function LoginScreen(props) {
       <ScrollView
         contentContainerStyle={styles.conteudo}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
 
@@ -782,6 +783,7 @@ const styles = StyleSheet.create({
 
   entradaSenha: {
     flex: 1,
+    minWidth: 0,
     height: 52,
     color: colors.textMain,
     paddingHorizontal: 16,

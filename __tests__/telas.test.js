@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import HomeScreen from '../src/screens/HomeScreen';
+import DonationsScreen from '../src/screens/DonationsScreen';
+import NeedForm from '../src/components/NeedForm';
+import * as sincronizacao from '../src/services/sincronizacao';
 import AvisoConexao, { textoDoAviso } from '../src/components/AvisoConexao';
 import CameraFoto from '../src/components/CameraFoto';
 import DenunciarAbrigo from '../src/components/DenunciarAbrigo';
@@ -342,5 +346,116 @@ describe('telas', () => {
     await abrir(ProfileScreen);
 
     expect(await screen.findByText(/ficam só neste aparelho/)).toBeTruthy();
+  });
+});
+
+// O primeiro elemento acima deste que atende à condição. A biblioteca de testes
+// sobe só pelos elementos nativos, em que a rolagem se chama RCTScrollView.
+function acima(elemento, condicao) {
+  let atual = elemento;
+
+  while (atual != null) {
+    if (condicao(atual)) {
+      return atual;
+    }
+
+    atual = atual.parent;
+  }
+
+  return null;
+}
+
+// A rolagem que contém o elemento. Com o teclado aberto sobra metade da tela, e o
+// que não está dentro de uma rolagem fica fora de alcance.
+function rolagemDe(elemento) {
+  return acima(elemento, (no) => no.type === ScrollView || no.type === 'RCTScrollView');
+}
+
+// "handled" faz o toque num botão valer com o teclado aberto. Sem isso o primeiro
+// toque só fecha o teclado, e a pessoa precisa tocar de novo.
+function esperarRolagemComTeclado(elemento) {
+  const rolagem = rolagemDe(elemento);
+
+  expect(rolagem).not.toBeNull();
+  expect(rolagem.props.keyboardShouldPersistTaps).toBe('handled');
+
+  return rolagem;
+}
+
+// Um campo com flex: 1 numa linha só encolhe com minWidth: 0. Sem ele, o campo
+// empurra o que vem ao lado para fora da tela.
+function esperarQueEncolha(campo) {
+  expect(StyleSheet.flatten(campo.props.style).minWidth).toBe(0);
+}
+
+describe('tela e teclado', () => {
+  test('em Doações, o formulário e o botão de doar rolam junto com a lista', async () => {
+    await criarConta();
+    await abrir(DonationsScreen);
+
+    const rolagem = esperarRolagemComTeclado(
+      await screen.findByText('Fazer uma doação em dinheiro')
+    );
+
+    expect(rolagem.props.keyboardDismissMode).toBe('on-drag');
+    expect(screen.getByText('Doações')).toBeTruthy();
+  });
+
+  test('o formulário de necessidade cabe na linha, com o botão Urgente inteiro', async () => {
+    await abrir(NeedForm, undefined, { onAdd: jest.fn() });
+
+    esperarQueEncolha(screen.getByPlaceholderText('Digite uma necessidade'));
+    esperarQueEncolha(screen.getByPlaceholderText('pacotes'));
+    expect(screen.getByText('Urgente')).toBeTruthy();
+  });
+
+  test('marcar compromisso: o formulário rola e a hora divide a linha com a data', async () => {
+    await criarConta();
+    await abrir(ScheduleScreen);
+
+    await fireEvent.press(await screen.findByLabelText('Marcar um compromisso'));
+
+    esperarRolagemComTeclado(screen.getByText('Marcar na agenda'));
+    esperarQueEncolha(screen.getByPlaceholderText('dd/mm/aaaa'));
+    esperarQueEncolha(screen.getByPlaceholderText('hh:mm'));
+  });
+
+  test('alterar a senha: o painel rola e o Cancelar fica ao alcance', async () => {
+    await criarConta();
+    await abrir(ProfileScreen);
+
+    await fireEvent.press(await screen.findByText('Alterar a senha'));
+
+    esperarRolagemComTeclado(screen.getByText('Cancelar'));
+    esperarQueEncolha(screen.getByPlaceholderText('Senha nova (mín. 6)'));
+  });
+
+  test('a denúncia rola, para o botão de enviar não sumir atrás do teclado', async () => {
+    await abrir(DenunciarAbrigo, undefined, { visivel: true, abrigo: { id: 'a1' }, aoFechar: jest.fn() });
+
+    esperarRolagemComTeclado(screen.getByText('Enviar denúncia'));
+  });
+
+  test('a faixa de conexão ocupa um lugar próprio, sem cobrir o botão de baixo', async () => {
+    const estado = jest
+      .spyOn(sincronizacao, 'estadoDaSincronizacao')
+      .mockResolvedValue({ situacao: 'conectada', semConexao: true, pendentes: 1 });
+    const acompanhar = jest
+      .spyOn(sincronizacao, 'acompanharMudancas')
+      .mockReturnValue(() => {});
+
+    try {
+      await criarConta();
+      await abrir(AvisoConexao);
+
+      const texto = await screen.findByText('Aguardando conexão: 1 alteração aguardando envio.');
+      const area = acima(texto, (no) => no.props.accessibilityLiveRegion === 'polite');
+
+      expect(area).not.toBeNull();
+      expect(StyleSheet.flatten(area.props.style).position).not.toBe('absolute');
+    } finally {
+      estado.mockRestore();
+      acompanhar.mockRestore();
+    }
   });
 });

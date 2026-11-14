@@ -42,7 +42,7 @@ export default function NeedForm(props) {
       <View style={styles.form}>
         <TextInput
           style={styles.input}
-          placeholder="Digite uma necessidade do abrigo"
+          placeholder="Digite uma necessidade"
           placeholderTextColor="#9A8F7E"
           value={text}
           onChangeText={setText}
@@ -113,8 +113,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
 
+  // O minWidth: 0 deixa o campo encolher. Sem ele, um campo de texto tem uma largura
+  // mínima própria e empurra o que vem ao lado para fora da tela.
   input: {
     flex: 1,
+    minWidth: 0,
     height: 52,
     color: colors.textMain,
     backgroundColor: '#FFFFFF',
@@ -163,6 +166,7 @@ const styles = StyleSheet.create({
 
   unidade: {
     flex: 1,
+    minWidth: 0,
     height: 44,
     color: colors.textMain,
     backgroundColor: '#FFFFFF',
@@ -175,6 +179,7 @@ const styles = StyleSheet.create({
   },
 
   urgente: {
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     height: 44,

@@ -1,0 +1,36 @@
+# Usa os formulários com o teclado aberto: digita, rola até o botão do fim e toca
+# nele sem fechar o teclado antes. Garante que nada fica escondido atrás do teclado
+# e que o primeiro toque no botão já vale.
+appId: host.exp.exponent
+env:
+  EXPO_URL: exp://192.168.18.124:8081
+---
+- runFlow: infoabrigo-cadastro.yaml
+
+# Agenda: o formulário do compromisso.
+- tapOn: "Agenda"
+- tapOn: "Marcar compromisso"
+- tapOn: "Ex.: Entrega das fraldas de março"
+- inputText: "Teste do teclado"
+
+# O teclado continua aberto de propósito: o botão precisa ser alcançado assim.
+- scrollUntilVisible:
+    element: "Marcar na agenda"
+    direction: DOWN
+- tapOn: "Marcar na agenda"
+- assertVisible: "Teste do teclado"
+
+# Perfil: o painel de alterar a senha.
+- tapOn: "Perfil"
+- scrollUntilVisible:
+    element: "Alterar a senha"
+    direction: DOWN
+- tapOn: "Alterar a senha"
+- tapOn: "Senha atual"
+- inputText: "maestro123"
+- scrollUntilVisible:
+    element: "Cancelar"
+    direction: DOWN
+- tapOn: "Cancelar"
+- assertNotVisible: "Senha nova (mín. 6)"
+- assertVisible: "Seus dados"
